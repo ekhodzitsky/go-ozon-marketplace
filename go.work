@@ -1,0 +1,14 @@
+go 1.23
+
+use (
+	./api
+	./pkg
+	./services/api-gateway
+	./services/user-service
+	./services/catalog-service
+	./services/order-service
+	./services/inventory-service
+	./services/payment-service
+	./services/notification-service
+	./services/analytics-service
+)

@@ -1,0 +1,8 @@
+version: v1
+name: buf.build/ozon/marketplace
+breaking:
+  use:
+    - FILE
+lint:
+  use:
+    - DEFAULT
