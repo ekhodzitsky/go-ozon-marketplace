@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package analytics.v1;
+
+option go_package = "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/analytics/v1;analyticsv1";
+
+service AnalyticsService {
+  rpc TrackEvent(TrackEventRequest) returns (TrackEventResponse);
+  rpc GetDailyRevenue(GetDailyRevenueRequest) returns (GetDailyRevenueResponse);
+}
+
+message TrackEventRequest {
+  string event_type = 1;
+  string aggregate_id = 2;
+  string payload = 3;
+}
+
+message TrackEventResponse {
+  bool success = 1;
+}
+
+message GetDailyRevenueRequest {
+  string date = 1;
+}
+
+message GetDailyRevenueResponse {
+  double revenue = 1;
+}
