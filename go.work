@@ -3,6 +3,7 @@ go 1.26
 use (
 	./api
 	./pkg
+	./tests
 	./services/api-gateway
 	./services/user-service
 	./services/catalog-service

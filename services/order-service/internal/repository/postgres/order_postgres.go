@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
-	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -22,7 +21,7 @@ type OrderPostgres struct {
 	db Querier
 }
 
-func NewOrderPostgres(db *pgxpool.Pool) repository.OrderRepository {
+func NewOrderPostgres(db *pgxpool.Pool) *OrderPostgres {
 	return &OrderPostgres{db: db}
 }
 
