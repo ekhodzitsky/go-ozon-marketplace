@@ -1,4 +1,4 @@
-.PHONY: up down test proto lint migrate-user
+.PHONY: up down test proto lint migrate-user ci
 
 up:
 	docker compose -f infra/docker/docker-compose.yml up --build -d
@@ -14,6 +14,8 @@ proto:
 
 lint:
 	golangci-lint run ./...
+
+ci: lint test
 
 migrate-user:
 	migrate -path services/user-service/migrations -database "$(USER_DB_URL)" up
