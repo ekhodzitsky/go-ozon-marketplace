@@ -1,0 +1,33 @@
+type User {
+  id: ID!
+  email: String!
+  name: String!
+  createdAt: String!
+}
+
+type Product {
+  id: ID!
+  name: String!
+  description: String!
+  price: Float!
+  stock: Int!
+  categories: [String!]!
+  createdAt: String!
+}
+
+type ProductConnection {
+  products: [Product!]!
+  total: Int!
+}
+
+type Query {
+  user(id: ID!): User
+  product(id: ID!): Product
+  searchProducts(query: String!, page: Int, pageSize: Int): ProductConnection
+}
+
+type Mutation {
+  register(email: String!, password: String!, name: String!): ID!
+  login(email: String!, password: String!): String!
+  createProduct(name: String!, description: String!, price: Float!, stock: Int!, categories: [String!]!): ID!
+}
