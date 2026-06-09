@@ -1,0 +1,40 @@
+replicaCount: 2
+
+image:
+  repository: go-ozon-marketplace/catalog-service
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  grpcPort: 50052
+  metricsPort: 51052
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+  hosts:
+    - host: catalog-service.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+env:
+  GRPC_PORT: "50052"
+  POSTGRES_DSN: "postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable"
+  ES_URL: "http://elasticsearch:9200"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

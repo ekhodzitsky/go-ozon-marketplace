@@ -1,0 +1,39 @@
+replicaCount: 2
+
+image:
+  repository: go-ozon-marketplace/api-gateway
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  httpPort: 8080
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+  hosts:
+    - host: api-gateway.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+env:
+  PORT: "8080"
+  USER_SERVICE_ADDR: "user-service:50051"
+  CATALOG_SERVICE_ADDR: "catalog-service:50052"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
