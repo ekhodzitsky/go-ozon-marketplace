@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package notification.v1;
+
+option go_package = "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/notification/v1;notificationv1";
+
+service NotificationService {
+  rpc SendEmail(SendEmailRequest) returns (SendEmailResponse);
+}
+
+message SendEmailRequest {
+  string to = 1;
+  string subject = 2;
+  string body = 3;
+}
+
+message SendEmailResponse {
+  bool sent = 1;
+}

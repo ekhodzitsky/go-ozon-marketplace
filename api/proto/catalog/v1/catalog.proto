@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package catalog.v1;
+
+option go_package = "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1;catalogv1";
+
+service CatalogService {
+  rpc CreateProduct(CreateProductRequest) returns (CreateProductResponse);
+  rpc GetProduct(GetProductRequest) returns (GetProductResponse);
+  rpc ListProducts(ListProductsRequest) returns (ListProductsResponse);
+  rpc SearchProducts(SearchProductsRequest) returns (SearchProductsResponse);
+}
+
+message CreateProductRequest {
+  string name = 1;
+  string description = 2;
+  double price = 3;
+  int32 stock = 4;
+  repeated string categories = 5;
+}
+
+message CreateProductResponse {
+  string product_id = 1;
+}
+
+message GetProductRequest {
+  string product_id = 1;
+}
+
+message GetProductResponse {
+  Product product = 1;
+}
+
+message ListProductsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+}
+
+message ListProductsResponse {
+  repeated Product products = 1;
+  int32 total = 2;
+}
+
+message SearchProductsRequest {
+  string query = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message SearchProductsResponse {
+  repeated Product products = 1;
+  int32 total = 2;
+}
+
+message Product {
+  string product_id = 1;
+  string name = 2;
+  string description = 3;
+  double price = 4;
+  int32 stock = 5;
+  repeated string categories = 6;
+  string created_at = 7;
+}

@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package payment.v1;
+
+option go_package = "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1;paymentv1";
+
+service PaymentService {
+  rpc ProcessPayment(ProcessPaymentRequest) returns (ProcessPaymentResponse);
+  rpc Refund(RefundRequest) returns (RefundResponse);
+}
+
+message ProcessPaymentRequest {
+  string order_id = 1;
+  string user_id = 2;
+  double amount = 3;
+}
+
+message ProcessPaymentResponse {
+  string payment_id = 1;
+  string status = 2;
+}
+
+message RefundRequest {
+  string payment_id = 1;
+}
+
+message RefundResponse {
+  string status = 1;
+}
