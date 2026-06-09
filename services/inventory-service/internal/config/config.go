@@ -7,6 +7,7 @@ import (
 
 type Config struct {
 	GRPCPort    int
+	MetricsPort int
 	PostgresDSN string
 	RedisAddr   string
 }
@@ -15,6 +16,7 @@ func Load() *Config {
 	grpcPort, _ := strconv.Atoi(getEnv("GRPC_PORT", "50053"))
 	return &Config{
 		GRPCPort:    grpcPort,
+		MetricsPort: grpcPort + 1000,
 		PostgresDSN: getEnv("POSTGRES_DSN", "postgres://ozon:ozonpass@localhost:5432/marketplace?sslmode=disable"),
 		RedisAddr:   getEnv("REDIS_ADDR", "localhost:6379"),
 	}

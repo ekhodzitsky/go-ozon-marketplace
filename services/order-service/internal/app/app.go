@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
@@ -16,6 +18,7 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/saga"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/usecase"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -45,7 +48,10 @@ func New() *fx.App {
 			outbox.NewRelay,
 		),
 		fx.Invoke(func(lc fx.Lifecycle, handler *grpcdelivery.OrderHandler, cfg *config.Config, log *zap.Logger) {
-			grpcServer := server.NewGRPC(cfg.GRPCPort, grpc.UnaryInterceptor(middleware.LoggingUnaryInterceptor))
+			grpcServer := server.NewGRPC(cfg.GRPCPort, grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor))
+
+			http.Handle("/metrics", promhttp.Handler())
+			go http.ListenAndServe(fmt.Sprintf(":%d", cfg.MetricsPort), nil)
 			orderv1.RegisterOrderServiceServer(grpcServer.Server, handler)
 
 			lc.Append(fx.Hook{

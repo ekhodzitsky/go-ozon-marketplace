@@ -6,13 +6,15 @@ import (
 )
 
 type Config struct {
-	GRPCPort int
+	GRPCPort    int
+	MetricsPort int
 }
 
 func Load() *Config {
 	grpcPort, _ := strconv.Atoi(getEnv("GRPC_PORT", "50056"))
 	return &Config{
-		GRPCPort: grpcPort,
+		GRPCPort:    grpcPort,
+		MetricsPort: grpcPort + 1000,
 	}
 }
 

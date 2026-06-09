@@ -2,9 +2,10 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	pkgpostgres "github.com/ekhodzitsky/go-ozon-marketplace/pkg/postgres"
@@ -14,6 +15,8 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/repository"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/repository/postgres"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/usecase"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -34,7 +37,10 @@ func New() *fx.App {
 			grpcdelivery.NewUserHandler,
 		),
 		fx.Invoke(func(lc fx.Lifecycle, handler *grpcdelivery.UserHandler, cfg *config.Config, log *zap.Logger) {
-			grpcServer := server.NewGRPC(cfg.GRPCPort, grpc.UnaryInterceptor(middleware.LoggingUnaryInterceptor))
+			grpcServer := server.NewGRPC(cfg.GRPCPort, grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor))
+
+			http.Handle("/metrics", promhttp.Handler())
+			go http.ListenAndServe(fmt.Sprintf(":%d", cfg.MetricsPort), nil)
 			userv1.RegisterUserServiceServer(grpcServer.Server, handler)
 
 			lc.Append(fx.Hook{

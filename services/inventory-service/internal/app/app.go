@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 
 	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
@@ -14,6 +16,7 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/repository/postgres"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/usecase"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
@@ -36,7 +39,10 @@ func New() *fx.App {
 			grpcdelivery.NewInventoryHandler,
 		),
 		fx.Invoke(func(lc fx.Lifecycle, handler *grpcdelivery.InventoryHandler, cfg *config.Config, log *zap.Logger) {
-			grpcServer := server.NewGRPC(cfg.GRPCPort, grpc.UnaryInterceptor(middleware.LoggingUnaryInterceptor))
+			grpcServer := server.NewGRPC(cfg.GRPCPort, grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor))
+
+			http.Handle("/metrics", promhttp.Handler())
+			go http.ListenAndServe(fmt.Sprintf(":%d", cfg.MetricsPort), nil)
 			inventoryv1.RegisterInventoryServiceServer(grpcServer.Server, handler)
 
 			lc.Append(fx.Hook{

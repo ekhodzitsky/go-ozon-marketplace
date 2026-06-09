@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
@@ -14,6 +16,7 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/repository/postgres"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/usecase"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -34,7 +37,10 @@ func New() *fx.App {
 			grpcdelivery.NewPaymentHandler,
 		),
 		fx.Invoke(func(lc fx.Lifecycle, handler *grpcdelivery.PaymentHandler, cfg *config.Config, log *zap.Logger) {
-			grpcServer := server.NewGRPC(cfg.GRPCPort, grpc.UnaryInterceptor(middleware.LoggingUnaryInterceptor))
+			grpcServer := server.NewGRPC(cfg.GRPCPort, grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor))
+
+			http.Handle("/metrics", promhttp.Handler())
+			go http.ListenAndServe(fmt.Sprintf(":%d", cfg.MetricsPort), nil)
 			paymentv1.RegisterPaymentServiceServer(grpcServer.Server, handler)
 
 			lc.Append(fx.Hook{

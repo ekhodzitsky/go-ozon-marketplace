@@ -7,6 +7,7 @@ import (
 
 type Config struct {
 	GRPCPort       int
+	MetricsPort    int
 	ClickHouseAddr string
 }
 
@@ -14,6 +15,7 @@ func Load() *Config {
 	grpcPort, _ := strconv.Atoi(getEnv("GRPC_PORT", "50057"))
 	return &Config{
 		GRPCPort:       grpcPort,
+		MetricsPort:    grpcPort + 1000,
 		ClickHouseAddr: getEnv("CLICKHOUSE_DSN", "localhost:9000"),
 	}
 }

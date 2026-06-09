@@ -1,7 +1,6 @@
 package tracing
 
 import (
-	"context"
 	"fmt"
 
 	"go.opentelemetry.io/otel"

@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 
 	analyticsv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/analytics/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
@@ -11,6 +13,7 @@ import (
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/internal/repository/clickhouse"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/internal/usecase"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -28,7 +31,10 @@ func New() *fx.App {
 			grpcdelivery.NewAnalyticsHandler,
 		),
 		fx.Invoke(func(lc fx.Lifecycle, handler *grpcdelivery.AnalyticsHandler, cfg *config.Config, log *zap.Logger) {
-			grpcServer := server.NewGRPC(cfg.GRPCPort, grpc.UnaryInterceptor(middleware.LoggingUnaryInterceptor))
+			grpcServer := server.NewGRPC(cfg.GRPCPort, grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor))
+
+			http.Handle("/metrics", promhttp.Handler())
+			go http.ListenAndServe(fmt.Sprintf(":%d", cfg.MetricsPort), nil)
 			analyticsv1.RegisterAnalyticsServiceServer(grpcServer.Server, handler)
 
 			lc.Append(fx.Hook{

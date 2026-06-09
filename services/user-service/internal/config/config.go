@@ -8,6 +8,7 @@ import (
 type Config struct {
 	GRPCPort    int
 	HTTPPort    int
+	MetricsPort int
 	PostgresDSN string
 	JWTSecret   string
 }
@@ -18,6 +19,7 @@ func Load() *Config {
 	return &Config{
 		GRPCPort:    grpcPort,
 		HTTPPort:    httpPort,
+		MetricsPort: grpcPort + 1000,
 		PostgresDSN: getEnv("POSTGRES_DSN", "postgres://ozon:ozonpass@localhost:5432/marketplace?sslmode=disable"),
 		JWTSecret:   getEnv("JWT_SECRET", "super-secret-key"),
 	}
