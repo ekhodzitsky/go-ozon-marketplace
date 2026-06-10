@@ -15,7 +15,11 @@ proto:
 lint:
 	golangci-lint run ./...
 
-ci: lint test
+coverage:
+	go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
+	go tool cover -func=coverage.out | grep total
+
+ci: lint test coverage
 
 migrate-user:
 	migrate -path services/user-service/migrations -database "$(USER_DB_URL)" up
