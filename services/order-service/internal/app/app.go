@@ -41,7 +41,7 @@ func New() *fx.App {
 			func(r *postgres.OrderPostgres) repository.OrderRepository { return r },
 			postgres.NewOutboxPostgres,
 			func(r *postgres.OutboxPostgres) repository.OutboxRepository { return r },
-			func(cfg *config.Config, lc fx.Lifecycle) (*grpc.ClientConn, error) {
+			func(cfg *config.Config, lc fx.Lifecycle) (saga.InventoryClient, error) {
 				conn, err := grpc.NewClient(
 					cfg.InventoryAddr,
 					grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -59,9 +59,9 @@ func New() *fx.App {
 						return conn.Close()
 					},
 				})
-				return conn, nil
+				return inventoryv1.NewInventoryServiceClient(conn), nil
 			},
-			func(cfg *config.Config, lc fx.Lifecycle) (*grpc.ClientConn, error) {
+			func(cfg *config.Config, lc fx.Lifecycle) (saga.PaymentClient, error) {
 				conn, err := grpc.NewClient(
 					cfg.PaymentAddr,
 					grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -79,20 +79,15 @@ func New() *fx.App {
 						return conn.Close()
 					},
 				})
-				return conn, nil
+				return paymentv1.NewPaymentServiceClient(conn), nil
 			},
 			func(
 				orderRepo repository.OrderRepository,
-				invConn *grpc.ClientConn,
-				payConn *grpc.ClientConn,
+				invClient saga.InventoryClient,
+				payClient saga.PaymentClient,
 				log *zap.Logger,
 			) *saga.Orchestrator {
-				return saga.NewOrchestrator(
-					orderRepo,
-					inventoryv1.NewInventoryServiceClient(invConn),
-					paymentv1.NewPaymentServiceClient(payConn),
-					log,
-				)
+				return saga.NewOrchestrator(orderRepo, invClient, payClient, log)
 			},
 			usecase.NewOrderUsecase,
 			grpcdelivery.NewOrderHandler,

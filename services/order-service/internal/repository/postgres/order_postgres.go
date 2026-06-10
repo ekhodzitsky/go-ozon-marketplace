@@ -36,19 +36,25 @@ func (r *OrderPostgres) Create(ctx context.Context, order *domain.Order) error {
 	if err != nil {
 		return fmt.Errorf("insert order: %w", err)
 	}
+
+	batch := &pgx.Batch{}
 	for i := range order.Items {
-		if err := r.createItem(ctx, &order.Items[i]); err != nil {
-			return err
+		item := &order.Items[i]
+		batch.Queue(`INSERT INTO order_items (id, order_id, product_id, quantity, price) VALUES ($1, $2, $3, $4, $5)`,
+			item.ID, item.OrderID, item.ProductID, item.Quantity, item.Price)
+	}
+
+	br := r.db.SendBatch(ctx, batch)
+	defer br.Close()
+
+	for range order.Items {
+		if _, err := br.Exec(); err != nil {
+			return fmt.Errorf("insert order item batch: %w", err)
 		}
 	}
-	return nil
-}
 
-func (r *OrderPostgres) createItem(ctx context.Context, item *domain.OrderItem) error {
-	query := `INSERT INTO order_items (id, order_id, product_id, quantity, price) VALUES ($1, $2, $3, $4, $5)`
-	_, err := r.db.Exec(ctx, query, item.ID, item.OrderID, item.ProductID, item.Quantity, item.Price)
-	if err != nil {
-		return fmt.Errorf("insert order item: %w", err)
+	if err := br.Close(); err != nil {
+		return fmt.Errorf("close batch: %w", err)
 	}
 	return nil
 }
