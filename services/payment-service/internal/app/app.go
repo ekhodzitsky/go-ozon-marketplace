@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -39,12 +40,21 @@ func New() *fx.App {
 		fx.Invoke(func(lc fx.Lifecycle, handler *grpcdelivery.PaymentHandler, cfg *config.Config, log *zap.Logger) {
 			grpcServer := server.NewGRPC(cfg.GRPCPort, grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor, middleware.AuthUnaryInterceptor(cfg.JWTSecret)))
 
-			http.Handle("/metrics", promhttp.Handler())
-			go http.ListenAndServe(fmt.Sprintf(":%d", cfg.MetricsPort), nil)
+			mux := http.NewServeMux()
+			mux.Handle("/metrics", promhttp.Handler())
+			metricsServer := &http.Server{
+				Addr:    fmt.Sprintf(":%d", cfg.MetricsPort),
+				Handler: mux,
+			}
 			paymentv1.RegisterPaymentServiceServer(grpcServer.Server, handler)
 
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
+					go func() {
+						if err := metricsServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+							log.Error("metrics server error", zap.Error(err))
+						}
+					}()
 					go func() {
 						if err := grpcServer.Start(); err != nil {
 							log.Error("grpc server error", zap.Error(err))
@@ -53,6 +63,9 @@ func New() *fx.App {
 					return nil
 				},
 				OnStop: func(ctx context.Context) error {
+					if err := metricsServer.Shutdown(ctx); err != nil {
+						log.Error("metrics server shutdown error", zap.Error(err))
+					}
 					grpcServer.GracefulStop()
 					return nil
 				},

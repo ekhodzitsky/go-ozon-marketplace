@@ -117,31 +117,55 @@ func (r *OrderPostgres) ListByUser(ctx context.Context, userID uuid.UUID, page, 
 		return nil, 0, fmt.Errorf("count orders: %w", err)
 	}
 
-	query := `SELECT id, user_id, total_amount, status, created_at, updated_at FROM orders WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+	query := `
+		SELECT o.id, o.user_id, o.total_amount, o.status, o.created_at, o.updated_at,
+		       i.id, i.order_id, i.product_id, i.quantity, i.price
+		FROM orders o
+		LEFT JOIN order_items i ON o.id = i.order_id
+		WHERE o.user_id=$1
+		ORDER BY o.created_at DESC, o.id
+		LIMIT $2 OFFSET $3`
 	rows, err := r.db.Query(ctx, query, userID, pageSize, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list orders: %w", err)
 	}
 	defer rows.Close()
 
+	orderMap := make(map[uuid.UUID]*domain.Order)
 	var orders []domain.Order
 	for rows.Next() {
 		var order domain.Order
-		if err := rows.Scan(&order.ID, &order.UserID, &order.TotalAmount, &order.Status, &order.CreatedAt, &order.UpdatedAt); err != nil {
-			return nil, 0, fmt.Errorf("scan order: %w", err)
+		var itemID, itemOrderID, itemProductID *uuid.UUID
+		var itemQuantity *int
+		var itemPrice *float64
+
+		if err := rows.Scan(
+			&order.ID, &order.UserID, &order.TotalAmount, &order.Status, &order.CreatedAt, &order.UpdatedAt,
+			&itemID, &itemOrderID, &itemProductID, &itemQuantity, &itemPrice,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan order row: %w", err)
 		}
-		orders = append(orders, order)
+
+		existing, ok := orderMap[order.ID]
+		if !ok {
+			order.Items = []domain.OrderItem{}
+			orders = append(orders, order)
+			existing = &orders[len(orders)-1]
+			orderMap[order.ID] = existing
+		}
+
+		if itemID != nil {
+			existing.Items = append(existing.Items, domain.OrderItem{
+				ID:        *itemID,
+				OrderID:   *itemOrderID,
+				ProductID: *itemProductID,
+				Quantity:  *itemQuantity,
+				Price:     *itemPrice,
+			})
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, 0, fmt.Errorf("iterate orders: %w", err)
-	}
-
-	for i := range orders {
-		items, err := r.getItemsByOrderID(ctx, orders[i].ID)
-		if err != nil {
-			return nil, 0, err
-		}
-		orders[i].Items = items
 	}
 
 	return orders, total, nil
