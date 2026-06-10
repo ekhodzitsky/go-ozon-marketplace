@@ -5,9 +5,12 @@ import (
 	"time"
 
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/usecase"
 	"github.com/google/uuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type OrderHandler struct {
@@ -20,9 +23,16 @@ func NewOrderHandler(uc *usecase.OrderUsecase) *OrderHandler {
 }
 
 func (h *OrderHandler) CreateOrder(ctx context.Context, req *orderv1.CreateOrderRequest) (*orderv1.CreateOrderResponse, error) {
-	userID, err := uuid.Parse(req.UserId)
+	authUserID, ok := middleware.GetUserID(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "missing user_id in context")
+	}
+	if req.UserId != "" && req.UserId != authUserID {
+		return nil, status.Error(codes.PermissionDenied, "user_id mismatch")
+	}
+	userID, err := uuid.Parse(authUserID)
 	if err != nil {
-		return nil, err
+		return nil, status.Errorf(codes.Internal, "invalid user_id in token: %v", err)
 	}
 
 	items := make([]domain.OrderItem, 0, len(req.Items))
@@ -66,9 +76,16 @@ func (h *OrderHandler) GetOrder(ctx context.Context, req *orderv1.GetOrderReques
 }
 
 func (h *OrderHandler) ListOrders(ctx context.Context, req *orderv1.ListOrdersRequest) (*orderv1.ListOrdersResponse, error) {
-	userID, err := uuid.Parse(req.UserId)
+	authUserID, ok := middleware.GetUserID(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "missing user_id in context")
+	}
+	if req.UserId != "" && req.UserId != authUserID {
+		return nil, status.Error(codes.PermissionDenied, "user_id mismatch")
+	}
+	userID, err := uuid.Parse(authUserID)
 	if err != nil {
-		return nil, err
+		return nil, status.Errorf(codes.Internal, "invalid user_id in token: %v", err)
 	}
 
 	page := int(req.Page)
