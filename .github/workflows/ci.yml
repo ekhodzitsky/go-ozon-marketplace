@@ -6,10 +6,18 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,6 +37,7 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,6 +53,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
+          set -euo pipefail
           go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
           go tool cover -func=coverage.out | grep total | awk '{print "COVERAGE=" $3}' >> $GITHUB_ENV
 
@@ -52,14 +62,19 @@ jobs:
         with:
           files: ./coverage.out
           fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Enforce minimum coverage
         run: |
-          echo "Coverage: ${{ env.COVERAGE }}"
-          # Threshold: 60%
+          set -euo pipefail
+          COVERAGE="${{ env.COVERAGE }}"
+          if [ -z "$COVERAGE" ]; then
+            echo "Coverage not found"
+            exit 1
+          fi
           python3 -c "
           import sys
-          cov = float('${{ env.COVERAGE }}'.rstrip('%'))
+          cov = float('$COVERAGE'.rstrip('%'))
           if cov < 60:
               print(f'Coverage {cov}% is below threshold 60%')
               sys.exit(1)
@@ -69,7 +84,8 @@ jobs:
   build:
     name: Build Docker Images
     runs-on: ubuntu-latest
-    needs: [test]
+    needs: [lint, test]
+    timeout-minutes: 15
     strategy:
       matrix:
         service:
@@ -90,11 +106,13 @@ jobs:
 
       - name: Build Docker image
         run: |
+          set -euo pipefail
           docker build --build-arg SERVICE_NAME=${{ matrix.service }} -f Dockerfile -t ${{ matrix.service }}:ci .
 
   helm:
     name: Lint Helm Charts
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -106,9 +124,13 @@ jobs:
 
       - name: Lint Helm charts
         run: |
-          for chart in infra/k8s/helm-charts/*; do
-            if [ -d "$chart" ]; then
-              echo "Linting $chart"
-              helm lint "$chart"
-            fi
+          set -euo pipefail
+          charts=(infra/k8s/helm-charts/*)
+          if [ ! -d "${charts[0]}" ]; then
+            echo "No Helm charts found"
+            exit 1
+          fi
+          for chart in "${charts[@]}"; do
+            helm lint "$chart"
+            helm template test "$chart" > /dev/null
           done
