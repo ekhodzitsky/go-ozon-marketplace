@@ -1,0 +1,51 @@
+# Git
+.git
+.gitignore
+.github
+
+# Documentation
+docs
+README.md
+CHANGELOG.md
+LICENSE
+
+# Infrastructure & Deployment
+infra
+scripts
+
+# Tests
+tests
+*_test.go
+.coverage
+coverage.out
+coverage.html
+
+# Local environment
+.env
+.env.*
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Build artifacts
+bin/
+dist/
+main
+
+# Docker files
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Misc
+.omc
+.omx
+.superpowers
+.claude
+.cursor
+.kimi
+.DS_Store
