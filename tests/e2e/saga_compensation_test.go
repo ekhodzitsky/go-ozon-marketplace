@@ -12,9 +12,11 @@ import (
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/tests"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 type failingInventoryServer struct {
@@ -45,6 +47,14 @@ func (s *trackingPaymentServer) ProcessPayment(_ context.Context, _ *paymentv1.P
 
 func (s *trackingPaymentServer) Refund(_ context.Context, _ *paymentv1.RefundRequest) (*paymentv1.RefundResponse, error) {
 	return &paymentv1.RefundResponse{Status: "refunded"}, nil
+}
+
+func authContext(ctx context.Context, userID, secret string) context.Context {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": userID,
+	})
+	tokenStr, _ := token.SignedString([]byte(secret))
+	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+tokenStr)
 }
 
 func TestSagaCompensation(t *testing.T) {
@@ -86,6 +96,8 @@ func TestSagaCompensation(t *testing.T) {
 				paymentv1.RegisterPaymentServiceServer(s, payMock)
 			})
 
+			jwtSecret := "test-secret"
+
 			// Start order-service
 			orderPort := tests.GetFreePort(t)
 			orderCmd := tests.StartService(t, "../../services/order-service", []string{
@@ -93,6 +105,7 @@ func TestSagaCompensation(t *testing.T) {
 				fmt.Sprintf("GRPC_PORT=%d", orderPort),
 				"INVENTORY_ADDR=" + invAddr,
 				"PAYMENT_ADDR=" + payAddr,
+				"JWT_SECRET=" + jwtSecret,
 			})
 			defer func() { _ = orderCmd.Process.Kill() }()
 			orderAddr := fmt.Sprintf("127.0.0.1:%d", orderPort)
@@ -110,8 +123,9 @@ func TestSagaCompensation(t *testing.T) {
 			userID := uuid.New().String()
 			productID := uuid.New().String()
 
-			// Create order
-			createResp, err := orderClient.CreateOrder(ctx, &orderv1.CreateOrderRequest{
+			// Create order with auth
+			createCtx := authContext(ctx, userID, jwtSecret)
+			createResp, err := orderClient.CreateOrder(createCtx, &orderv1.CreateOrderRequest{
 				UserId: userID,
 				Items: []*orderv1.OrderItem{
 					{
@@ -132,7 +146,8 @@ func TestSagaCompensation(t *testing.T) {
 			var status string
 			deadline := time.Now().Add(tt.pollTimeout)
 			for time.Now().Before(deadline) {
-				getResp, err := orderClient.GetOrder(ctx, &orderv1.GetOrderRequest{
+				getCtx := authContext(ctx, userID, jwtSecret)
+				getResp, err := orderClient.GetOrder(getCtx, &orderv1.GetOrderRequest{
 					OrderId: createResp.OrderId,
 				})
 				if err != nil {
