@@ -13,6 +13,7 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 type GRPCServer struct {
@@ -42,6 +43,24 @@ func (s *GRPCServer) Start() error {
 func (s *GRPCServer) GracefulStop() {
 	s.log.Info("stopping gRPC server gracefully")
 	s.Server.GracefulStop()
+}
+
+// LoadServerCredentials loads TLS certificate and key and returns a gRPC server option.
+func LoadServerCredentials(certFile, keyFile string) (grpc.ServerOption, error) {
+	creds, err := credentials.NewServerTLSFromFile(certFile, keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load server tls credentials: %w", err)
+	}
+	return grpc.Creds(creds), nil
+}
+
+// LoadClientCredentials loads CA certificate and returns transport credentials for gRPC client connections.
+func LoadClientCredentials(caFile string, serverName string) (credentials.TransportCredentials, error) {
+	creds, err := credentials.NewClientTLSFromFile(caFile, serverName)
+	if err != nil {
+		return nil, fmt.Errorf("load client tls credentials: %w", err)
+	}
+	return creds, nil
 }
 
 type HTTPServer struct {

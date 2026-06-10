@@ -10,6 +10,7 @@ type Config struct {
 	MetricsPort int
 	PostgresDSN string
 	JWTSecret   string
+	CertPath    string
 }
 
 func Load() *Config {
@@ -21,5 +22,6 @@ func Load() *Config {
 		MetricsPort: grpcPort + 1000,
 		PostgresDSN: config.MustGetEnv("POSTGRES_DSN"),
 		JWTSecret:   config.MustGetEnv("JWT_SECRET"),
+		CertPath:    config.GetEnv("CERT_PATH", ""),
 	}
 }

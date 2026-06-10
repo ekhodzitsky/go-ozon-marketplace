@@ -13,8 +13,10 @@ import (
 )
 
 type PaymentUsecase struct {
-	repo repository.PaymentRepository
-	log  *zap.Logger
+	repo    repository.PaymentRepository
+	log     *zap.Logger
+	randGen func() float64
+	sleeper func()
 }
 
 func NewPaymentUsecase(repo repository.PaymentRepository, log *zap.Logger) *PaymentUsecase {
@@ -35,10 +37,18 @@ func (u *PaymentUsecase) ProcessPayment(ctx context.Context, orderID, userID uui
 	}
 
 	// simulate async processing
-	time.Sleep(100 * time.Millisecond)
+	if u.sleeper != nil {
+		u.sleeper()
+	} else {
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	// 90% success rate
-	if rand.Float64() < 0.9 {
+	randVal := rand.Float64()
+	if u.randGen != nil {
+		randVal = u.randGen()
+	}
+	if randVal < 0.9 {
 		payment.Status = domain.StatusSuccess
 	} else {
 		payment.Status = domain.StatusFailed
