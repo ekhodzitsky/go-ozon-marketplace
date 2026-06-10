@@ -49,3 +49,12 @@ docker-compose*.yml
 .cursor
 .kimi
 .DS_Store
+Makefile
+coverage*.out
+coverage_*.out
+*.log
+docker-compose*.yaml
+.golangci.yml
+.editorconfig
+AGENTS.md
+CLAUDE.md
