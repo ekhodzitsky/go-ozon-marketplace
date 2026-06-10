@@ -7,27 +7,27 @@ import (
 	"time"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
-	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository/postgres"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/saga"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/unitofwork"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type OrderUsecase struct {
-	pool         *pgxpool.Pool
-	orderRepo    *postgres.OrderPostgres
-	outboxRepo   *postgres.OutboxPostgres
+	uow          unitofwork.UnitOfWork
+	orderRepo    repository.OrderRepository
+	outboxRepo   repository.OutboxRepository
 	orchestrator *saga.Orchestrator
 }
 
 func NewOrderUsecase(
-	pool *pgxpool.Pool,
-	orderRepo *postgres.OrderPostgres,
-	outboxRepo *postgres.OutboxPostgres,
+	uow unitofwork.UnitOfWork,
+	orderRepo repository.OrderRepository,
+	outboxRepo repository.OutboxRepository,
 	orchestrator *saga.Orchestrator,
 ) *OrderUsecase {
 	return &OrderUsecase{
-		pool:         pool,
+		uow:          uow,
 		orderRepo:    orderRepo,
 		outboxRepo:   outboxRepo,
 		orchestrator: orchestrator,
@@ -55,13 +55,12 @@ func (u *OrderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items 
 		order.Items[i].OrderID = order.ID
 	}
 
-	tx, err := u.pool.Begin(ctx)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("begin tx: %w", err)
+	if err := u.uow.Begin(ctx); err != nil {
+		return uuid.Nil, fmt.Errorf("begin uow: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer u.uow.Rollback(ctx)
 
-	if err := u.orderRepo.WithTx(tx).Create(ctx, order); err != nil {
+	if err := u.uow.OrderRepo().Create(ctx, order); err != nil {
 		return uuid.Nil, fmt.Errorf("create order: %w", err)
 	}
 
@@ -79,12 +78,12 @@ func (u *OrderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items 
 		CreatedAt:     time.Now().UTC(),
 	}
 
-	if err := u.outboxRepo.WithTx(tx).Create(ctx, event); err != nil {
+	if err := u.uow.OutboxRepo().Create(ctx, event); err != nil {
 		return uuid.Nil, fmt.Errorf("create outbox event: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return uuid.Nil, fmt.Errorf("commit tx: %w", err)
+	if err := u.uow.Commit(ctx); err != nil {
+		return uuid.Nil, fmt.Errorf("commit uow: %w", err)
 	}
 
 	if err := u.orchestrator.ProcessOrder(ctx, order); err != nil {

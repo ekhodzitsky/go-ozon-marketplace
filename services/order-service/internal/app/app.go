@@ -20,6 +20,8 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository/postgres"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/saga"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/unitofwork"
+	postgresuow "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/unitofwork/postgres"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/usecase"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -38,9 +40,16 @@ func New() *fx.App {
 			func(cfg *config.Config) (*pgxpool.Pool, error) {
 				return pkgpostgres.NewPool(context.Background(), cfg.PostgresDSN)
 			},
-			postgres.NewOrderPostgres,
+			func(pool *pgxpool.Pool) unitofwork.UnitOfWork {
+				return postgresuow.NewUnitOfWork(pool)
+			},
+			func(pool *pgxpool.Pool) *postgres.OrderPostgres {
+				return postgres.NewOrderPostgres(pool)
+			},
 			func(r *postgres.OrderPostgres) repository.OrderRepository { return r },
-			postgres.NewOutboxPostgres,
+			func(pool *pgxpool.Pool) *postgres.OutboxPostgres {
+				return postgres.NewOutboxPostgres(pool)
+			},
 			func(r *postgres.OutboxPostgres) repository.OutboxRepository { return r },
 			func(cfg *config.Config, lc fx.Lifecycle) (saga.InventoryClient, error) {
 				conn, err := grpc.NewClient(

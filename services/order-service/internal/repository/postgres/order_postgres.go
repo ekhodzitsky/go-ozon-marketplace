@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 )
@@ -25,7 +24,7 @@ type OrderPostgres struct {
 	db Querier
 }
 
-func NewOrderPostgres(db *pgxpool.Pool) *OrderPostgres {
+func NewOrderPostgres(db Querier) *OrderPostgres {
 	return &OrderPostgres{db: db}
 }
 
