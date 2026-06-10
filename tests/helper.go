@@ -19,11 +19,9 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-func StartPostgres(ctx context.Context, t *testing.T) (string, func()) {
+func StartPostgres(ctx context.Context, t *testing.T) string {
 	t.Helper()
-
-	container, err := postgres.Run(ctx,
-		"postgres:16-alpine",
+	container, err := postgres.Run(ctx, "postgres:16-alpine",
 		postgres.WithDatabase("marketplace"),
 		postgres.WithUsername("ozon"),
 		postgres.WithPassword("ozonpass"),
@@ -34,18 +32,13 @@ func StartPostgres(ctx context.Context, t *testing.T) (string, func()) {
 	if err != nil {
 		t.Fatalf("failed to start postgres: %v", err)
 	}
+	t.Cleanup(func() { _ = container.Terminate(ctx) })
 
 	connStr, err := container.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
-		_ = container.Terminate(ctx)
 		t.Fatalf("failed to get connection string: %v", err)
 	}
-
-	cleanup := func() {
-		_ = container.Terminate(ctx)
-	}
-
-	return connStr, cleanup
+	return connStr
 }
 
 func RunMigrations(ctx context.Context, t *testing.T, dsn string, migrationDirs ...string) {
@@ -97,12 +90,21 @@ func GetFreePort(t *testing.T) int {
 
 func StartService(t *testing.T, serviceDir string, env []string) *exec.Cmd {
 	t.Helper()
-	cmd := exec.Command("go", "run", "./cmd/main.go")
+	bin := filepath.Join(t.TempDir(), "service")
+	build := exec.Command("go", "build", "-o", bin, "./cmd/main.go")
+	build.Dir = serviceDir
+	build.Env = os.Environ()
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build %s: %v\n%s", serviceDir, err, out)
+	}
+
+	cmd := exec.Command(bin)
 	cmd.Dir = serviceDir
 	cmd.Env = append(os.Environ(), env...)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("failed to start service %s: %v", serviceDir, err)
 	}
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
 	return cmd
 }
 

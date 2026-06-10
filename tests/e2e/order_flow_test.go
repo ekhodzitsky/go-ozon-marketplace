@@ -92,8 +92,7 @@ func TestOrderFlow(t *testing.T) {
 	ctx := context.Background()
 
 	// Start PostgreSQL and Elasticsearch
-	dsn, cleanupDB := tests.StartPostgres(ctx, t)
-	defer cleanupDB()
+	dsn := tests.StartPostgres(ctx, t)
 
 	esURL, cleanupES := tests.StartElasticsearch(ctx, t)
 	defer cleanupES()
@@ -115,45 +114,43 @@ func TestOrderFlow(t *testing.T) {
 
 	// Start user-service
 	userPort := tests.GetFreePort(t)
-	userCmd := tests.StartService(t, "../../services/user-service", []string{
+	tests.StartService(t, "../../services/user-service", []string{
 		"POSTGRES_DSN=" + dsn,
 		fmt.Sprintf("GRPC_PORT=%d", userPort),
+		"JWT_SECRET=test-secret",
 	})
-	defer func() { _ = userCmd.Process.Kill() }()
 	userAddr := fmt.Sprintf("127.0.0.1:%d", userPort)
 	tests.WaitForGRPC(t, userAddr)
 
 	// Start catalog-service
 	catalogPort := tests.GetFreePort(t)
-	catalogCmd := tests.StartService(t, "../../services/catalog-service", []string{
+	tests.StartService(t, "../../services/catalog-service", []string{
 		"POSTGRES_DSN=" + dsn,
 		fmt.Sprintf("GRPC_PORT=%d", catalogPort),
 		"ES_URL=" + esURL,
 	})
-	defer func() { _ = catalogCmd.Process.Kill() }()
 	catalogAddr := fmt.Sprintf("127.0.0.1:%d", catalogPort)
 	tests.WaitForGRPC(t, catalogAddr)
 
 	// Start order-service
 	orderPort := tests.GetFreePort(t)
-	orderCmd := tests.StartService(t, "../../services/order-service", []string{
+	tests.StartService(t, "../../services/order-service", []string{
 		"POSTGRES_DSN=" + dsn,
 		fmt.Sprintf("GRPC_PORT=%d", orderPort),
 		"INVENTORY_ADDR=" + invAddr,
 		"PAYMENT_ADDR=" + payAddr,
+		"JWT_SECRET=test-secret",
 	})
-	defer func() { _ = orderCmd.Process.Kill() }()
 	orderAddr := fmt.Sprintf("127.0.0.1:%d", orderPort)
 	tests.WaitForGRPC(t, orderAddr)
 
 	// Start API gateway
 	gatewayPort := tests.GetFreePort(t)
-	gatewayCmd := tests.StartService(t, "../../services/api-gateway", []string{
+	tests.StartService(t, "../../services/api-gateway", []string{
 		fmt.Sprintf("USER_SERVICE_ADDR=%s", userAddr),
 		fmt.Sprintf("CATALOG_SERVICE_ADDR=%s", catalogAddr),
 		fmt.Sprintf("PORT=%d", gatewayPort),
 	})
-	defer func() { _ = gatewayCmd.Process.Kill() }()
 	gatewayURL := fmt.Sprintf("http://127.0.0.1:%d", gatewayPort)
 	tests.WaitForHTTP(t, gatewayURL+"/query")
 

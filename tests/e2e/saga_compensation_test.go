@@ -52,6 +52,7 @@ func (s *trackingPaymentServer) Refund(_ context.Context, _ *paymentv1.RefundReq
 func authContext(ctx context.Context, userID, secret string) context.Context {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user_id": userID,
+		"exp":     time.Now().Add(time.Hour).Unix(),
 	})
 	tokenStr, _ := token.SignedString([]byte(secret))
 	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+tokenStr)
@@ -79,8 +80,7 @@ func TestSagaCompensation(t *testing.T) {
 			ctx := context.Background()
 
 			// Start PostgreSQL
-			dsn, cleanupDB := tests.StartPostgres(ctx, t)
-			defer cleanupDB()
+			dsn := tests.StartPostgres(ctx, t)
 
 			// Run migrations
 			tests.RunMigrations(ctx, t, dsn, "../../services/order-service/migrations")
@@ -100,14 +100,13 @@ func TestSagaCompensation(t *testing.T) {
 
 			// Start order-service
 			orderPort := tests.GetFreePort(t)
-			orderCmd := tests.StartService(t, "../../services/order-service", []string{
+			tests.StartService(t, "../../services/order-service", []string{
 				"POSTGRES_DSN=" + dsn,
 				fmt.Sprintf("GRPC_PORT=%d", orderPort),
 				"INVENTORY_ADDR=" + invAddr,
 				"PAYMENT_ADDR=" + payAddr,
 				"JWT_SECRET=" + jwtSecret,
 			})
-			defer func() { _ = orderCmd.Process.Kill() }()
 			orderAddr := fmt.Sprintf("127.0.0.1:%d", orderPort)
 			tests.WaitForGRPC(t, orderAddr)
 

@@ -14,19 +14,18 @@ import (
 func TestOrderServicePostgres(t *testing.T) {
 	ctx := context.Background()
 
-	dsn, cleanupDB := StartPostgres(ctx, t)
-	defer cleanupDB()
+	dsn := StartPostgres(ctx, t)
 
 	RunMigrations(ctx, t, dsn, "../services/order-service/migrations")
 
 	grpcPort := GetFreePort(t)
-	cmd := StartService(t, "../services/order-service", []string{
+	StartService(t, "../services/order-service", []string{
 		"POSTGRES_DSN=" + dsn,
 		fmt.Sprintf("GRPC_PORT=%d", grpcPort),
 		"INVENTORY_ADDR=127.0.0.1:1",
 		"PAYMENT_ADDR=127.0.0.1:1",
+		"JWT_SECRET=test-secret",
 	})
-	defer func() { _ = cmd.Process.Kill() }()
 
 	addr := fmt.Sprintf("127.0.0.1:%d", grpcPort)
 	WaitForGRPC(t, addr)
