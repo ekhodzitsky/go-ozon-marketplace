@@ -17,13 +17,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.26'
           cache: true
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: v1.59.1
           args: --timeout=5m
 
   test:
@@ -36,7 +36,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.26'
           cache: true
 
       - name: Sync workspace
@@ -56,12 +56,59 @@ jobs:
       - name: Enforce minimum coverage
         run: |
           echo "Coverage: ${{ env.COVERAGE }}"
-          # Threshold: 30% (will increase as more tests are added)
+          # Threshold: 60%
           python3 -c "
           import sys
           cov = float('${{ env.COVERAGE }}'.rstrip('%'))
-          if cov < 30:
-              print(f'Coverage {cov}% is below threshold 30%')
+          if cov < 60:
+              print(f'Coverage {cov}% is below threshold 60%')
               sys.exit(1)
           print(f'Coverage {cov}% meets threshold')
           "
+
+  build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [test]
+    strategy:
+      matrix:
+        service:
+          - api-gateway
+          - catalog-service
+          - inventory-service
+          - order-service
+          - payment-service
+          - user-service
+          - analytics-service
+          - notification-service
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build --build-arg SERVICE_NAME=${{ matrix.service }} -f Dockerfile -t ${{ matrix.service }}:ci .
+
+  helm:
+    name: Lint Helm Charts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 3.14.0
+
+      - name: Lint Helm charts
+        run: |
+          for chart in infra/k8s/helm-charts/*; do
+            if [ -d "$chart" ]; then
+              echo "Linting $chart"
+              helm lint "$chart"
+            fi
+          done
