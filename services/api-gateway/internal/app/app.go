@@ -13,6 +13,7 @@ import (
 	"github.com/99designs/gqlgen/graphql/playground"
 	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/config"
 	"github.com/vektah/gqlparser/v2/ast"
@@ -63,7 +64,9 @@ func (a *App) Run() error {
 	})
 
 	http.Handle("/", playground.Handler("GraphQL playground", "/query"))
-	http.Handle("/query", srv)
+
+	rl := middleware.NewRateLimiter(a.cfg.RateLimitRPS)
+	http.Handle("/query", middleware.GraphQLMutationRateLimiter(rl)(srv))
 
 	port := a.cfg.HTTPPort
 	if envPort := os.Getenv("PORT"); envPort != "" {

@@ -38,8 +38,24 @@ func New() *fx.App {
 			},
 			grpcdelivery.NewUserHandler,
 		),
-		fx.Invoke(func(lc fx.Lifecycle, handler *grpcdelivery.UserHandler, cfg *config.Config, log *zap.Logger) {
-			grpcServer := server.NewGRPC(cfg.GRPCPort, grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor, middleware.AuthUnaryInterceptor(cfg.JWTSecret)))
+		fx.Invoke(func(lc fx.Lifecycle, handler *grpcdelivery.UserHandler, cfg *config.Config, log *zap.Logger) error {
+			opts := []grpc.ServerOption{
+				grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor, middleware.AuthUnaryInterceptor(cfg.JWTSecret)),
+			}
+
+			if cfg.CertPath != "" {
+				tlsOpt, err := server.LoadServerCredentials(
+					filepath.Join(cfg.CertPath, "server-cert.pem"),
+					filepath.Join(cfg.CertPath, "server-key.pem"),
+				)
+				if err != nil {
+					return fmt.Errorf("load tls credentials: %w", err)
+				}
+				opts = append(opts, tlsOpt)
+				log.Info("tls enabled for gRPC server", zap.String("cert_path", cfg.CertPath))
+			}
+
+			grpcServer := server.NewGRPC(cfg.GRPCPort, opts...)
 
 			mux := http.NewServeMux()
 			mux.Handle("/metrics", promhttp.Handler())
@@ -71,6 +87,7 @@ func New() *fx.App {
 					return nil
 				},
 			})
+			return nil
 		}),
 	)
 }
