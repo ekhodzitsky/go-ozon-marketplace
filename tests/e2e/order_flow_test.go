@@ -128,6 +128,7 @@ func TestOrderFlow(t *testing.T) {
 		"POSTGRES_DSN=" + dsn,
 		fmt.Sprintf("GRPC_PORT=%d", catalogPort),
 		"ES_URL=" + esURL,
+		"JWT_SECRET=test-secret",
 	})
 	catalogAddr := fmt.Sprintf("127.0.0.1:%d", catalogPort)
 	tests.WaitForGRPC(t, catalogAddr)
@@ -150,6 +151,7 @@ func TestOrderFlow(t *testing.T) {
 		fmt.Sprintf("USER_SERVICE_ADDR=%s", userAddr),
 		fmt.Sprintf("CATALOG_SERVICE_ADDR=%s", catalogAddr),
 		fmt.Sprintf("PORT=%d", gatewayPort),
+		"JWT_SECRET=test-secret",
 	})
 	gatewayURL := fmt.Sprintf("http://127.0.0.1:%d", gatewayPort)
 	tests.WaitForHTTP(t, gatewayURL+"/query")
