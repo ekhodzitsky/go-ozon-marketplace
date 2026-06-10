@@ -1,11 +1,13 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 
+	"github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/handler/extension"
 	"github.com/99designs/gqlgen/graphql/handler/lru"
@@ -19,6 +21,7 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 // App encapsulates the gateway application.
@@ -31,15 +34,30 @@ func New(cfg *config.Config) *App {
 	return &App{cfg: cfg}
 }
 
+func authClientInterceptor(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	if opCtx := graphql.GetOperationContext(ctx); opCtx != nil {
+		if auth := opCtx.Headers.Get("Authorization"); auth != "" {
+			ctx = metadata.AppendToOutgoingContext(ctx, "authorization", auth)
+		}
+	}
+	return invoker(ctx, method, req, reply, cc, opts...)
+}
+
 // Run starts the HTTP server with GraphQL playground and query endpoint.
 func (a *App) Run() error {
-	userConn, err := grpc.NewClient(a.cfg.UserServiceAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	userConn, err := grpc.NewClient(a.cfg.UserServiceAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(authClientInterceptor),
+	)
 	if err != nil {
 		return fmt.Errorf("dial user-service: %w", err)
 	}
 	defer userConn.Close()
 
-	catalogConn, err := grpc.NewClient(a.cfg.CatalogServiceAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	catalogConn, err := grpc.NewClient(a.cfg.CatalogServiceAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(authClientInterceptor),
+	)
 	if err != nil {
 		return fmt.Errorf("dial catalog-service: %w", err)
 	}
