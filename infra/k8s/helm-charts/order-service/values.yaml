@@ -32,9 +32,12 @@ resources:
 
 env:
   GRPC_PORT: "50055"
-  POSTGRES_DSN: "postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable"
   INVENTORY_ADDR: "inventory-service:50053"
   PAYMENT_ADDR: "payment-service:50054"
+
+secrets:
+  jwtSecret: ""      # required
+  postgresDSN: ""    # required
 
 nodeSelector: {}
 tolerations: []

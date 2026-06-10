@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: {{ .Chart.Name }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}:{{ required "image.tag is required" .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: grpc
@@ -38,10 +38,9 @@ spec:
               value: {{ .Values.env.GRPC_PORT | quote }}
             - name: HTTP_PORT
               value: {{ .Values.env.HTTP_PORT | quote }}
-            - name: POSTGRES_DSN
-              value: {{ .Values.env.POSTGRES_DSN | quote }}
-            - name: JWT_SECRET
-              value: {{ .Values.env.JWT_SECRET | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ include "user-service.fullname" . }}-secrets
           livenessProbe:
             tcpSocket:
               port: grpc

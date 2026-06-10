@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: {{ .Chart.Name }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}:{{ required "image.tag is required" .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: grpc
@@ -33,6 +33,9 @@ spec:
           env:
             - name: GRPC_PORT
               value: {{ .Values.env.GRPC_PORT | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ include "notification-service.fullname" . }}-secrets
           livenessProbe:
             tcpSocket:
               port: grpc

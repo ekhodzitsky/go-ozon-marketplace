@@ -34,6 +34,10 @@ env:
   GRPC_PORT: "50057"
   CLICKHOUSE_DSN: "clickhouse:9000"
 
+secrets:
+  jwtSecret: ""      # required
+  postgresDSN: ""    # required
+
 nodeSelector: {}
 tolerations: []
 affinity: {}

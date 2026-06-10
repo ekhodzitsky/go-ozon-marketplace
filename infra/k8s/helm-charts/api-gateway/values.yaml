@@ -34,6 +34,10 @@ env:
   USER_SERVICE_ADDR: "user-service:50051"
   CATALOG_SERVICE_ADDR: "catalog-service:50052"
 
+secrets:
+  jwtSecret: ""      # required
+  postgresDSN: ""    # required
+
 nodeSelector: {}
 tolerations: []
 affinity: {}

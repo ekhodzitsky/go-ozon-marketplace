@@ -33,6 +33,10 @@ resources:
 env:
   GRPC_PORT: "50056"
 
+secrets:
+  jwtSecret: ""      # required
+  postgresDSN: ""    # required
+
 nodeSelector: {}
 tolerations: []
 affinity: {}

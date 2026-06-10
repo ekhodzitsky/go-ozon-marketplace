@@ -32,8 +32,11 @@ resources:
 
 env:
   GRPC_PORT: "50052"
-  POSTGRES_DSN: "postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable"
   ES_URL: "http://elasticsearch:9200"
+
+secrets:
+  jwtSecret: ""      # required
+  postgresDSN: ""    # required
 
 nodeSelector: {}
 tolerations: []

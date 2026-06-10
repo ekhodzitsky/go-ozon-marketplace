@@ -34,8 +34,10 @@ resources:
 env:
   GRPC_PORT: "50051"
   HTTP_PORT: "8080"
-  POSTGRES_DSN: "postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable"
-  JWT_SECRET: "super-secret-key"
+
+secrets:
+  jwtSecret: ""      # required
+  postgresDSN: ""    # required
 
 nodeSelector: {}
 tolerations: []
