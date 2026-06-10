@@ -14,20 +14,20 @@ import (
 )
 
 type OrderUsecase struct {
-	uow          unitofwork.UnitOfWork
+	uowFactory   func() unitofwork.UnitOfWork
 	orderRepo    repository.OrderRepository
 	outboxRepo   repository.OutboxRepository
 	orchestrator *saga.Orchestrator
 }
 
 func NewOrderUsecase(
-	uow unitofwork.UnitOfWork,
+	uowFactory func() unitofwork.UnitOfWork,
 	orderRepo repository.OrderRepository,
 	outboxRepo repository.OutboxRepository,
 	orchestrator *saga.Orchestrator,
 ) *OrderUsecase {
 	return &OrderUsecase{
-		uow:          uow,
+		uowFactory:   uowFactory,
 		orderRepo:    orderRepo,
 		outboxRepo:   outboxRepo,
 		orchestrator: orchestrator,
@@ -55,12 +55,13 @@ func (u *OrderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items 
 		order.Items[i].OrderID = order.ID
 	}
 
-	if err := u.uow.Begin(ctx); err != nil {
+	uow := u.uowFactory()
+	if err := uow.Begin(ctx); err != nil {
 		return uuid.Nil, fmt.Errorf("begin uow: %w", err)
 	}
-	defer u.uow.Rollback(ctx)
+	defer uow.Rollback(ctx)
 
-	if err := u.uow.OrderRepo().Create(ctx, order); err != nil {
+	if err := uow.OrderRepo().Create(ctx, order); err != nil {
 		return uuid.Nil, fmt.Errorf("create order: %w", err)
 	}
 
@@ -78,11 +79,11 @@ func (u *OrderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items 
 		CreatedAt:     time.Now().UTC(),
 	}
 
-	if err := u.uow.OutboxRepo().Create(ctx, event); err != nil {
+	if err := uow.OutboxRepo().Create(ctx, event); err != nil {
 		return uuid.Nil, fmt.Errorf("create outbox event: %w", err)
 	}
 
-	if err := u.uow.Commit(ctx); err != nil {
+	if err := uow.Commit(ctx); err != nil {
 		return uuid.Nil, fmt.Errorf("commit uow: %w", err)
 	}
 

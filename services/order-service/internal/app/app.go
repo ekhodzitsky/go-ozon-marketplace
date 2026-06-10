@@ -39,8 +39,10 @@ func New() *fx.App {
 			func(cfg *config.Config) (*pgxpool.Pool, error) {
 				return pkgpostgres.NewPool(context.Background(), cfg.PostgresDSN)
 			},
-			func(pool *pgxpool.Pool) unitofwork.UnitOfWork {
-				return postgresuow.NewUnitOfWork(pool)
+			func(pool *pgxpool.Pool) func() unitofwork.UnitOfWork {
+				return func() unitofwork.UnitOfWork {
+					return postgresuow.NewUnitOfWork(pool)
+				}
 			},
 			func(pool *pgxpool.Pool) *postgres.OrderPostgres {
 				return postgres.NewOrderPostgres(pool)

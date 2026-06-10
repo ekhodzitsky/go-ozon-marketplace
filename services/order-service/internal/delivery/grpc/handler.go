@@ -63,6 +63,11 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *orderv1.CreateOrder
 }
 
 func (h *OrderHandler) GetOrder(ctx context.Context, req *orderv1.GetOrderRequest) (*orderv1.GetOrderResponse, error) {
+	authUserID, ok := middleware.GetUserID(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "missing user_id in context")
+	}
+
 	orderID, err := uuid.Parse(req.OrderId)
 	if err != nil {
 		return nil, err
@@ -74,6 +79,10 @@ func (h *OrderHandler) GetOrder(ctx context.Context, req *orderv1.GetOrderReques
 			return nil, status.Error(codes.NotFound, err.Error())
 		}
 		return nil, status.Errorf(codes.Internal, "get order: %v", err)
+	}
+
+	if order.UserID.String() != authUserID {
+		return nil, status.Error(codes.PermissionDenied, "order does not belong to user")
 	}
 
 	return &orderv1.GetOrderResponse{
