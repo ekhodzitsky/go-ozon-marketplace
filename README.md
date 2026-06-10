@@ -1,43 +1,67 @@
 # go-ozon-marketplace
 
-SOTA microservice e-commerce marketplace demo in Go. Built to demonstrate high-load patterns relevant to Ozon engineering.
+Микросервисный e-commerce backend на Go — pet-проект для портфолио.
 
-## Architecture
+## Архитектура
 
-8 microservices: API Gateway, User, Catalog, Order, Inventory, Payment, Notification, Analytics.
+8 микросервисов, GraphQL API Gateway, распределённые транзакции (Saga), CQRS и полный observability стек.
 
-## Quick Start
+### Микросервисы
 
-```bash
-make up
-```
+| Сервис | Порт | Назначение |
+|--------|------|------------|
+| api-gateway | 8080 | GraphQL gateway, rate limiting |
+| user-service | 50051 | Регистрация, аутентификация (JWT) |
+| catalog-service | 50052 | Каталог товаров, поиск (PG + ES) |
+| inventory-service | 50053 | Управление остатками, Redis cache |
+| payment-service | 50054 | Обработка платежей |
+| order-service | 50055 | Заказы, Saga Orchestrator, Outbox |
+| notification-service | 50056 | Уведомления |
+| analytics-service | 50057 | Аналитика в ClickHouse |
 
-## Tech Stack
+### Технологии
 
-Go, gRPC, Kafka, PostgreSQL, Redis, ClickHouse, Elasticsearch, OpenTelemetry, Prometheus, Grafana, Kubernetes.
+- **Go 1.26**, gRPC, GraphQL (gqlgen)
+- **PostgreSQL 16**, Redis 7, ClickHouse, Elasticsearch
+- **Kafka** (Redpanda), Outbox pattern
+- **Prometheus**, Grafana, Jaeger tracing
+- **Kubernetes**, Helm, GitHub Actions CI/CD
 
-## Design Doc
-
-See [docs/design.md](docs/design.md).
-
-## Prerequisites
-
-- Go 1.23+
-- Docker & Docker Compose
-- Buf (for proto generation)
-- golangci-lint (for linting)
-
-## TLS for gRPC
-
-Generate CA + server/client certificates:
+## Запуск
 
 ```bash
-./scripts/generate-certs.sh certs
+# Инфраструктура
+cd infra/docker && docker compose up -d
+
+# Сборка сервиса
+docker build --build-arg SERVICE_NAME=api-gateway -t api-gateway:latest -f Dockerfile .
 ```
 
-Enable TLS in a service by setting the `CERT_PATH` environment variable to the directory containing `server-cert.pem` and `server-key.pem` (e.g. `CERT_PATH=./certs`). If `CERT_PATH` is unset or empty, the gRPC server starts in plain-text mode.
+## Тесты
 
-The `pkg/server` package provides helpers for loading credentials:
+```bash
+# Unit + integration
+go test -race ./...
 
-- `server.LoadServerCredentials(certFile, keyFile)` — returns a `grpc.ServerOption`.
-- `server.LoadClientCredentials(caFile, serverName)` — returns client `credentials.TransportCredentials`.
+# E2E
+go test ./tests/e2e/...
+```
+
+## Структура
+
+```
+├── api/                # Protobuf + generated gRPC/GraphQL
+├── pkg/                # Shared packages (middleware, logger, metrics)
+├── services/           # 8 микросервисов
+├── infra/              # Docker Compose, Helm charts, monitoring
+├── tests/              # Integration и E2E тесты
+└── docs/               # Design docs, specs, plans
+```
+
+## CI/CD
+
+GitHub Actions: lint → test (60% coverage gate) → Docker build → Helm lint
+
+## Лицензия
+
+MIT
