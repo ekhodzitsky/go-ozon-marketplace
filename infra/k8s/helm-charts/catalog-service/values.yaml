@@ -3,7 +3,7 @@ replicaCount: 2
 image:
   repository: go-ozon-marketplace/catalog-service
   pullPolicy: IfNotPresent
-  tag: "latest"
+  tag: ""
 
 service:
   type: ClusterIP

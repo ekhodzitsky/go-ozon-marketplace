@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
+	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
+	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	pkgpostgres "github.com/ekhodzitsky/go-ozon-marketplace/pkg/postgres"
@@ -22,6 +25,8 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 )
 
 func New() *fx.App {
@@ -36,12 +41,58 @@ func New() *fx.App {
 			func(r *postgres.OrderPostgres) repository.OrderRepository { return r },
 			postgres.NewOutboxPostgres,
 			func(r *postgres.OutboxPostgres) repository.OutboxRepository { return r },
+			func(cfg *config.Config, lc fx.Lifecycle) (*grpc.ClientConn, error) {
+				conn, err := grpc.NewClient(
+					cfg.InventoryAddr,
+					grpc.WithTransportCredentials(insecure.NewCredentials()),
+					grpc.WithKeepaliveParams(keepalive.ClientParameters{
+						Time:                10 * time.Second,
+						Timeout:             20 * time.Second,
+						PermitWithoutStream: true,
+					}),
+				)
+				if err != nil {
+					return nil, err
+				}
+				lc.Append(fx.Hook{
+					OnStop: func(ctx context.Context) error {
+						return conn.Close()
+					},
+				})
+				return conn, nil
+			},
+			func(cfg *config.Config, lc fx.Lifecycle) (*grpc.ClientConn, error) {
+				conn, err := grpc.NewClient(
+					cfg.PaymentAddr,
+					grpc.WithTransportCredentials(insecure.NewCredentials()),
+					grpc.WithKeepaliveParams(keepalive.ClientParameters{
+						Time:                10 * time.Second,
+						Timeout:             20 * time.Second,
+						PermitWithoutStream: true,
+					}),
+				)
+				if err != nil {
+					return nil, err
+				}
+				lc.Append(fx.Hook{
+					OnStop: func(ctx context.Context) error {
+						return conn.Close()
+					},
+				})
+				return conn, nil
+			},
 			func(
 				orderRepo repository.OrderRepository,
-				cfg *config.Config,
+				invConn *grpc.ClientConn,
+				payConn *grpc.ClientConn,
 				log *zap.Logger,
 			) *saga.Orchestrator {
-				return saga.NewOrchestrator(orderRepo, cfg.InventoryAddr, cfg.PaymentAddr, log)
+				return saga.NewOrchestrator(
+					orderRepo,
+					inventoryv1.NewInventoryServiceClient(invConn),
+					paymentv1.NewPaymentServiceClient(payConn),
+					log,
+				)
 			},
 			usecase.NewOrderUsecase,
 			grpcdelivery.NewOrderHandler,
