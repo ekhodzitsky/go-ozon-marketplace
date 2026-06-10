@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
-	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
 	"go.uber.org/zap"
@@ -33,11 +31,7 @@ func (o *Orchestrator) ProcessOrder(ctx context.Context, order *domain.Order) er
 	}
 
 	for _, item := range order.Items {
-		_, err := o.invClient.Reserve(ctx, &inventoryv1.ReserveRequest{
-			ProductId: item.ProductID.String(),
-			Quantity:  int32(item.Quantity),
-			OrderId:   order.ID.String(),
-		})
+		err := o.invClient.Reserve(ctx, item.ProductID.String(), int32(item.Quantity), order.ID.String())
 		if err != nil {
 			o.compensateInventory(ctx, order)
 			_ = o.orderRepo.UpdateStatus(ctx, order.ID, "cancelled")
@@ -45,11 +39,7 @@ func (o *Orchestrator) ProcessOrder(ctx context.Context, order *domain.Order) er
 		}
 	}
 
-	_, err := o.payClient.ProcessPayment(ctx, &paymentv1.ProcessPaymentRequest{
-		OrderId: order.ID.String(),
-		UserId:  order.UserID.String(),
-		Amount:  order.TotalAmount,
-	})
+	_, err := o.payClient.ProcessPayment(ctx, order.ID.String(), order.UserID.String(), order.TotalAmount)
 	if err != nil {
 		o.compensateInventory(ctx, order)
 		_ = o.orderRepo.UpdateStatus(ctx, order.ID, "cancelled")
@@ -65,11 +55,7 @@ func (o *Orchestrator) ProcessOrder(ctx context.Context, order *domain.Order) er
 
 func (o *Orchestrator) compensateInventory(ctx context.Context, order *domain.Order) {
 	for _, item := range order.Items {
-		_, err := o.invClient.Release(ctx, &inventoryv1.ReleaseRequest{
-			ProductId: item.ProductID.String(),
-			Quantity:  int32(item.Quantity),
-			OrderId:   order.ID.String(),
-		})
+		err := o.invClient.Release(ctx, item.ProductID.String(), int32(item.Quantity), order.ID.String())
 		if err != nil {
 			o.log.Error("failed to release inventory", zap.Error(err), zap.String("product_id", item.ProductID.String()))
 		}

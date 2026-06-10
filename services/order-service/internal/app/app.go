@@ -7,15 +7,14 @@ import (
 	"net/http"
 	"time"
 
-	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
-	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	pkgpostgres "github.com/ekhodzitsky/go-ozon-marketplace/pkg/postgres"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/server"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/config"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/delivery/grpc"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/infrastructure/grpcclient"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/outbox"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository/postgres"
@@ -69,7 +68,7 @@ func New() *fx.App {
 						return conn.Close()
 					},
 				})
-				return inventoryv1.NewInventoryServiceClient(conn), nil
+				return grpcclient.NewInventoryClient(conn), nil
 			},
 			func(cfg *config.Config, lc fx.Lifecycle) (saga.PaymentClient, error) {
 				conn, err := grpc.NewClient(
@@ -89,7 +88,7 @@ func New() *fx.App {
 						return conn.Close()
 					},
 				})
-				return paymentv1.NewPaymentServiceClient(conn), nil
+				return grpcclient.NewPaymentClient(conn), nil
 			},
 			func(
 				orderRepo repository.OrderRepository,

@@ -1,18 +1,13 @@
 package saga
 
-import (
-	"context"
-
-	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
-	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
-	"google.golang.org/grpc"
-)
+import "context"
 
 type InventoryClient interface {
-	Reserve(ctx context.Context, in *inventoryv1.ReserveRequest, opts ...grpc.CallOption) (*inventoryv1.ReserveResponse, error)
-	Release(ctx context.Context, in *inventoryv1.ReleaseRequest, opts ...grpc.CallOption) (*inventoryv1.ReleaseResponse, error)
+	Reserve(ctx context.Context, productID string, quantity int32, orderID string) error
+	Release(ctx context.Context, productID string, quantity int32, orderID string) error
 }
 
 type PaymentClient interface {
-	ProcessPayment(ctx context.Context, in *paymentv1.ProcessPaymentRequest, opts ...grpc.CallOption) (*paymentv1.ProcessPaymentResponse, error)
+	ProcessPayment(ctx context.Context, orderID, userID string, amount float64) (string, error)
+	Refund(ctx context.Context, paymentID string) error
 }
