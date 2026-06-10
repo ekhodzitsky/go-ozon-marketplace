@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	cfg := config.NewDefaultConfig()
+	cfg := config.Load()
 	if err := app.New(cfg).Run(); err != nil {
 		log.Fatalf("gateway error: %v", err)
 	}

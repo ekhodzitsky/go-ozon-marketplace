@@ -1,8 +1,7 @@
 package config
 
 import (
-	"os"
-	"strconv"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/config"
 )
 
 type Config struct {
@@ -13,18 +12,11 @@ type Config struct {
 }
 
 func Load() *Config {
-	grpcPort, _ := strconv.Atoi(getEnv("GRPC_PORT", "50053"))
+	grpcPort := config.GetEnvInt("GRPC_PORT", 50053)
 	return &Config{
 		GRPCPort:    grpcPort,
 		MetricsPort: grpcPort + 1000,
-		PostgresDSN: getEnv("POSTGRES_DSN", "postgres://ozon:ozonpass@localhost:5432/marketplace?sslmode=disable"),
-		RedisAddr:   getEnv("REDIS_ADDR", "localhost:6379"),
+		PostgresDSN: config.MustGetEnv("POSTGRES_DSN"),
+		RedisAddr:   config.GetEnv("REDIS_ADDR", "localhost:6379"),
 	}
-}
-
-func getEnv(key, defaultVal string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return defaultVal
 }
