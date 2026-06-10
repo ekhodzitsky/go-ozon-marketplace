@@ -54,7 +54,10 @@ func authContext(ctx context.Context, userID, secret string) context.Context {
 		"user_id": userID,
 		"exp":     time.Now().Add(time.Hour).Unix(),
 	})
-	tokenStr, _ := token.SignedString([]byte(secret))
+	tokenStr, err := token.SignedString([]byte(secret))
+	if err != nil {
+		panic(fmt.Sprintf("failed to sign token: %v", err))
+	}
 	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+tokenStr)
 }
 

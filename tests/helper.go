@@ -32,7 +32,11 @@ func StartPostgres(ctx context.Context, t *testing.T) string {
 	if err != nil {
 		t.Fatalf("failed to start postgres: %v", err)
 	}
-	t.Cleanup(func() { _ = container.Terminate(ctx) })
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = container.Terminate(ctx)
+	})
 
 	connStr, err := container.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
