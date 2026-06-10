@@ -2,12 +2,16 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/repository"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 )
 
 type PaymentPostgres struct {
@@ -32,6 +36,9 @@ func (r *PaymentPostgres) GetByID(ctx context.Context, id uuid.UUID) (*domain.Pa
 	row := r.db.QueryRow(ctx, query, id)
 	var payment domain.Payment
 	if err := row.Scan(&payment.ID, &payment.OrderID, &payment.UserID, &payment.Amount, &payment.Status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: payment", apperrors.ErrNotFound)
+		}
 		return nil, fmt.Errorf("get payment by id: %w", err)
 	}
 	return &payment, nil

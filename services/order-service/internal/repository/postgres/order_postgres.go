@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
@@ -9,6 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 )
 
 type Querier interface {
@@ -64,6 +67,9 @@ func (r *OrderPostgres) GetByID(ctx context.Context, id uuid.UUID) (*domain.Orde
 	row := r.db.QueryRow(ctx, query, id)
 	var order domain.Order
 	if err := row.Scan(&order.ID, &order.UserID, &order.TotalAmount, &order.Status, &order.CreatedAt, &order.UpdatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: order", apperrors.ErrNotFound)
+		}
 		return nil, fmt.Errorf("get order by id: %w", err)
 	}
 	items, err := r.getItemsByOrderID(ctx, id)

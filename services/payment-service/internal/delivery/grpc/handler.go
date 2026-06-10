@@ -2,10 +2,15 @@ package grpc
 
 import (
 	"context"
+	"errors"
 
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/usecase"
 	"github.com/google/uuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 )
 
 type PaymentHandler struct {
@@ -46,7 +51,10 @@ func (h *PaymentHandler) Refund(ctx context.Context, req *paymentv1.RefundReques
 
 	payment, err := h.usecase.Refund(ctx, paymentID)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, err.Error())
+		}
+		return nil, status.Errorf(codes.Internal, "refund: %v", err)
 	}
 
 	return &paymentv1.RefundResponse{

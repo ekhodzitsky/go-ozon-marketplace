@@ -2,12 +2,17 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/usecase"
 	"github.com/google/uuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 )
 
 type CatalogHandler struct {
@@ -34,7 +39,10 @@ func (h *CatalogHandler) GetProduct(ctx context.Context, req *catalogv1.GetProdu
 	}
 	product, err := h.usecase.GetProduct(ctx, id)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, err.Error())
+		}
+		return nil, status.Errorf(codes.Internal, "get product: %v", err)
 	}
 	return &catalogv1.GetProductResponse{Product: toProtoProduct(product)}, nil
 }

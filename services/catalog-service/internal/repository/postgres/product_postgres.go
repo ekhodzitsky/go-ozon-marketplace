@@ -2,12 +2,16 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/repository"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 )
 
 type ProductPostgres struct {
@@ -32,6 +36,9 @@ func (r *ProductPostgres) GetByID(ctx context.Context, id uuid.UUID) (*domain.Pr
 	row := r.db.QueryRow(ctx, query, id)
 	var product domain.Product
 	if err := row.Scan(&product.ID, &product.Name, &product.Description, &product.Price, &product.Stock, &product.Categories, &product.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: product", apperrors.ErrNotFound)
+		}
 		return nil, fmt.Errorf("get product by id: %w", err)
 	}
 	return &product, nil

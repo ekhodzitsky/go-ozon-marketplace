@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
@@ -11,6 +12,8 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 )
 
 type OrderHandler struct {
@@ -67,7 +70,10 @@ func (h *OrderHandler) GetOrder(ctx context.Context, req *orderv1.GetOrderReques
 
 	order, err := h.usecase.GetOrder(ctx, orderID)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, err.Error())
+		}
+		return nil, status.Errorf(codes.Internal, "get order: %v", err)
 	}
 
 	return &orderv1.GetOrderResponse{

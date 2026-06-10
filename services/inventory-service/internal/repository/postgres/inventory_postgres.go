@@ -2,12 +2,16 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/repository"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 )
 
 type InventoryPostgres struct {
@@ -23,6 +27,9 @@ func (r *InventoryPostgres) GetStock(ctx context.Context, productID uuid.UUID) (
 	row := r.db.QueryRow(ctx, query, productID)
 	var stock domain.Stock
 	if err := row.Scan(&stock.ProductID, &stock.Available, &stock.Reserved); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: stock", apperrors.ErrNotFound)
+		}
 		return nil, fmt.Errorf("get stock: %w", err)
 	}
 	return &stock, nil
