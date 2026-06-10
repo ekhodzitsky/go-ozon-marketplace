@@ -3,6 +3,7 @@ package outbox
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"time"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
@@ -10,33 +11,50 @@ import (
 )
 
 type Relay struct {
-	repo   repository.OutboxRepository
-	log    *zap.Logger
-	ticker *time.Ticker
-	stop   chan struct{}
+	repo    repository.OutboxRepository
+	log     *zap.Logger
+	ticker  *time.Ticker
+	stop    chan struct{}
+	wg      sync.WaitGroup
+	mu      sync.Mutex
+	started bool
 }
 
 func NewRelay(repo repository.OutboxRepository, log *zap.Logger) *Relay {
 	return &Relay{
 		repo: repo,
 		log:  log,
-		stop: make(chan struct{}),
 	}
 }
 
 func (r *Relay) Start(ctx context.Context) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.started {
+		return
+	}
+	r.started = true
+	r.stop = make(chan struct{})
 	r.ticker = time.NewTicker(500 * time.Millisecond)
+	r.wg.Add(1)
 	go r.loop(ctx)
 }
 
 func (r *Relay) Stop() {
-	close(r.stop)
-	if r.ticker != nil {
-		r.ticker.Stop()
+	r.mu.Lock()
+	if !r.started {
+		r.mu.Unlock()
+		return
 	}
+	r.started = false
+	close(r.stop)
+	r.ticker.Stop()
+	r.mu.Unlock()
+	r.wg.Wait()
 }
 
 func (r *Relay) loop(ctx context.Context) {
+	defer r.wg.Done()
 	for {
 		select {
 		case <-r.ticker.C:
@@ -58,7 +76,10 @@ func (r *Relay) poll(ctx context.Context) {
 
 	for _, event := range events {
 		var payload map[string]interface{}
-		_ = json.Unmarshal(event.Payload, &payload)
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			r.log.Error("failed to unmarshal outbox payload", zap.Error(err), zap.String("event_id", event.ID.String()))
+			continue
+		}
 
 		r.log.Info("publishing outbox event",
 			zap.String("aggregate_type", event.AggregateType),
