@@ -3,13 +3,13 @@ go 1.26
 use (
 	./api
 	./pkg
-	./tests
-	./services/api-gateway
-	./services/user-service
-	./services/catalog-service
-	./services/order-service
-	./services/inventory-service
-	./services/payment-service
-	./services/notification-service
 	./services/analytics-service
+	./services/api-gateway
+	./services/catalog-service
+	./services/inventory-service
+	./services/notification-service
+	./services/order-service
+	./services/payment-service
+	./services/user-service
+	./tests
 )

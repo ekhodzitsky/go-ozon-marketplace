@@ -7,17 +7,16 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/time/rate"
 )
 
 // RateLimiter provides a simple in-memory token-bucket rate limiter per client IP.
 type RateLimiter struct {
-	rps    rate.Limit
-	burst  int
-	mu     sync.Mutex
-	limits map[string]*rate.Limiter
+	rps   rate.Limit
+	burst int
+	cache *lru.Cache[string, *rate.Limiter]
 }
 
 // NewRateLimiter creates a RateLimiter with the given requests-per-second.
@@ -25,22 +24,21 @@ func NewRateLimiter(rps int) *RateLimiter {
 	if rps <= 0 {
 		rps = 10
 	}
+	cache, _ := lru.New[string, *rate.Limiter](10000)
 	return &RateLimiter{
-		rps:    rate.Limit(rps),
-		burst:  rps,
-		limits: make(map[string]*rate.Limiter),
+		rps:   rate.Limit(rps),
+		burst: rps,
+		cache: cache,
 	}
 }
 
 // Allow reports whether one request from key is allowed.
 func (rl *RateLimiter) Allow(key string) bool {
-	rl.mu.Lock()
-	lim, ok := rl.limits[key]
+	lim, ok := rl.cache.Get(key)
 	if !ok {
 		lim = rate.NewLimiter(rl.rps, rl.burst)
-		rl.limits[key] = lim
+		rl.cache.Add(key, lim)
 	}
-	rl.mu.Unlock()
 	return lim.Allow()
 }
 
