@@ -63,3 +63,12 @@ func (r *OutboxPostgres) MarkProcessed(ctx context.Context, id uuid.UUID) error 
 	}
 	return nil
 }
+
+func (r *OutboxPostgres) BatchMarkProcessed(ctx context.Context, ids []uuid.UUID) error {
+	query := `UPDATE outbox SET processed_at = NOW() WHERE id = ANY($1)`
+	_, err := r.db.Exec(ctx, query, ids)
+	if err != nil {
+		return fmt.Errorf("batch mark outbox processed: %w", err)
+	}
+	return nil
+}

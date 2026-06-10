@@ -18,4 +18,5 @@ type OutboxRepository interface {
 	Create(ctx context.Context, event *domain.OutboxEvent) error
 	GetUnprocessed(ctx context.Context, limit int) ([]domain.OutboxEvent, error)
 	MarkProcessed(ctx context.Context, id uuid.UUID) error
+	BatchMarkProcessed(ctx context.Context, ids []uuid.UUID) error
 }

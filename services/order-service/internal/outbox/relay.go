@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -74,6 +75,7 @@ func (r *Relay) poll(ctx context.Context) {
 		return
 	}
 
+	ids := make([]uuid.UUID, 0, len(events))
 	for _, event := range events {
 		var payload map[string]interface{}
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
@@ -88,8 +90,12 @@ func (r *Relay) poll(ctx context.Context) {
 			zap.Any("payload", payload),
 		)
 
-		if err := r.repo.MarkProcessed(ctx, event.ID); err != nil {
-			r.log.Error("failed to mark outbox event processed", zap.Error(err), zap.String("event_id", event.ID.String()))
+		ids = append(ids, event.ID)
+	}
+
+	if len(ids) > 0 {
+		if err := r.repo.BatchMarkProcessed(ctx, ids); err != nil {
+			r.log.Error("failed to batch mark outbox events processed", zap.Error(err))
 		}
 	}
 }
