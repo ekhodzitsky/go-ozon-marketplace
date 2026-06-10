@@ -42,7 +42,17 @@ func (s *GRPCServer) Start() error {
 
 func (s *GRPCServer) GracefulStop() {
 	s.log.Info("stopping gRPC server gracefully")
-	s.Server.GracefulStop()
+	done := make(chan struct{})
+	go func() {
+		s.Server.GracefulStop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(25 * time.Second):
+		s.log.Warn("force stopping gRPC server")
+		s.Server.Stop()
+	}
 }
 
 // LoadServerCredentials loads TLS certificate and key and returns a gRPC server option.
