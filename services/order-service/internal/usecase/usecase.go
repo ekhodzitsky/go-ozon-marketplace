@@ -88,7 +88,7 @@ func (u *OrderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items 
 	}
 
 	if err := u.orchestrator.ProcessOrder(ctx, order); err != nil {
-		return order.ID, nil
+		return order.ID, fmt.Errorf("saga process order: %w", err)
 	}
 
 	return order.ID, nil
