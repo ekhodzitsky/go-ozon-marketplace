@@ -9,6 +9,7 @@ type Config struct {
 	MetricsPort int
 	PostgresDSN string
 	ESURL       string
+	JWTSecret   string
 }
 
 func Load() *Config {
@@ -18,5 +19,6 @@ func Load() *Config {
 		MetricsPort: grpcPort + 1000,
 		PostgresDSN: config.MustGetEnv("POSTGRES_DSN"),
 		ESURL:       config.GetEnv("ES_URL", "http://localhost:9200"),
+		JWTSecret:   config.MustGetEnv("JWT_SECRET"),
 	}
 }

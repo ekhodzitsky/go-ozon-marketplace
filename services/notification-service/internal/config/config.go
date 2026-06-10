@@ -7,6 +7,7 @@ import (
 type Config struct {
 	GRPCPort    int
 	MetricsPort int
+	JWTSecret   string
 }
 
 func Load() *Config {
@@ -14,5 +15,6 @@ func Load() *Config {
 	return &Config{
 		GRPCPort:    grpcPort,
 		MetricsPort: grpcPort + 1000,
+		JWTSecret:   config.MustGetEnv("JWT_SECRET"),
 	}
 }

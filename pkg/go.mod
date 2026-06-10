@@ -3,6 +3,7 @@ module github.com/ekhodzitsky/go-ozon-marketplace/pkg
 go 1.26
 
 require (
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.5.3

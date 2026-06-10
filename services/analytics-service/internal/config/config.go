@@ -8,6 +8,7 @@ type Config struct {
 	GRPCPort       int
 	MetricsPort    int
 	ClickHouseAddr string
+	JWTSecret      string
 }
 
 func Load() *Config {
@@ -16,5 +17,6 @@ func Load() *Config {
 		GRPCPort:       grpcPort,
 		MetricsPort:    grpcPort + 1000,
 		ClickHouseAddr: config.GetEnv("CLICKHOUSE_DSN", "localhost:9000"),
+		JWTSecret:      config.MustGetEnv("JWT_SECRET"),
 	}
 }

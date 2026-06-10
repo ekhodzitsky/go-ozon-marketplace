@@ -10,6 +10,7 @@ type Config struct {
 	PostgresDSN   string
 	InventoryAddr string
 	PaymentAddr   string
+	JWTSecret     string
 }
 
 func Load() *Config {
@@ -20,5 +21,6 @@ func Load() *Config {
 		PostgresDSN:   config.MustGetEnv("POSTGRES_DSN"),
 		InventoryAddr: config.GetEnv("INVENTORY_ADDR", "localhost:50053"),
 		PaymentAddr:   config.GetEnv("PAYMENT_ADDR", "localhost:50054"),
+		JWTSecret:     config.MustGetEnv("JWT_SECRET"),
 	}
 }

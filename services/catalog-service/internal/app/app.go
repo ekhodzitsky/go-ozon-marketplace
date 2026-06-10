@@ -40,7 +40,7 @@ func New() *fx.App {
 			grpcdelivery.NewCatalogHandler,
 		),
 		fx.Invoke(func(lc fx.Lifecycle, handler *grpcdelivery.CatalogHandler, cfg *config.Config, log *zap.Logger) {
-			grpcServer := server.NewGRPC(cfg.GRPCPort, grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor))
+			grpcServer := server.NewGRPC(cfg.GRPCPort, grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor, middleware.AuthUnaryInterceptor(cfg.JWTSecret)))
 
 			http.Handle("/metrics", promhttp.Handler())
 			go http.ListenAndServe(fmt.Sprintf(":%d", cfg.MetricsPort), nil)
