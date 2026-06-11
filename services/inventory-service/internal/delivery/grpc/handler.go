@@ -7,6 +7,7 @@ import (
 
 	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/validation"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/usecase"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
@@ -29,6 +30,10 @@ func (h *InventoryHandler) Reserve(ctx context.Context, req *inventoryv1.Reserve
 		return nil, err
 	}
 
+	if err := validation.ValidateQuantity(req.Quantity); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
 	productID, err := uuid.Parse(req.ProductId)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid product_id")
@@ -46,6 +51,10 @@ func (h *InventoryHandler) Reserve(ctx context.Context, req *inventoryv1.Reserve
 func (h *InventoryHandler) Release(ctx context.Context, req *inventoryv1.ReleaseRequest) (*inventoryv1.ReleaseResponse, error) {
 	if err := middleware.RequireRole(ctx, middleware.RoleService); err != nil {
 		return nil, err
+	}
+
+	if err := validation.ValidateQuantity(req.Quantity); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
 	productID, err := uuid.Parse(req.ProductId)

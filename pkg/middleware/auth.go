@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc"
@@ -24,6 +25,12 @@ const (
 	RoleAdmin   Role = "admin"
 	RoleService Role = "service"
 )
+
+// CustomClaims extends jwt.RegisteredClaims with a role claim.
+type CustomClaims struct {
+	jwt.RegisteredClaims
+	Role string `json:"role"`
+}
 
 // AuthUnaryInterceptor validates JWT bearer token from gRPC metadata
 func AuthUnaryInterceptor(jwtSecret string) grpc.UnaryServerInterceptor {
@@ -58,25 +65,45 @@ func AuthUnaryInterceptor(jwtSecret string) grpc.UnaryServerInterceptor {
 			return nil, status.Errorf(codes.Unauthenticated, "invalid token: %v", err)
 		}
 
-		claims, ok := token.Claims.(jwt.MapClaims)
+		claims, ok := token.Claims.(*CustomClaims)
 		if !ok {
 			return nil, status.Error(codes.Unauthenticated, "invalid token claims")
 		}
 
-		userID, ok := claims["user_id"].(string)
-		if !ok || userID == "" {
-			return nil, status.Error(codes.Unauthenticated, "missing user_id in token")
+		if claims.Subject == "" {
+			return nil, status.Error(codes.Unauthenticated, "missing subject in token")
+		}
+		if claims.Issuer != "go-ozon-marketplace" {
+			return nil, status.Error(codes.Unauthenticated, "invalid token issuer")
+		}
+		if !audienceContains(claims.Audience, "api-gateway") {
+			return nil, status.Error(codes.Unauthenticated, "invalid token audience")
+		}
+		if claims.ID == "" {
+			return nil, status.Error(codes.Unauthenticated, "missing token id")
+		}
+		if claims.NotBefore != nil && time.Now().Before(claims.NotBefore.Time) {
+			return nil, status.Error(codes.Unauthenticated, "token not valid yet")
 		}
 
-		role, _ := claims["role"].(string)
+		role := claims.Role
 		if role == "" {
 			role = string(RoleUser)
 		}
 
-		ctx = context.WithValue(ctx, ContextKeyUserID, userID)
+		ctx = context.WithValue(ctx, ContextKeyUserID, claims.Subject)
 		ctx = context.WithValue(ctx, ContextKeyRole, role)
 		return handler(ctx, req)
 	}
+}
+
+func audienceContains(aud jwt.ClaimStrings, target string) bool {
+	for _, a := range aud {
+		if a == target {
+			return true
+		}
+	}
+	return false
 }
 
 func isPublicEndpoint(method string) bool {

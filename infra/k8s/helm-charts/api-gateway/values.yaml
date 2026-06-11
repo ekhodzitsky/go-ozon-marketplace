@@ -8,6 +8,7 @@ image:
 service:
   type: ClusterIP
   httpPort: 8080
+  grpcPort: 8080
 
 ingress:
   enabled: true

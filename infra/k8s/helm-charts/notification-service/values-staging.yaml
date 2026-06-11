@@ -1,0 +1,49 @@
+replicaCount: 1
+
+image:
+  repository: go-ozon-marketplace/notification-service
+  pullPolicy: IfNotPresent
+  tag: ""
+
+service:
+  type: ClusterIP
+  grpcPort: 50056
+  metricsPort: 51056
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+  hosts:
+    - host: notification-service.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 256Mi
+  requests:
+    cpu: 500m
+    memory: 128Mi
+
+env:
+  GRPC_PORT: "50056"
+
+secrets:
+  jwtSecret: ""
+  postgresDSN: ""
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -11,5 +11,6 @@ type User struct {
 	Email        string
 	PasswordHash string
 	Name         string
+	Role         string
 	CreatedAt    time.Time
 }

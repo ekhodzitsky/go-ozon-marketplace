@@ -7,6 +7,7 @@ import (
 
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/validation"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/usecase"
 	"github.com/google/uuid"
@@ -40,6 +41,12 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *orderv1.CreateOrder
 
 	items := make([]domain.OrderItem, 0, len(req.Items))
 	for _, item := range req.Items {
+		if err := validation.ValidateQuantity(item.Quantity); err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+		if err := validation.ValidatePrice(item.Price); err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
 		productID, err := uuid.Parse(item.ProductId)
 		if err != nil {
 			return nil, err
@@ -101,6 +108,10 @@ func (h *OrderHandler) ListOrders(ctx context.Context, req *orderv1.ListOrdersRe
 	userID, err := uuid.Parse(authUserID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "invalid user_id in token: %v", err)
+	}
+
+	if err := validation.ValidatePageSize(req.PageSize); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
 	page := int(req.Page)

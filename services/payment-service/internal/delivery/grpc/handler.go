@@ -7,6 +7,7 @@ import (
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/validation"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/dlq"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/usecase"
@@ -46,6 +47,10 @@ func (h *PaymentHandler) ProcessPayment(ctx context.Context, req *paymentv1.Proc
 		return nil, status.Error(codes.Unauthenticated, "missing user_id in context")
 	}
 	role, _ := middleware.GetRole(ctx)
+
+	if err := validation.ValidatePrice(req.Amount); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 
 	orderID, err := uuid.Parse(req.OrderId)
 	if err != nil {

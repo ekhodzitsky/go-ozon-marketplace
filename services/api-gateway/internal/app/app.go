@@ -22,6 +22,7 @@ import (
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/circuitbreaker"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/redis"
@@ -58,6 +59,40 @@ func authClientInterceptor(ctx context.Context, method string, req, reply interf
 	return invoker(ctx, method, req, reply, cc, opts...)
 }
 
+func circuitBreakerClientInterceptor(cb *circuitbreaker.CircuitBreaker) grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		return cb.Call(func() error {
+			return invoker(ctx, method, req, reply, cc, opts...)
+		})
+	}
+}
+
+func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+			allowed := ""
+			for _, o := range allowedOrigins {
+				if o == "*" || o == origin {
+					allowed = o
+					break
+				}
+			}
+			if allowed != "" {
+				w.Header().Set("Access-Control-Allow-Origin", allowed)
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func clientCreds(cfg *config.Config) (credentials.TransportCredentials, error) {
 	if cfg.CertPath != "" {
 		return server.LoadClientMTLSCredentials(
@@ -85,7 +120,8 @@ func (a *App) Run() error {
 		return fmt.Errorf("load tls credentials: %w", err)
 	}
 
-	interceptorChain := grpc.WithChainUnaryInterceptor(authClientInterceptor, tracing.UnaryClientInterceptor())
+	cb := circuitbreaker.New(5, 2, 30*time.Second)
+	interceptorChain := grpc.WithChainUnaryInterceptor(authClientInterceptor, circuitBreakerClientInterceptor(cb), tracing.UnaryClientInterceptor())
 
 	userConn, err := grpc.DialContext(ctx, a.cfg.UserServiceAddr,
 		grpc.WithTransportCredentials(creds),
@@ -143,7 +179,7 @@ func (a *App) Run() error {
 	}
 	defer redisClient.Close()
 
-	rl := middleware.NewRedisRateLimiter(redisClient, a.cfg.RateLimitRPS, a.cfg.RateLimitWindow)
+	rl := middleware.NewRoleRateLimiter(redisClient, a.cfg.RateLimitUserRPS, a.cfg.RateLimitAdminRPS, a.cfg.RateLimitWindow)
 
 	resolver := &graph.Resolver{
 		UserService:      userv1.NewUserServiceClient(userConn),
@@ -196,6 +232,7 @@ func (a *App) Run() error {
 	if a.cfg.JWTSecret != "" {
 		gqlHandler = middleware.AuthHTTP(a.cfg.JWTSecret)(gqlHandler)
 	}
+	gqlHandler = corsMiddleware(a.cfg.CORSAllowedOrigins)(gqlHandler)
 
 	mux.Handle("/query", gqlHandler)
 

@@ -42,17 +42,17 @@ func AuthHTTP(jwtSecret string) func(http.Handler) http.Handler {
 			if auth != "" {
 				tokenStr := strings.TrimPrefix(auth, "Bearer ")
 				if tokenStr != auth {
-					token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+					token, err := jwt.ParseWithClaims(tokenStr, &CustomClaims{}, func(t *jwt.Token) (interface{}, error) {
 						if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 							return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 						}
 						return []byte(jwtSecret), nil
 					})
 					if err == nil && token.Valid {
-						if claims, ok := token.Claims.(jwt.MapClaims); ok {
-							if userID, ok := claims["user_id"].(string); ok && userID != "" {
-								ctx := context.WithValue(r.Context(), ContextKeyUserID, userID)
-								role, _ := claims["role"].(string)
+						if claims, ok := token.Claims.(*CustomClaims); ok {
+							if claims.Subject != "" && claims.Issuer == "go-ozon-marketplace" && audienceContains(claims.Audience, "api-gateway") {
+								ctx := context.WithValue(r.Context(), ContextKeyUserID, claims.Subject)
+								role := claims.Role
 								if role == "" {
 									role = string(RoleUser)
 								}

@@ -1,0 +1,51 @@
+replicaCount: 1
+
+image:
+  repository: go-ozon-marketplace/user-service
+  pullPolicy: IfNotPresent
+  tag: ""
+
+service:
+  type: ClusterIP
+  grpcPort: 50051
+  httpPort: 8080
+  metricsPort: 51051
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+  hosts:
+    - host: user-service.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 256Mi
+  requests:
+    cpu: 500m
+    memory: 128Mi
+
+env:
+  GRPC_PORT: "50051"
+  HTTP_PORT: "8080"
+
+secrets:
+  jwtSecret: ""
+  postgresDSN: ""
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

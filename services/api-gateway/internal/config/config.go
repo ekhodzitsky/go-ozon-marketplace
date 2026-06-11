@@ -21,12 +21,15 @@ type Config struct {
 	RedisAddr                string
 	RateLimitRPS             int
 	RateLimitWindow          time.Duration
+	RateLimitUserRPS         int
+	RateLimitAdminRPS        int
 	TrustedProxies           []string
 	MaxBodySizeBytes         int64
 	DefaultCallTimeout       time.Duration
 	DefaultQueryTimeout      time.Duration
 	CertPath                 string
 	JWTSecret                string
+	CORSAllowedOrigins       []string
 }
 
 func Load() *Config {
@@ -36,6 +39,16 @@ func Load() *Config {
 			s = strings.TrimSpace(s)
 			if s != "" {
 				trusted = append(trusted, s)
+			}
+		}
+	}
+	corsOrigins := []string{"*"}
+	if v := config.GetEnv("CORS_ALLOWED_ORIGINS", ""); v != "" {
+		corsOrigins = []string{}
+		for _, s := range strings.Split(v, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				corsOrigins = append(corsOrigins, s)
 			}
 		}
 	}
@@ -54,11 +67,14 @@ func Load() *Config {
 		RedisAddr:                config.GetEnv("REDIS_ADDR", "localhost:6379"),
 		RateLimitRPS:             config.GetEnvInt("RATE_LIMIT_RPS", 10),
 		RateLimitWindow:          config.GetEnvDuration("RATE_LIMIT_WINDOW", time.Second),
+		RateLimitUserRPS:         config.GetEnvInt("RATE_LIMIT_USER_RPS", 100),
+		RateLimitAdminRPS:        config.GetEnvInt("RATE_LIMIT_ADMIN_RPS", 1000),
 		TrustedProxies:           trusted,
 		MaxBodySizeBytes:         config.GetEnvInt64("MAX_BODY_SIZE_BYTES", 1<<20),
 		DefaultCallTimeout:       config.GetEnvDuration("DEFAULT_CALL_TIMEOUT", 5*time.Second),
 		DefaultQueryTimeout:      config.GetEnvDuration("DEFAULT_QUERY_TIMEOUT", 3*time.Second),
 		CertPath:                 config.GetEnv("CERT_PATH", ""),
 		JWTSecret:                config.GetEnv("JWT_SECRET", ""),
+		CORSAllowedOrigins:       corsOrigins,
 	}
 }

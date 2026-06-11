@@ -31,18 +31,18 @@ func TestUserHandler_Register(t *testing.T) {
 	}{
 		{
 			name: "success",
-			req:  tests.NewUserRequestBuilder().WithEmail("a@b.c").WithPassword("pw").WithName("N").BuildRegister(),
+			req:  tests.NewUserRequestBuilder().WithEmail("a@b.co").WithPassword("password123").WithName("NN").BuildRegister(),
 			mock: func(m *mocks.MockUserUsecase) {
-				m.EXPECT().Register(gomock.Any(), "a@b.c", "pw", "N").Return(uuid.MustParse("11111111-1111-1111-1111-111111111111"), nil)
+				m.EXPECT().Register(gomock.Any(), "a@b.co", "password123", "NN").Return(uuid.MustParse("11111111-1111-1111-1111-111111111111"), nil)
 			},
 			wantErr: false,
 			wantID:  true,
 		},
 		{
 			name: "usecase_error",
-			req:  tests.NewUserRequestBuilder().WithEmail("a@b.c").WithPassword("pw").WithName("N").BuildRegister(),
+			req:  tests.NewUserRequestBuilder().WithEmail("a@b.co").WithPassword("password123").WithName("NN").BuildRegister(),
 			mock: func(m *mocks.MockUserUsecase) {
-				m.EXPECT().Register(gomock.Any(), "a@b.c", "pw", "N").Return(uuid.Nil, assert.AnError)
+				m.EXPECT().Register(gomock.Any(), "a@b.co", "password123", "NN").Return(uuid.Nil, assert.AnError)
 			},
 			wantErr: true,
 		},
@@ -76,26 +76,26 @@ func TestUserHandler_Login(t *testing.T) {
 	t.Parallel()
 
 	testsCases := []struct {
-		name    string
-		req     *userv1.LoginRequest
-		mock    func(m *mocks.MockUserUsecase)
-		wantErr bool
+		name      string
+		req       *userv1.LoginRequest
+		mock      func(m *mocks.MockUserUsecase)
+		wantErr   bool
 		wantToken bool
 	}{
 		{
 			name: "success",
-			req:  tests.NewUserRequestBuilder().WithEmail("a@b.c").WithPassword("pw").BuildLogin(),
+			req:  tests.NewUserRequestBuilder().WithEmail("a@b.co").WithPassword("password123").BuildLogin(),
 			mock: func(m *mocks.MockUserUsecase) {
-				m.EXPECT().Login(gomock.Any(), "a@b.c", "pw").Return("token", nil)
+				m.EXPECT().Login(gomock.Any(), "a@b.co", "password123").Return("token", nil)
 			},
 			wantErr:   false,
 			wantToken: true,
 		},
 		{
 			name: "usecase_error",
-			req:  tests.NewUserRequestBuilder().WithEmail("a@b.c").WithPassword("pw").BuildLogin(),
+			req:  tests.NewUserRequestBuilder().WithEmail("a@b.co").WithPassword("password123").BuildLogin(),
 			mock: func(m *mocks.MockUserUsecase) {
-				m.EXPECT().Login(gomock.Any(), "a@b.c", "pw").Return("", assert.AnError)
+				m.EXPECT().Login(gomock.Any(), "a@b.co", "password123").Return("", assert.AnError)
 			},
 			wantErr: true,
 		},

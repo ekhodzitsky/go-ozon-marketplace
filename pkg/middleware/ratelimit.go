@@ -149,3 +149,37 @@ func RateLimitIPFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(ctxKeyRateLimitIP{}).(string)
 	return v
 }
+
+type noopRateLimiter struct{}
+
+func (n *noopRateLimiter) Allow(ctx context.Context, key string) bool { return true }
+
+// RoleRateLimiter selects a rate limiter based on the role in context.
+type RoleRateLimiter struct {
+	user    RateLimiter
+	admin   RateLimiter
+	service RateLimiter
+}
+
+// NewRoleRateLimiter creates a role-based rate limiter.
+// User and admin limits use Redis; service role has no limit.
+func NewRoleRateLimiter(client *redis.Client, userLimit, adminLimit int, window time.Duration) *RoleRateLimiter {
+	return &RoleRateLimiter{
+		user:    NewRedisRateLimiter(client, userLimit, window),
+		admin:   NewRedisRateLimiter(client, adminLimit, window),
+		service: &noopRateLimiter{},
+	}
+}
+
+// Allow delegates to the appropriate limiter based on role.
+func (rl *RoleRateLimiter) Allow(ctx context.Context, key string) bool {
+	role, _ := GetRole(ctx)
+	switch role {
+	case RoleAdmin:
+		return rl.admin.Allow(ctx, key)
+	case RoleService:
+		return rl.service.Allow(ctx, key)
+	default:
+		return rl.user.Allow(ctx, key)
+	}
+}

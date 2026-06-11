@@ -7,6 +7,7 @@ import (
 
 	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/validation"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/usecase"
 	"github.com/google/uuid"
@@ -26,6 +27,12 @@ func NewCatalogHandler(uc usecase.CatalogUsecase) *CatalogHandler {
 }
 
 func (h *CatalogHandler) CreateProduct(ctx context.Context, req *catalogv1.CreateProductRequest) (*catalogv1.CreateProductResponse, error) {
+	if err := validation.ValidateName(req.Name); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if err := validation.ValidatePrice(req.Price); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	id, err := h.usecase.CreateProduct(ctx, req.Name, req.Description, int64(req.Price*100), req.Categories)
 	if err != nil {
 		return nil, err
@@ -49,6 +56,9 @@ func (h *CatalogHandler) GetProduct(ctx context.Context, req *catalogv1.GetProdu
 }
 
 func (h *CatalogHandler) ListProducts(ctx context.Context, req *catalogv1.ListProductsRequest) (*catalogv1.ListProductsResponse, error) {
+	if err := validation.ValidatePageSize(req.PageSize); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	products, total, err := h.usecase.ListProducts(ctx, int(req.Page), int(req.PageSize))
 	if err != nil {
 		return nil, err
@@ -60,6 +70,9 @@ func (h *CatalogHandler) ListProducts(ctx context.Context, req *catalogv1.ListPr
 }
 
 func (h *CatalogHandler) SearchProducts(ctx context.Context, req *catalogv1.SearchProductsRequest) (*catalogv1.SearchProductsResponse, error) {
+	if err := validation.ValidatePageSize(req.PageSize); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	products, total, err := h.usecase.SearchProducts(ctx, req.Query, int(req.Page), int(req.PageSize))
 	if err != nil {
 		return nil, err
@@ -73,6 +86,17 @@ func (h *CatalogHandler) SearchProducts(ctx context.Context, req *catalogv1.Sear
 func (h *CatalogHandler) UpdateProduct(ctx context.Context, req *catalogv1.UpdateProductRequest) (*catalogv1.UpdateProductResponse, error) {
 	if err := middleware.RequireRole(ctx, middleware.RoleAdmin); err != nil {
 		return nil, err
+	}
+
+	if req.Name != "" {
+		if err := validation.ValidateName(req.Name); err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+	}
+	if req.Price != 0 {
+		if err := validation.ValidatePrice(req.Price); err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
 	}
 
 	id, err := uuid.Parse(req.ProductId)

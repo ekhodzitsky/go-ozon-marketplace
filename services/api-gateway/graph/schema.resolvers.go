@@ -13,11 +13,21 @@ import (
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/validation"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph/model"
 )
 
 // Register is the resolver for the register field.
 func (r *mutationResolver) Register(ctx context.Context, email string, password string, name string) (string, error) {
+	if err := validation.ValidateEmail(email); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if err := validation.ValidatePassword(password); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if err := validation.ValidateName(name); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	resp, err := r.UserService.Register(ctx, &userv1.RegisterRequest{
@@ -33,6 +43,12 @@ func (r *mutationResolver) Register(ctx context.Context, email string, password 
 
 // Login is the resolver for the login field.
 func (r *mutationResolver) Login(ctx context.Context, email string, password string) (string, error) {
+	if err := validation.ValidateEmail(email); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if err := validation.ValidatePassword(password); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	resp, err := r.UserService.Login(ctx, &userv1.LoginRequest{
@@ -47,6 +63,12 @@ func (r *mutationResolver) Login(ctx context.Context, email string, password str
 
 // CreateProduct is the resolver for the createProduct field.
 func (r *mutationResolver) CreateProduct(ctx context.Context, name string, description string, price float64, categories []string) (string, error) {
+	if err := validation.ValidateName(name); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+	if err := validation.ValidatePrice(price); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	resp, err := r.CatalogService.CreateProduct(ctx, &catalogv1.CreateProductRequest{
@@ -63,16 +85,22 @@ func (r *mutationResolver) CreateProduct(ctx context.Context, name string, descr
 
 // CreateOrder is the resolver for the createOrder field.
 func (r *mutationResolver) CreateOrder(ctx context.Context, userID string, items []*model.OrderItemInput) (string, error) {
-	ctx, cancel := r.withTimeout(ctx)
-	defer cancel()
 	protoItems := make([]*orderv1.OrderItem, len(items))
 	for i, item := range items {
+		if err := validation.ValidateQuantity(item.Quantity); err != nil {
+			return "", fmt.Errorf("invalid input: %w", err)
+		}
+		if err := validation.ValidatePrice(item.Price); err != nil {
+			return "", fmt.Errorf("invalid input: %w", err)
+		}
 		protoItems[i] = &orderv1.OrderItem{
 			ProductId: item.ProductID,
 			Quantity:  item.Quantity,
 			Price:     item.Price,
 		}
 	}
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
 	resp, err := r.OrderService.CreateOrder(ctx, &orderv1.CreateOrderRequest{
 		UserId: userID,
 		Items:  protoItems,
@@ -160,6 +188,9 @@ func (r *queryResolver) SearchProducts(ctx context.Context, query string, page *
 		req.Page = *page
 	}
 	if pageSize != nil {
+		if err := validation.ValidatePageSize(*pageSize); err != nil {
+			return nil, fmt.Errorf("invalid input: %w", err)
+		}
 		req.PageSize = *pageSize
 	}
 	resp, err := r.CatalogService.SearchProducts(ctx, req)
@@ -200,6 +231,9 @@ func (r *queryResolver) Orders(ctx context.Context, userID string, page *int32, 
 		req.Page = *page
 	}
 	if pageSize != nil {
+		if err := validation.ValidatePageSize(*pageSize); err != nil {
+			return nil, fmt.Errorf("invalid input: %w", err)
+		}
 		req.PageSize = *pageSize
 	}
 	resp, err := r.OrderService.ListOrders(ctx, req)

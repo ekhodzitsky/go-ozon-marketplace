@@ -1,0 +1,53 @@
+replicaCount: 1
+
+image:
+  repository: go-ozon-marketplace/api-gateway
+  pullPolicy: IfNotPresent
+  tag: ""
+
+service:
+  type: ClusterIP
+  httpPort: 8080
+  grpcPort: 8080
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+  hosts:
+    - host: api-gateway.local
+      paths:
+        - path: /graphql
+          pathType: Prefix
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 256Mi
+  requests:
+    cpu: 500m
+    memory: 128Mi
+
+env:
+  PORT: "8080"
+  USER_SERVICE_ADDR: "user-service:50051"
+  CATALOG_SERVICE_ADDR: "catalog-service:50052"
+
+secrets:
+  jwtSecret: ""
+  postgresDSN: ""
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

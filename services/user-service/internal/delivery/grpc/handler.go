@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/validation"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/usecase"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
@@ -23,6 +24,15 @@ func NewUserHandler(uc usecase.UserUsecase) *UserHandler {
 }
 
 func (h *UserHandler) Register(ctx context.Context, req *userv1.RegisterRequest) (*userv1.RegisterResponse, error) {
+	if err := validation.ValidateEmail(req.Email); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if err := validation.ValidatePassword(req.Password); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if err := validation.ValidateName(req.Name); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	id, err := h.usecase.Register(ctx, req.Email, req.Password, req.Name)
 	if err != nil {
 		return nil, err
@@ -31,6 +41,12 @@ func (h *UserHandler) Register(ctx context.Context, req *userv1.RegisterRequest)
 }
 
 func (h *UserHandler) Login(ctx context.Context, req *userv1.LoginRequest) (*userv1.LoginResponse, error) {
+	if err := validation.ValidateEmail(req.Email); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if err := validation.ValidatePassword(req.Password); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	token, err := h.usecase.Login(ctx, req.Email, req.Password)
 	if err != nil {
 		return nil, err

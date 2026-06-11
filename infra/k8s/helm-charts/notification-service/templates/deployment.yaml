@@ -50,15 +50,15 @@ spec:
             - secretRef:
                 name: {{ include "notification-service.fullname" . }}-secrets
           livenessProbe:
-            tcpSocket:
-              port: grpc
+            grpc:
+              port: {{ .Values.service.grpcPort }}
             initialDelaySeconds: 10
-            periodSeconds: 10
+            periodSeconds: 15
           readinessProbe:
-            tcpSocket:
-              port: grpc
+            grpc:
+              port: {{ .Values.service.grpcPort }}
             initialDelaySeconds: 5
-            periodSeconds: 5
+            periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       {{- with .Values.nodeSelector }}

@@ -23,6 +23,10 @@ type Config struct {
 func Load() *Config {
 	grpcPort := config.GetEnvInt("GRPC_PORT", 50051)
 	httpPort := config.GetEnvInt("HTTP_PORT", 8080)
+	jwtSecret := config.MustGetEnv("JWT_SECRET")
+	if len(jwtSecret) < 32 {
+		panic("JWT_SECRET must be at least 32 characters long")
+	}
 	return &Config{
 		GRPCPort:                 grpcPort,
 		HTTPPort:                 httpPort,
@@ -31,7 +35,7 @@ func Load() *Config {
 		LogFormat:                config.GetEnv("LOG_FORMAT", "json"),
 		OTELExporterOTLPEndpoint: config.GetEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"),
 		PostgresDSN:              config.MustGetEnv("POSTGRES_DSN"),
-		JWTSecret:                config.MustGetEnv("JWT_SECRET"),
+		JWTSecret:                jwtSecret,
 		CertPath:                 config.GetEnv("CERT_PATH", ""),
 		DefaultCallTimeout:       config.GetEnvDuration("DEFAULT_CALL_TIMEOUT", 5*time.Second),
 		DefaultQueryTimeout:      config.GetEnvDuration("DEFAULT_QUERY_TIMEOUT", 3*time.Second),

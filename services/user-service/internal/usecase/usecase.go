@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/repository"
 	"github.com/golang-jwt/jwt/v5"
@@ -45,6 +46,7 @@ func (u *userUsecase) Register(ctx context.Context, email, password, name string
 		Email:        email,
 		PasswordHash: string(hash),
 		Name:         name,
+		Role:         string(middleware.RoleUser),
 		CreatedAt:    time.Now().UTC(),
 	}
 
@@ -68,10 +70,24 @@ func (u *userUsecase) Login(ctx context.Context, email, password string) (string
 		return "", fmt.Errorf("invalid password")
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"user_id": user.ID.String(),
-		"exp":     time.Now().Add(24 * time.Hour).Unix(),
-	})
+	now := time.Now()
+	role := user.Role
+	if role == "" {
+		role = string(middleware.RoleUser)
+	}
+	claims := middleware.CustomClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   user.ID.String(),
+			Issuer:    "go-ozon-marketplace",
+			Audience:  jwt.ClaimStrings{"api-gateway"},
+			ID:        uuid.NewString(),
+			NotBefore: jwt.NewNumericDate(now),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
+		},
+		Role: role,
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
 	tokenString, err := token.SignedString([]byte(u.jwtSecret))
 	if err != nil {

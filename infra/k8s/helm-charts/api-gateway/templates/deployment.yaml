@@ -40,6 +40,9 @@ spec:
             - name: http
               containerPort: {{ .Values.service.httpPort }}
               protocol: TCP
+            - name: grpc
+              containerPort: {{ .Values.service.grpcPort }}
+              protocol: TCP
           env:
             - name: PORT
               value: {{ .Values.env.PORT | quote }}
@@ -51,17 +54,15 @@ spec:
             - secretRef:
                 name: {{ include "api-gateway.fullname" . }}-secrets
           livenessProbe:
-            httpGet:
-              path: /
-              port: http
+            grpc:
+              port: {{ .Values.service.grpcPort }}
             initialDelaySeconds: 10
-            periodSeconds: 10
+            periodSeconds: 15
           readinessProbe:
-            httpGet:
-              path: /
-              port: http
+            grpc:
+              port: {{ .Values.service.grpcPort }}
             initialDelaySeconds: 5
-            periodSeconds: 5
+            periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       {{- with .Values.nodeSelector }}

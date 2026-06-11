@@ -33,10 +33,10 @@ func TestCatalogHandler_CreateProduct(t *testing.T) {
 	}{
 		{
 			name: "success",
-			req:  tests.NewCreateProductRequestBuilder().WithName("P").WithDescription("D").WithPrice(10.0).WithCategories([]string{"c"}).Build(),
+			req:  tests.NewCreateProductRequestBuilder().WithName("PP").WithDescription("D").WithPrice(10.0).WithCategories([]string{"c"}).Build(),
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
 				m := mocks.NewMockCatalogUsecase(ctrl)
-				m.EXPECT().CreateProduct(gomock.Any(), "P", "D", int64(1000), []string{"c"}).Return(uuid.New(), nil)
+				m.EXPECT().CreateProduct(gomock.Any(), "PP", "D", int64(1000), []string{"c"}).Return(uuid.New(), nil)
 				return m
 			},
 			wantCode: codes.OK,
@@ -44,10 +44,10 @@ func TestCatalogHandler_CreateProduct(t *testing.T) {
 		},
 		{
 			name: "usecase_error",
-			req:  tests.NewCreateProductRequestBuilder().WithName("P").WithPrice(10.0).Build(),
+			req:  tests.NewCreateProductRequestBuilder().WithName("PP").WithPrice(10.0).Build(),
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
 				m := mocks.NewMockCatalogUsecase(ctrl)
-				m.EXPECT().CreateProduct(gomock.Any(), "P", "", int64(1000), gomock.Any()).Return(uuid.Nil, errors.New("boom"))
+				m.EXPECT().CreateProduct(gomock.Any(), "PP", "", int64(1000), gomock.Any()).Return(uuid.Nil, errors.New("boom"))
 				return m
 			},
 			wantCode: codes.Unknown,

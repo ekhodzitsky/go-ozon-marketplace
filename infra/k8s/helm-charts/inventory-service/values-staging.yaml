@@ -1,0 +1,50 @@
+replicaCount: 1
+
+image:
+  repository: go-ozon-marketplace/inventory-service
+  pullPolicy: IfNotPresent
+  tag: ""
+
+service:
+  type: ClusterIP
+  grpcPort: 50053
+  metricsPort: 51053
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+  hosts:
+    - host: inventory-service.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 256Mi
+  requests:
+    cpu: 500m
+    memory: 128Mi
+
+env:
+  GRPC_PORT: "50053"
+  REDIS_ADDR: "redis:6379"
+
+secrets:
+  jwtSecret: ""
+  postgresDSN: ""
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

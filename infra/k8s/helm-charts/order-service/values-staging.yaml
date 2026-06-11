@@ -1,0 +1,51 @@
+replicaCount: 1
+
+image:
+  repository: go-ozon-marketplace/order-service
+  pullPolicy: IfNotPresent
+  tag: ""
+
+service:
+  type: ClusterIP
+  grpcPort: 50055
+  metricsPort: 51055
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+  hosts:
+    - host: order-service.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 256Mi
+  requests:
+    cpu: 500m
+    memory: 128Mi
+
+env:
+  GRPC_PORT: "50055"
+  INVENTORY_ADDR: "inventory-service:50053"
+  PAYMENT_ADDR: "payment-service:50054"
+
+secrets:
+  jwtSecret: ""
+  postgresDSN: ""
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
