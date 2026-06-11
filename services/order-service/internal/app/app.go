@@ -12,6 +12,7 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	pkgpostgres "github.com/ekhodzitsky/go-ozon-marketplace/pkg/postgres"
+	pkgredis "github.com/ekhodzitsky/go-ozon-marketplace/pkg/redis"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/server"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/tracing"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/config"
@@ -24,14 +25,18 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/unitofwork"
 	postgresuow "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/unitofwork/postgres"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/usecase"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/metadata"
 )
 
 func initCtx(cfg *config.Config) (context.Context, context.CancelFunc) {
@@ -50,6 +55,24 @@ func clientCreds(cfg *config.Config) (credentials.TransportCredentials, error) {
 	return insecure.NewCredentials(), nil
 }
 
+func serviceAuthInterceptor(jwtSecret string) grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, middleware.CustomClaims{
+			RegisteredClaims: jwt.RegisteredClaims{
+				Subject:   "order-service",
+				Issuer:    "go-ozon-marketplace",
+				Audience:  jwt.ClaimStrings{"api-gateway"},
+				ID:        uuid.New().String(),
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			},
+			Role: string(middleware.RoleService),
+		})
+		tokenStr, _ := token.SignedString([]byte(jwtSecret))
+		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+tokenStr)
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}
+}
+
 func New() *fx.App {
 	return fx.New(
 		fx.Provide(
@@ -61,6 +84,20 @@ func New() *fx.App {
 				ctx, cancel := initCtx(cfg)
 				defer cancel()
 				return pkgpostgres.NewPool(ctx, cfg.PostgresDSN)
+			},
+			func(cfg *config.Config, lc fx.Lifecycle) (*redis.Client, error) {
+				ctx, cancel := context.WithTimeout(context.Background(), cfg.DefaultQueryTimeout)
+				defer cancel()
+				client, err := pkgredis.NewClient(ctx, cfg.RedisAddr)
+				if err != nil {
+					return nil, err
+				}
+				lc.Append(fx.Hook{
+					OnStop: func(ctx context.Context) error {
+						return client.Close()
+					},
+				})
+				return client, nil
 			},
 			func(pool *pgxpool.Pool) func() unitofwork.UnitOfWork {
 				return func() unitofwork.UnitOfWork {
@@ -90,6 +127,7 @@ func New() *fx.App {
 					ctx,
 					cfg.InventoryAddr,
 					grpc.WithTransportCredentials(creds),
+					grpc.WithChainUnaryInterceptor(serviceAuthInterceptor(cfg.JWTSecret)),
 					grpc.WithKeepaliveParams(keepalive.ClientParameters{
 						Time:                10 * time.Second,
 						Timeout:             20 * time.Second,
@@ -118,6 +156,7 @@ func New() *fx.App {
 					ctx,
 					cfg.PaymentAddr,
 					grpc.WithTransportCredentials(creds),
+					grpc.WithChainUnaryInterceptor(serviceAuthInterceptor(cfg.JWTSecret)),
 					grpc.WithKeepaliveParams(keepalive.ClientParameters{
 						Time:                10 * time.Second,
 						Timeout:             20 * time.Second,
@@ -151,9 +190,10 @@ func New() *fx.App {
 				outboxRepo repository.OutboxRepository,
 				orchestrator *saga.Orchestrator,
 				invClient saga.InventoryClient,
+				redisClient *redis.Client,
 				cfg *config.Config,
 			) usecase.OrderUsecase {
-				return usecase.NewOrderUsecase(uowFactory, orderRepo, outboxRepo, orchestrator, invClient, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
+				return usecase.NewOrderUsecase(uowFactory, orderRepo, outboxRepo, orchestrator, invClient, redisClient, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
 			},
 			grpcdelivery.NewOrderHandler,
 			func(cfg *config.Config, lc fx.Lifecycle) (outbox.Producer, error) {
@@ -170,6 +210,12 @@ func New() *fx.App {
 			},
 			func(repo repository.OutboxRepository, producer outbox.Producer, log *zap.Logger, cfg *config.Config) *outbox.Relay {
 				return outbox.NewRelay(repo, producer, log, cfg.DefaultQueryTimeout, cfg.KafkaTopic)
+			},
+			func(
+				orchestrator *saga.Orchestrator,
+				log *zap.Logger,
+			) *saga.RecoveryWorker {
+				return saga.NewRecoveryWorker(orchestrator, log)
 			},
 		),
 		fx.Invoke(func(lc fx.Lifecycle, handler *grpcdelivery.OrderHandler, cfg *config.Config, log *zap.Logger) {
@@ -229,6 +275,18 @@ func New() *fx.App {
 				},
 				OnStop: func(ctx context.Context) error {
 					relay.Stop()
+					return nil
+				},
+			})
+		}),
+		fx.Invoke(func(lc fx.Lifecycle, recovery *saga.RecoveryWorker) {
+			lc.Append(fx.Hook{
+				OnStart: func(ctx context.Context) error {
+					recovery.Start(ctx)
+					return nil
+				},
+				OnStop: func(ctx context.Context) error {
+					recovery.Stop()
 					return nil
 				},
 			})

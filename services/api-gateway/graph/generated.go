@@ -8,6 +8,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -41,12 +42,25 @@ type Config struct {
 type ResolverRoot interface {
 	Mutation() MutationResolver
 	Query() QueryResolver
+	Subscription() SubscriptionResolver
 }
 
 type DirectiveRoot struct {
 }
 
 type ComplexityRoot struct {
+	ABTestAssignment struct {
+		Experiment func(childComplexity int) int
+		Variation  func(childComplexity int) int
+	}
+
+	FeatureFlags struct {
+		DiscountSystem  func(childComplexity int) int
+		FastSearch      func(childComplexity int) int
+		NewCheckoutFlow func(childComplexity int) int
+		RealTimeUpdates func(childComplexity int) int
+	}
+
 	Inventory struct {
 		Available func(childComplexity int) int
 		ProductID func(childComplexity int) int
@@ -97,13 +111,20 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		Inventory      func(childComplexity int, productID string) int
-		Me             func(childComplexity int) int
-		Order          func(childComplexity int, id string) int
-		Orders         func(childComplexity int, userID string, page *int32, pageSize *int32) int
-		Product        func(childComplexity int, id string) int
-		SearchProducts func(childComplexity int, query string, page *int32, pageSize *int32) int
-		User           func(childComplexity int, id string) int
+		AbTestAssignments func(childComplexity int, userID string) int
+		FeatureFlags      func(childComplexity int) int
+		Inventory         func(childComplexity int, productID string) int
+		Me                func(childComplexity int) int
+		Order             func(childComplexity int, id string) int
+		Orders            func(childComplexity int, userID string, page *int32, pageSize *int32) int
+		Product           func(childComplexity int, id string) int
+		SearchProducts    func(childComplexity int, query string, page *int32, pageSize *int32) int
+		User              func(childComplexity int, id string) int
+	}
+
+	Subscription struct {
+		InventoryChanged   func(childComplexity int, productID string) int
+		OrderStatusChanged func(childComplexity int, userID string) int
 	}
 
 	User struct {
@@ -129,6 +150,12 @@ type QueryResolver interface {
 	Order(ctx context.Context, id string) (*model.Order, error)
 	Orders(ctx context.Context, userID string, page *int32, pageSize *int32) (*model.OrderConnection, error)
 	Inventory(ctx context.Context, productID string) (*model.Inventory, error)
+	FeatureFlags(ctx context.Context) (*model.FeatureFlags, error)
+	AbTestAssignments(ctx context.Context, userID string) ([]*model.ABTestAssignment, error)
+}
+type SubscriptionResolver interface {
+	OrderStatusChanged(ctx context.Context, userID string) (<-chan *model.Order, error)
+	InventoryChanged(ctx context.Context, productID string) (<-chan *model.Inventory, error)
 }
 
 type executableSchema struct {
@@ -149,6 +176,48 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 	ec := executionContext{nil, e, 0, 0, nil}
 	_ = ec
 	switch typeName + "." + field {
+
+	case "ABTestAssignment.experiment":
+		if e.complexity.ABTestAssignment.Experiment == nil {
+			break
+		}
+
+		return e.complexity.ABTestAssignment.Experiment(childComplexity), true
+
+	case "ABTestAssignment.variation":
+		if e.complexity.ABTestAssignment.Variation == nil {
+			break
+		}
+
+		return e.complexity.ABTestAssignment.Variation(childComplexity), true
+
+	case "FeatureFlags.discountSystem":
+		if e.complexity.FeatureFlags.DiscountSystem == nil {
+			break
+		}
+
+		return e.complexity.FeatureFlags.DiscountSystem(childComplexity), true
+
+	case "FeatureFlags.fastSearch":
+		if e.complexity.FeatureFlags.FastSearch == nil {
+			break
+		}
+
+		return e.complexity.FeatureFlags.FastSearch(childComplexity), true
+
+	case "FeatureFlags.newCheckoutFlow":
+		if e.complexity.FeatureFlags.NewCheckoutFlow == nil {
+			break
+		}
+
+		return e.complexity.FeatureFlags.NewCheckoutFlow(childComplexity), true
+
+	case "FeatureFlags.realTimeUpdates":
+		if e.complexity.FeatureFlags.RealTimeUpdates == nil {
+			break
+		}
+
+		return e.complexity.FeatureFlags.RealTimeUpdates(childComplexity), true
 
 	case "Inventory.available":
 		if e.complexity.Inventory.Available == nil {
@@ -371,6 +440,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.ProductConnection.Total(childComplexity), true
 
+	case "Query.abTestAssignments":
+		if e.complexity.Query.AbTestAssignments == nil {
+			break
+		}
+
+		args, err := ec.field_Query_abTestAssignments_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.AbTestAssignments(childComplexity, args["userId"].(string)), true
+
+	case "Query.featureFlags":
+		if e.complexity.Query.FeatureFlags == nil {
+			break
+		}
+
+		return e.complexity.Query.FeatureFlags(childComplexity), true
+
 	case "Query.inventory":
 		if e.complexity.Query.Inventory == nil {
 			break
@@ -449,6 +537,30 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Query.User(childComplexity, args["id"].(string)), true
+
+	case "Subscription.inventoryChanged":
+		if e.complexity.Subscription.InventoryChanged == nil {
+			break
+		}
+
+		args, err := ec.field_Subscription_inventoryChanged_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Subscription.InventoryChanged(childComplexity, args["productId"].(string)), true
+
+	case "Subscription.orderStatusChanged":
+		if e.complexity.Subscription.OrderStatusChanged == nil {
+			break
+		}
+
+		args, err := ec.field_Subscription_orderStatusChanged_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Subscription.OrderStatusChanged(childComplexity, args["userId"].(string)), true
 
 	case "User.createdAt":
 		if e.complexity.User.CreatedAt == nil {
@@ -530,6 +642,23 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 			ctx = graphql.WithUnmarshalerMap(ctx, inputUnmarshalMap)
 			data := ec._Mutation(ctx, opCtx.Operation.SelectionSet)
 			var buf bytes.Buffer
+			data.MarshalGQL(&buf)
+
+			return &graphql.Response{
+				Data: buf.Bytes(),
+			}
+		}
+	case ast.Subscription:
+		next := ec._Subscription(ctx, opCtx.Operation.SelectionSet)
+
+		var buf bytes.Buffer
+		return func(ctx context.Context) *graphql.Response {
+			buf.Reset()
+			data := next(ctx)
+
+			if data == nil {
+				return nil
+			}
 			data.MarshalGQL(&buf)
 
 			return &graphql.Response{
@@ -867,6 +996,29 @@ func (ec *executionContext) field_Query___type_argsName(
 	return zeroVal, nil
 }
 
+func (ec *executionContext) field_Query_abTestAssignments_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_abTestAssignments_argsUserID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["userId"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Query_abTestAssignments_argsUserID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("userId"))
+	if tmp, ok := rawArgs["userId"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
 func (ec *executionContext) field_Query_inventory_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1077,6 +1229,52 @@ func (ec *executionContext) field_Query_user_argsID(
 	return zeroVal, nil
 }
 
+func (ec *executionContext) field_Subscription_inventoryChanged_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Subscription_inventoryChanged_argsProductID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["productId"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Subscription_inventoryChanged_argsProductID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("productId"))
+	if tmp, ok := rawArgs["productId"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Subscription_orderStatusChanged_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Subscription_orderStatusChanged_argsUserID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["userId"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Subscription_orderStatusChanged_argsUserID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("userId"))
+	if tmp, ok := rawArgs["userId"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
 func (ec *executionContext) field___Directive_args_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1176,6 +1374,270 @@ func (ec *executionContext) field___Type_fields_argsIncludeDeprecated(
 // endregion ************************** directives.gotpl **************************
 
 // region    **************************** field.gotpl *****************************
+
+func (ec *executionContext) _ABTestAssignment_experiment(ctx context.Context, field graphql.CollectedField, obj *model.ABTestAssignment) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ABTestAssignment_experiment(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Experiment, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ABTestAssignment_experiment(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ABTestAssignment",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ABTestAssignment_variation(ctx context.Context, field graphql.CollectedField, obj *model.ABTestAssignment) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_ABTestAssignment_variation(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Variation, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_ABTestAssignment_variation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ABTestAssignment",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _FeatureFlags_newCheckoutFlow(ctx context.Context, field graphql.CollectedField, obj *model.FeatureFlags) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_FeatureFlags_newCheckoutFlow(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.NewCheckoutFlow, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_FeatureFlags_newCheckoutFlow(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "FeatureFlags",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _FeatureFlags_fastSearch(ctx context.Context, field graphql.CollectedField, obj *model.FeatureFlags) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_FeatureFlags_fastSearch(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.FastSearch, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_FeatureFlags_fastSearch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "FeatureFlags",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _FeatureFlags_discountSystem(ctx context.Context, field graphql.CollectedField, obj *model.FeatureFlags) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_FeatureFlags_discountSystem(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.DiscountSystem, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_FeatureFlags_discountSystem(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "FeatureFlags",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _FeatureFlags_realTimeUpdates(ctx context.Context, field graphql.CollectedField, obj *model.FeatureFlags) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_FeatureFlags_realTimeUpdates(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.RealTimeUpdates, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(bool)
+	fc.Result = res
+	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_FeatureFlags_realTimeUpdates(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "FeatureFlags",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	return fc, nil
+}
 
 func (ec *executionContext) _Inventory_productId(ctx context.Context, field graphql.CollectedField, obj *model.Inventory) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Inventory_productId(ctx, field)
@@ -2925,6 +3387,121 @@ func (ec *executionContext) fieldContext_Query_inventory(ctx context.Context, fi
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_featureFlags(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_featureFlags(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().FeatureFlags(rctx)
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.FeatureFlags)
+	fc.Result = res
+	return ec.marshalNFeatureFlags2ᚖgithubᚗcomᚋekhodzitskyᚋgoᚑozonᚑmarketplaceᚋservicesᚋapiᚑgatewayᚋgraphᚋmodelᚐFeatureFlags(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_featureFlags(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "newCheckoutFlow":
+				return ec.fieldContext_FeatureFlags_newCheckoutFlow(ctx, field)
+			case "fastSearch":
+				return ec.fieldContext_FeatureFlags_fastSearch(ctx, field)
+			case "discountSystem":
+				return ec.fieldContext_FeatureFlags_discountSystem(ctx, field)
+			case "realTimeUpdates":
+				return ec.fieldContext_FeatureFlags_realTimeUpdates(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type FeatureFlags", field.Name)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_abTestAssignments(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_abTestAssignments(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().AbTestAssignments(rctx, fc.Args["userId"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]*model.ABTestAssignment)
+	fc.Result = res
+	return ec.marshalNABTestAssignment2ᚕᚖgithubᚗcomᚋekhodzitskyᚋgoᚑozonᚑmarketplaceᚋservicesᚋapiᚑgatewayᚋgraphᚋmodelᚐABTestAssignmentᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_abTestAssignments(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "experiment":
+				return ec.fieldContext_ABTestAssignment_experiment(ctx, field)
+			case "variation":
+				return ec.fieldContext_ABTestAssignment_variation(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type ABTestAssignment", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_abTestAssignments_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query___type(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Query___type(ctx, field)
 	if err != nil {
@@ -3052,6 +3629,162 @@ func (ec *executionContext) fieldContext_Query___schema(_ context.Context, field
 			}
 			return nil, fmt.Errorf("no field named %q was found under type __Schema", field.Name)
 		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_orderStatusChanged(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	fc, err := ec.fieldContext_Subscription_orderStatusChanged(ctx, field)
+	if err != nil {
+		return nil
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = nil
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Subscription().OrderStatusChanged(rctx, fc.Args["userId"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return nil
+	}
+	if resTmp == nil {
+		return nil
+	}
+	return func(ctx context.Context) graphql.Marshaler {
+		select {
+		case res, ok := <-resTmp.(<-chan *model.Order):
+			if !ok {
+				return nil
+			}
+			return graphql.WriterFunc(func(w io.Writer) {
+				w.Write([]byte{'{'})
+				graphql.MarshalString(field.Alias).MarshalGQL(w)
+				w.Write([]byte{':'})
+				ec.marshalOOrder2ᚖgithubᚗcomᚋekhodzitskyᚋgoᚑozonᚑmarketplaceᚋservicesᚋapiᚑgatewayᚋgraphᚋmodelᚐOrder(ctx, field.Selections, res).MarshalGQL(w)
+				w.Write([]byte{'}'})
+			})
+		case <-ctx.Done():
+			return nil
+		}
+	}
+}
+
+func (ec *executionContext) fieldContext_Subscription_orderStatusChanged(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_Order_id(ctx, field)
+			case "userId":
+				return ec.fieldContext_Order_userId(ctx, field)
+			case "items":
+				return ec.fieldContext_Order_items(ctx, field)
+			case "totalAmount":
+				return ec.fieldContext_Order_totalAmount(ctx, field)
+			case "status":
+				return ec.fieldContext_Order_status(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_Order_createdAt(ctx, field)
+			case "updatedAt":
+				return ec.fieldContext_Order_updatedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Order", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Subscription_orderStatusChanged_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_inventoryChanged(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	fc, err := ec.fieldContext_Subscription_inventoryChanged(ctx, field)
+	if err != nil {
+		return nil
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = nil
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Subscription().InventoryChanged(rctx, fc.Args["productId"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return nil
+	}
+	if resTmp == nil {
+		return nil
+	}
+	return func(ctx context.Context) graphql.Marshaler {
+		select {
+		case res, ok := <-resTmp.(<-chan *model.Inventory):
+			if !ok {
+				return nil
+			}
+			return graphql.WriterFunc(func(w io.Writer) {
+				w.Write([]byte{'{'})
+				graphql.MarshalString(field.Alias).MarshalGQL(w)
+				w.Write([]byte{':'})
+				ec.marshalOInventory2ᚖgithubᚗcomᚋekhodzitskyᚋgoᚑozonᚑmarketplaceᚋservicesᚋapiᚑgatewayᚋgraphᚋmodelᚐInventory(ctx, field.Selections, res).MarshalGQL(w)
+				w.Write([]byte{'}'})
+			})
+		case <-ctx.Done():
+			return nil
+		}
+	}
+}
+
+func (ec *executionContext) fieldContext_Subscription_inventoryChanged(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "productId":
+				return ec.fieldContext_Inventory_productId(ctx, field)
+			case "available":
+				return ec.fieldContext_Inventory_available(ctx, field)
+			case "reserved":
+				return ec.fieldContext_Inventory_reserved(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type Inventory", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Subscription_inventoryChanged_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -5232,6 +5965,104 @@ func (ec *executionContext) unmarshalInputOrderItemInput(ctx context.Context, ob
 
 // region    **************************** object.gotpl ****************************
 
+var aBTestAssignmentImplementors = []string{"ABTestAssignment"}
+
+func (ec *executionContext) _ABTestAssignment(ctx context.Context, sel ast.SelectionSet, obj *model.ABTestAssignment) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, aBTestAssignmentImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ABTestAssignment")
+		case "experiment":
+			out.Values[i] = ec._ABTestAssignment_experiment(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "variation":
+			out.Values[i] = ec._ABTestAssignment_variation(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var featureFlagsImplementors = []string{"FeatureFlags"}
+
+func (ec *executionContext) _FeatureFlags(ctx context.Context, sel ast.SelectionSet, obj *model.FeatureFlags) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, featureFlagsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("FeatureFlags")
+		case "newCheckoutFlow":
+			out.Values[i] = ec._FeatureFlags_newCheckoutFlow(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "fastSearch":
+			out.Values[i] = ec._FeatureFlags_fastSearch(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "discountSystem":
+			out.Values[i] = ec._FeatureFlags_discountSystem(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "realTimeUpdates":
+			out.Values[i] = ec._FeatureFlags_realTimeUpdates(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
 var inventoryImplementors = []string{"Inventory"}
 
 func (ec *executionContext) _Inventory(ctx context.Context, sel ast.SelectionSet, obj *model.Inventory) graphql.Marshaler {
@@ -5780,6 +6611,50 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "featureFlags":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_featureFlags(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "abTestAssignments":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_abTestAssignments(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Query___type(ctx, field)
@@ -5809,6 +6684,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 	}
 
 	return out
+}
+
+var subscriptionImplementors = []string{"Subscription"}
+
+func (ec *executionContext) _Subscription(ctx context.Context, sel ast.SelectionSet) func(ctx context.Context) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, subscriptionImplementors)
+	ctx = graphql.WithFieldContext(ctx, &graphql.FieldContext{
+		Object: "Subscription",
+	})
+	if len(fields) != 1 {
+		ec.Errorf(ctx, "must subscribe to exactly one stream")
+		return nil
+	}
+
+	switch fields[0].Name {
+	case "orderStatusChanged":
+		return ec._Subscription_orderStatusChanged(ctx, fields[0])
+	case "inventoryChanged":
+		return ec._Subscription_inventoryChanged(ctx, fields[0])
+	default:
+		panic("unknown field " + strconv.Quote(fields[0].Name))
+	}
 }
 
 var userImplementors = []string{"User"}
@@ -6200,6 +7097,60 @@ func (ec *executionContext) ___Type(ctx context.Context, sel ast.SelectionSet, o
 
 // region    ***************************** type.gotpl *****************************
 
+func (ec *executionContext) marshalNABTestAssignment2ᚕᚖgithubᚗcomᚋekhodzitskyᚋgoᚑozonᚑmarketplaceᚋservicesᚋapiᚑgatewayᚋgraphᚋmodelᚐABTestAssignmentᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.ABTestAssignment) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	var wg sync.WaitGroup
+	isLen1 := len(v) == 1
+	if !isLen1 {
+		wg.Add(len(v))
+	}
+	for i := range v {
+		i := i
+		fc := &graphql.FieldContext{
+			Index:  &i,
+			Result: &v[i],
+		}
+		ctx := graphql.WithFieldContext(ctx, fc)
+		f := func(i int) {
+			defer func() {
+				if r := recover(); r != nil {
+					ec.Error(ctx, ec.Recover(ctx, r))
+					ret = nil
+				}
+			}()
+			if !isLen1 {
+				defer wg.Done()
+			}
+			ret[i] = ec.marshalNABTestAssignment2ᚖgithubᚗcomᚋekhodzitskyᚋgoᚑozonᚑmarketplaceᚋservicesᚋapiᚑgatewayᚋgraphᚋmodelᚐABTestAssignment(ctx, sel, v[i])
+		}
+		if isLen1 {
+			f(i)
+		} else {
+			go f(i)
+		}
+
+	}
+	wg.Wait()
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNABTestAssignment2ᚖgithubᚗcomᚋekhodzitskyᚋgoᚑozonᚑmarketplaceᚋservicesᚋapiᚑgatewayᚋgraphᚋmodelᚐABTestAssignment(ctx context.Context, sel ast.SelectionSet, v *model.ABTestAssignment) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._ABTestAssignment(ctx, sel, v)
+}
+
 func (ec *executionContext) unmarshalNBoolean2bool(ctx context.Context, v any) (bool, error) {
 	res, err := graphql.UnmarshalBoolean(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -6213,6 +7164,20 @@ func (ec *executionContext) marshalNBoolean2bool(ctx context.Context, sel ast.Se
 		}
 	}
 	return res
+}
+
+func (ec *executionContext) marshalNFeatureFlags2githubᚗcomᚋekhodzitskyᚋgoᚑozonᚑmarketplaceᚋservicesᚋapiᚑgatewayᚋgraphᚋmodelᚐFeatureFlags(ctx context.Context, sel ast.SelectionSet, v model.FeatureFlags) graphql.Marshaler {
+	return ec._FeatureFlags(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNFeatureFlags2ᚖgithubᚗcomᚋekhodzitskyᚋgoᚑozonᚑmarketplaceᚋservicesᚋapiᚑgatewayᚋgraphᚋmodelᚐFeatureFlags(ctx context.Context, sel ast.SelectionSet, v *model.FeatureFlags) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._FeatureFlags(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNFloat2float64(ctx context.Context, v any) (float64, error) {

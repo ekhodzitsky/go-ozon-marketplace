@@ -6,8 +6,11 @@ package graph
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"time"
 
+	analyticsv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/analytics/v1"
 	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
 	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
@@ -108,6 +111,26 @@ func (r *mutationResolver) CreateOrder(ctx context.Context, userID string, items
 	if err != nil {
 		return "", err
 	}
+
+	// Track A/B test conversion for checkout experiment.
+	if r.AnalyticsService != nil {
+		for _, exp := range r.ABExperiments {
+			if exp.Name == "checkout-button-color" {
+				go func(experiment, variation string) {
+					trackCtx, trackCancel := context.WithTimeout(context.Background(), 3*time.Second)
+					defer trackCancel()
+					_, _ = r.AnalyticsService.TrackABTestEvent(trackCtx, &analyticsv1.TrackABTestEventRequest{
+						Experiment: experiment,
+						Variation:  variation,
+						UserId:     userID,
+						Conversion: true,
+					})
+				}(exp.Name, exp.Assign(userID))
+				break
+			}
+		}
+	}
+
 	return resp.OrderId, nil
 }
 
@@ -267,11 +290,120 @@ func (r *queryResolver) Inventory(ctx context.Context, productID string) (*model
 	}, nil
 }
 
+// FeatureFlags is the resolver for the featureFlags field.
+func (r *queryResolver) FeatureFlags(ctx context.Context) (*model.FeatureFlags, error) {
+	return &model.FeatureFlags{
+		NewCheckoutFlow: r.FeatureFlagsEngine.IsEnabled("new-checkout-flow", ""),
+		FastSearch:      r.FeatureFlagsEngine.IsEnabled("fast-search", ""),
+		DiscountSystem:  r.FeatureFlagsEngine.IsEnabled("discount-system", ""),
+		RealTimeUpdates: r.FeatureFlagsEngine.IsEnabled("real-time-updates", ""),
+	}, nil
+}
+
+// AbTestAssignments is the resolver for the abTestAssignments field.
+func (r *queryResolver) AbTestAssignments(ctx context.Context, userID string) ([]*model.ABTestAssignment, error) {
+	assignments := make([]*model.ABTestAssignment, 0, len(r.ABExperiments))
+	for _, exp := range r.ABExperiments {
+		assignments = append(assignments, &model.ABTestAssignment{
+			Experiment: exp.Name,
+			Variation:  exp.Assign(userID),
+		})
+	}
+	return assignments, nil
+}
+
+// OrderStatusChanged is the resolver for the orderStatusChanged field.
+func (r *subscriptionResolver) OrderStatusChanged(ctx context.Context, userID string) (<-chan *model.Order, error) {
+	ch := make(chan *model.Order, 1)
+	pubsub := r.Redis.PSubscribe(ctx, "order-events")
+	go func() {
+		defer close(ch)
+		defer pubsub.Close()
+		msgCh := pubsub.Channel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case msg, ok := <-msgCh:
+				if !ok {
+					return
+				}
+				var envelope struct {
+					Topic   string `json:"topic"`
+					UserID  string `json:"user_id"`
+					Payload struct {
+						OrderID string `json:"order_id"`
+						Status  string `json:"status"`
+						UserID  string `json:"user_id"`
+					} `json:"payload"`
+				}
+				if err := json.Unmarshal([]byte(msg.Payload), &envelope); err != nil {
+					continue
+				}
+				if envelope.UserID != "" && envelope.UserID != userID {
+					continue
+				}
+				ch <- &model.Order{
+					ID:     envelope.Payload.OrderID,
+					UserID: envelope.Payload.UserID,
+					Status: envelope.Payload.Status,
+				}
+			}
+		}
+	}()
+	return ch, nil
+}
+
+// InventoryChanged is the resolver for the inventoryChanged field.
+func (r *subscriptionResolver) InventoryChanged(ctx context.Context, productID string) (<-chan *model.Inventory, error) {
+	ch := make(chan *model.Inventory, 1)
+	pubsub := r.Redis.PSubscribe(ctx, "inventory-events")
+	go func() {
+		defer close(ch)
+		defer pubsub.Close()
+		msgCh := pubsub.Channel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case msg, ok := <-msgCh:
+				if !ok {
+					return
+				}
+				var envelope struct {
+					Topic   string `json:"topic"`
+					Payload struct {
+						ProductID string `json:"product_id"`
+						Available int32  `json:"available"`
+						Reserved  int32  `json:"reserved"`
+					} `json:"payload"`
+				}
+				if err := json.Unmarshal([]byte(msg.Payload), &envelope); err != nil {
+					continue
+				}
+				if envelope.Payload.ProductID != "" && envelope.Payload.ProductID != productID {
+					continue
+				}
+				ch <- &model.Inventory{
+					ProductID: envelope.Payload.ProductID,
+					Available: envelope.Payload.Available,
+					Reserved:  envelope.Payload.Reserved,
+				}
+			}
+		}
+	}()
+	return ch, nil
+}
+
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 
 // Query returns QueryResolver implementation.
 func (r *Resolver) Query() QueryResolver { return &queryResolver{r} }
 
+// Subscription returns SubscriptionResolver implementation.
+func (r *Resolver) Subscription() SubscriptionResolver { return &subscriptionResolver{r} }
+
 type mutationResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
+type subscriptionResolver struct{ *Resolver }

@@ -62,6 +62,28 @@ func (u *inventoryUsecase) GetStock(ctx context.Context, productID uuid.UUID) (*
 	return stock, nil
 }
 
+func (u *inventoryUsecase) publishInventoryEvent(ctx context.Context, productID uuid.UUID) {
+	if u.redis == nil {
+		return
+	}
+	stock, err := u.repo.GetStock(ctx, productID)
+	if err != nil {
+		return
+	}
+	event := map[string]interface{}{
+		"topic": "inventory",
+		"payload": map[string]interface{}{
+			"product_id": productID.String(),
+			"available":  stock.Available,
+			"reserved":   stock.Reserved,
+		},
+	}
+	data, _ := json.Marshal(event)
+	pubCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
+	defer cancel()
+	u.redis.Publish(pubCtx, "inventory-events", string(data))
+}
+
 func (u *inventoryUsecase) Reserve(ctx context.Context, productID uuid.UUID, quantity int, orderID string) error {
 	ctx, cancel := context.WithTimeout(ctx, u.callTimeout)
 	defer cancel()
@@ -75,6 +97,7 @@ func (u *inventoryUsecase) Reserve(ctx context.Context, productID uuid.UUID, qua
 		return fmt.Errorf("reserve: %w", err)
 	}
 	u.redis.Del(ctx, cacheKey(productID))
+	u.publishInventoryEvent(ctx, productID)
 	return nil
 }
 
@@ -91,6 +114,7 @@ func (u *inventoryUsecase) Release(ctx context.Context, productID uuid.UUID, qua
 		return fmt.Errorf("release: %w", err)
 	}
 	u.redis.Del(ctx, cacheKey(productID))
+	u.publishInventoryEvent(ctx, productID)
 	return nil
 }
 

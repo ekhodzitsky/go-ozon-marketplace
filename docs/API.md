@@ -59,6 +59,81 @@ Authorization: Bearer <token>
 
 > В GraphQL gateway **нет проверки ролей** — они проверяются на уровне gRPC сервисов (например, `inventory-service` и `notification-service` требуют `service` роль).
 
+## WebSocket
+
+`api-gateway` предоставляет WebSocket endpoint для real-time событий.
+
+### Endpoint
+
+```
+ws://localhost:8080/ws
+```
+
+### Подписка
+
+Отправьте JSON сообщение после открытия соединения:
+
+```json
+{
+  "action": "subscribe",
+  "topics": ["orders", "inventory"],
+  "user_id": "<user-id>"
+}
+```
+
+- `topics` — список топиков: `orders`, `inventory`
+- `user_id` — опционально; события `orders` фильтруются по этому user_id
+
+### События
+
+**order-events** (публикует `order-service`):
+```json
+{
+  "topic": "orders",
+  "user_id": "...",
+  "payload": {
+    "order_id": "...",
+    "status": "...",
+    "user_id": "..."
+  }
+}
+```
+
+**inventory-events** (публикует `inventory-service`):
+```json
+{
+  "topic": "inventory",
+  "payload": {
+    "product_id": "...",
+    "available": 100,
+    "reserved": 5
+  }
+}
+```
+
+### Масштабирование
+
+Gateway instance'ы подписаны на Redis Pub/Sub (`order-events`, `inventory-events`).
+Любой instance, получив событие из Redis, рассылает его всем своим WebSocket клиентам.
+
+### GraphQL Subscriptions
+
+Доступны через WebSocket transport (`/query`):
+
+```graphql
+subscription {
+  orderStatusChanged(userId: "user-id") {
+    id
+    status
+  }
+  inventoryChanged(productId: "product-id") {
+    productId
+    available
+    reserved
+  }
+}
+```
+
 ## gRPC контракты
 
 Все сервисы общаются через gRPC. Proto-файлы лежат в `api/proto/`.
@@ -90,9 +165,12 @@ make proto
 
 Токен выдаётся при `login` (не при `register`).
 
-**Реальные поля в токене:**
-- `user_id` — ID пользователя
-- `exp` — время истечения (24 часа)
-- `role` — записывается если передан (по умолчанию `user`)
-
-**Не реализовано:** `iss`, `aud`, `jti`, `nbf`, `sub`.
+**Поля токена (RegisteredClaims + custom):**
+- `sub` — ID пользователя
+- `iss` — `go-ozon-marketplace`
+- `aud` — `go-ozon-marketplace`
+- `jti` — UUID v4
+- `iat` — время выдачи
+- `nbf` — не действует раньше
+- `exp` — время истечения (конфигурируется, default: 24 часа)
+- `role` — `user` | `admin` | `service`

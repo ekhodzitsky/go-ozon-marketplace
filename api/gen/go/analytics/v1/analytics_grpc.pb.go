@@ -19,8 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion8
 
 const (
-	AnalyticsService_TrackEvent_FullMethodName      = "/analytics.v1.AnalyticsService/TrackEvent"
-	AnalyticsService_GetDailyRevenue_FullMethodName = "/analytics.v1.AnalyticsService/GetDailyRevenue"
+	AnalyticsService_TrackEvent_FullMethodName       = "/analytics.v1.AnalyticsService/TrackEvent"
+	AnalyticsService_GetDailyRevenue_FullMethodName  = "/analytics.v1.AnalyticsService/GetDailyRevenue"
+	AnalyticsService_TrackABTestEvent_FullMethodName = "/analytics.v1.AnalyticsService/TrackABTestEvent"
 )
 
 // AnalyticsServiceClient is the client API for AnalyticsService service.
@@ -29,6 +30,7 @@ const (
 type AnalyticsServiceClient interface {
 	TrackEvent(ctx context.Context, in *TrackEventRequest, opts ...grpc.CallOption) (*TrackEventResponse, error)
 	GetDailyRevenue(ctx context.Context, in *GetDailyRevenueRequest, opts ...grpc.CallOption) (*GetDailyRevenueResponse, error)
+	TrackABTestEvent(ctx context.Context, in *TrackABTestEventRequest, opts ...grpc.CallOption) (*TrackABTestEventResponse, error)
 }
 
 type analyticsServiceClient struct {
@@ -59,12 +61,23 @@ func (c *analyticsServiceClient) GetDailyRevenue(ctx context.Context, in *GetDai
 	return out, nil
 }
 
+func (c *analyticsServiceClient) TrackABTestEvent(ctx context.Context, in *TrackABTestEventRequest, opts ...grpc.CallOption) (*TrackABTestEventResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TrackABTestEventResponse)
+	err := c.cc.Invoke(ctx, AnalyticsService_TrackABTestEvent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AnalyticsServiceServer is the server API for AnalyticsService service.
 // All implementations should embed UnimplementedAnalyticsServiceServer
 // for forward compatibility
 type AnalyticsServiceServer interface {
 	TrackEvent(context.Context, *TrackEventRequest) (*TrackEventResponse, error)
 	GetDailyRevenue(context.Context, *GetDailyRevenueRequest) (*GetDailyRevenueResponse, error)
+	TrackABTestEvent(context.Context, *TrackABTestEventRequest) (*TrackABTestEventResponse, error)
 }
 
 // UnimplementedAnalyticsServiceServer should be embedded to have forward compatible implementations.
@@ -76,6 +89,9 @@ func (UnimplementedAnalyticsServiceServer) TrackEvent(context.Context, *TrackEve
 }
 func (UnimplementedAnalyticsServiceServer) GetDailyRevenue(context.Context, *GetDailyRevenueRequest) (*GetDailyRevenueResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDailyRevenue not implemented")
+}
+func (UnimplementedAnalyticsServiceServer) TrackABTestEvent(context.Context, *TrackABTestEventRequest) (*TrackABTestEventResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TrackABTestEvent not implemented")
 }
 
 // UnsafeAnalyticsServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -125,6 +141,24 @@ func _AnalyticsService_GetDailyRevenue_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AnalyticsService_TrackABTestEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TrackABTestEventRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AnalyticsServiceServer).TrackABTestEvent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AnalyticsService_TrackABTestEvent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AnalyticsServiceServer).TrackABTestEvent(ctx, req.(*TrackABTestEventRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AnalyticsService_ServiceDesc is the grpc.ServiceDesc for AnalyticsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -139,6 +173,10 @@ var AnalyticsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetDailyRevenue",
 			Handler:    _AnalyticsService_GetDailyRevenue_Handler,
+		},
+		{
+			MethodName: "TrackABTestEvent",
+			Handler:    _AnalyticsService_TrackABTestEvent_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

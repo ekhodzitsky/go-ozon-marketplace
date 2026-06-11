@@ -2,11 +2,13 @@ package grpc
 
 import (
 	"context"
+	"time"
 
 	analyticsv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/analytics/v1"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/internal/usecase"
+	"github.com/google/uuid"
 )
 
 type AnalyticsHandler struct {
@@ -31,4 +33,23 @@ func (h *AnalyticsHandler) GetDailyRevenue(ctx context.Context, req *analyticsv1
 		return nil, apperrors.ToStatus(err)
 	}
 	return &analyticsv1.GetDailyRevenueResponse{Revenue: revenue}, nil
+}
+
+func (h *AnalyticsHandler) TrackABTestEvent(ctx context.Context, req *analyticsv1.TrackABTestEventRequest) (*analyticsv1.TrackABTestEventResponse, error) {
+	userID, err := uuid.Parse(req.UserId)
+	if err != nil {
+		userID = uuid.Nil
+	}
+	event := domain.ABTestEvent{
+		Experiment:   req.Experiment,
+		Variation:    req.Variation,
+		UserID:       userID,
+		Conversion:   req.Conversion,
+		RevenueMinor: req.RevenueMinor,
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := h.usecase.TrackABTestEvent(ctx, event); err != nil {
+		return nil, apperrors.ToStatus(err)
+	}
+	return &analyticsv1.TrackABTestEventResponse{Success: true}, nil
 }

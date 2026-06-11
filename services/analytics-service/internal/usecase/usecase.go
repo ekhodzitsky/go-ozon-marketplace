@@ -36,3 +36,9 @@ func (u *analyticsUsecase) GetDailyRevenue(ctx context.Context, date string) (fl
 	defer cancel()
 	return u.repo.GetDailyRevenue(ctx, date)
 }
+
+func (u *analyticsUsecase) TrackABTestEvent(ctx context.Context, event domain.ABTestEvent) error {
+	ctx, cancel := context.WithTimeout(ctx, u.callTimeout)
+	defer cancel()
+	return u.repo.TrackABTestEvent(ctx, event)
+}

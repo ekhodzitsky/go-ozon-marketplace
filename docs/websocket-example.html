@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Example — go-ozon-marketplace</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+        h1 { color: #333; }
+        #log { border: 1px solid #ccc; border-radius: 4px; padding: 1rem; height: 300px; overflow-y: auto; background: #f9f9f9; }
+        .msg { margin: 0.25rem 0; padding: 0.5rem; border-radius: 4px; background: #fff; border-left: 4px solid #007acc; }
+        .msg.error { border-left-color: #d32f2f; background: #ffebee; }
+        .msg.info { border-left-color: #388e3c; background: #e8f5e9; }
+        input, button { padding: 0.5rem; margin: 0.25rem 0; font-size: 1rem; }
+        button { cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>WebSocket Example</h1>
+    <p>
+        <input type="text" id="userId" placeholder="User ID" value="user-123">
+        <button onclick="connect()">Connect</button>
+        <button onclick="disconnect()">Disconnect</button>
+    </p>
+    <div id="log"></div>
+
+    <script>
+        let ws = null;
+        const logEl = document.getElementById('log');
+
+        function log(text, type = 'msg') {
+            const div = document.createElement('div');
+            div.className = `msg ${type}`;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+            logEl.appendChild(div);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function connect() {
+            if (ws) {
+                log('Already connected', 'error');
+                return;
+            }
+            const userId = document.getElementById('userId').value || 'user-123';
+            ws = new WebSocket('ws://localhost:8080/ws');
+
+            ws.onopen = () => {
+                log('WebSocket connected', 'info');
+                ws.send(JSON.stringify({
+                    action: 'subscribe',
+                    topics: ['orders', 'inventory'],
+                    user_id: userId
+                }));
+                log(`Subscribed to orders,inventory for user ${userId}`, 'info');
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                log(`Received: ${JSON.stringify(data)}`);
+                if (data.payload && data.payload.status) {
+                    console.log('Order status:', data.payload.status);
+                }
+            };
+
+            ws.onerror = (err) => {
+                log('WebSocket error', 'error');
+            };
+
+            ws.onclose = () => {
+                log('WebSocket disconnected', 'error');
+                ws = null;
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+    </script>
+</body>
+</html>

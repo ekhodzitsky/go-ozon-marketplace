@@ -9,11 +9,12 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/internal/domain"
+	"github.com/google/uuid"
 )
 
 type EventRepo struct {
-	conn         driver.Conn
-	mu           sync.Mutex
+	conn driver.Conn
+	mu   sync.Mutex
 	// seen tracks aggregation keys for in-process deduplication.
 	// TODO: add TTL or external store for cross-process idempotency.
 	seen         map[string]struct{}
@@ -47,6 +48,21 @@ func NewEventRepo(addr string, callTimeout, queryTimeout time.Duration) (*EventR
 		ORDER BY created_at
 	`); err != nil {
 		return nil, fmt.Errorf("create table: %w", err)
+	}
+
+	if err := conn.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS ab_test_events (
+			event_id UUID,
+			experiment String,
+			variation String,
+			user_id UUID,
+			conversion Bool,
+			revenue_minor Int64,
+			created_at DateTime
+		) ENGINE = MergeTree()
+		ORDER BY created_at
+	`); err != nil {
+		return nil, fmt.Errorf("create ab_test_events table: %w", err)
 	}
 
 	return &EventRepo{conn: conn, seen: make(map[string]struct{}), callTimeout: callTimeout, queryTimeout: queryTimeout}, nil
@@ -126,6 +142,44 @@ func (r *EventRepo) Insert(ctx context.Context, event domain.Event) error {
 		r.seen[event.AggregationKey] = struct{}{}
 		r.mu.Unlock()
 	}
+	return nil
+}
+
+func (r *EventRepo) TrackABTestEvent(ctx context.Context, event domain.ABTestEvent) error {
+	if r.callTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, r.callTimeout)
+		defer cancel()
+	}
+
+	batch, err := r.conn.PrepareBatch(ctx, "INSERT INTO ab_test_events")
+	if err != nil {
+		return fmt.Errorf("prepare batch: %w", err)
+	}
+
+	if event.EventID == uuid.Nil {
+		event.EventID = uuid.Must(uuid.NewV7())
+	}
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now().UTC()
+	}
+
+	if err := batch.Append(
+		event.EventID,
+		event.Experiment,
+		event.Variation,
+		event.UserID,
+		event.Conversion,
+		event.RevenueMinor,
+		event.CreatedAt,
+	); err != nil {
+		return fmt.Errorf("append event: %w", err)
+	}
+
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("send batch: %w", err)
+	}
+
 	return nil
 }
 

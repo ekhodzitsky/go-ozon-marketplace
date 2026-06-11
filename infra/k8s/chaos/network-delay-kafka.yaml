@@ -1,0 +1,20 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: network-delay-kafka
+  namespace: chaos-testing
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces:
+      - default
+    labelSelectors:
+      app: kafka
+  delay:
+    latency: "200ms"
+    correlation: "100"
+    jitter: "0ms"
+  duration: "10m"
+  scheduler:
+    cron: "@every 60m"

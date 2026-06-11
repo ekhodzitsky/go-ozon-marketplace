@@ -12,6 +12,7 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/saga"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/unitofwork"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 var (
@@ -24,6 +25,7 @@ type orderUsecase struct {
 	outboxRepo   repository.OutboxRepository
 	orchestrator *saga.Orchestrator
 	invClient    saga.InventoryClient
+	redis        *redis.Client
 	callTimeout  time.Duration
 	queryTimeout time.Duration
 }
@@ -34,6 +36,7 @@ func NewOrderUsecase(
 	outboxRepo repository.OutboxRepository,
 	orchestrator *saga.Orchestrator,
 	invClient saga.InventoryClient,
+	redis *redis.Client,
 	callTimeout time.Duration,
 	queryTimeout time.Duration,
 ) OrderUsecase {
@@ -49,9 +52,29 @@ func NewOrderUsecase(
 		outboxRepo:   outboxRepo,
 		orchestrator: orchestrator,
 		invClient:    invClient,
+		redis:        redis,
 		callTimeout:  callTimeout,
 		queryTimeout: queryTimeout,
 	}
+}
+
+func (u *orderUsecase) publishOrderEvent(ctx context.Context, orderID, status, userID string) {
+	if u.redis == nil {
+		return
+	}
+	event := map[string]interface{}{
+		"topic":    "orders",
+		"user_id":  userID,
+		"payload": map[string]interface{}{
+			"order_id": orderID,
+			"status":   status,
+			"user_id":  userID,
+		},
+	}
+	data, _ := json.Marshal(event)
+	pubCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
+	defer cancel()
+	u.redis.Publish(pubCtx, "order-events", string(data))
 }
 
 func (u *orderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items []domain.OrderItem) (uuid.UUID, error) {
@@ -123,6 +146,8 @@ func (u *orderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items 
 		return uuid.Nil, fmt.Errorf("commit uow: %w", err)
 	}
 
+	u.publishOrderEvent(ctx, order.ID.String(), order.Status, order.UserID.String())
+
 	sagaCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
 	defer cancel()
 	if err := u.orchestrator.ProcessOrder(sagaCtx, order); err != nil {
@@ -161,6 +186,8 @@ func (u *orderUsecase) CancelOrder(ctx context.Context, id uuid.UUID) error {
 		return fmt.Errorf("update order status: %w", err)
 	}
 
+	u.publishOrderEvent(ctx, order.ID.String(), "cancelled", order.UserID.String())
+
 	cCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
 	defer cancel()
 	for _, item := range order.Items {
@@ -175,5 +202,16 @@ func (u *orderUsecase) CancelOrder(ctx context.Context, id uuid.UUID) error {
 func (u *orderUsecase) UpdateOrderStatus(ctx context.Context, id uuid.UUID, status string) error {
 	qCtx, cancel := context.WithTimeout(ctx, u.queryTimeout)
 	defer cancel()
-	return u.orderRepo.UpdateStatus(qCtx, id, status)
+
+	order, err := u.orderRepo.GetByID(qCtx, id)
+	if err != nil {
+		return fmt.Errorf("get order: %w", err)
+	}
+
+	if err := u.orderRepo.UpdateStatus(qCtx, id, status); err != nil {
+		return fmt.Errorf("update order status: %w", err)
+	}
+
+	u.publishOrderEvent(ctx, order.ID.String(), status, order.UserID.String())
+	return nil
 }

@@ -21,6 +21,7 @@ type Config struct {
 	CertPath                 string
 	KafkaBrokers             []string
 	KafkaTopic               string
+	RedisAddr                string
 }
 
 func Load() *Config {
@@ -40,5 +41,6 @@ func Load() *Config {
 		CertPath:                 config.GetEnv("CERT_PATH", ""),
 		KafkaBrokers:             config.GetEnvSlice("KAFKA_BROKERS", []string{"localhost:9092"}),
 		KafkaTopic:               config.GetEnv("KAFKA_TOPIC", "order-events"),
+		RedisAddr:                config.GetEnv("REDIS_ADDR", "localhost:6379"),
 	}
 }

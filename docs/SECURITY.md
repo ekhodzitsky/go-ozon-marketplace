@@ -1,21 +1,35 @@
-# Безопасность
+# Безопасность go-ozon-marketplace
 
-Как защищен маркетплейс: аутентификация, авторизация, шифрование, rate limiting.
+**Версия:** 0.3.0  
+**Дата обновления:** 2026-06-11
+
+Как защищён маркетплейс: аутентификация, авторизация, шифрование, rate limiting, circuit breaker, input validation, CORS.
+
+---
 
 ## Аутентификация
 
-### JWT
+### JWT с RegisteredClaims
 
 Все клиентские запросы проходят через `api-gateway`. Gateway прокидывает `Authorization` в gRPC metadata, а downstream сервисы валидируют JWT через `AuthUnaryInterceptor`.
 
 **Реализовано:**
-- Алгоритм: **HS256**
-- Поля: `user_id`, `exp`, `role` (если передан)
-- `exp` — 24 часа (захардкожено)
+- Алгоритм: **HS256** (`WithValidMethods([]string{"HS256"})`)
+- Поля RegisteredClaims:
+  - `iss` (Issuer) — `go-ozon-marketplace`
+  - `aud` (Audience) — `go-ozon-marketplace`
+  - `sub` (Subject) — `user_id`
+  - `jti` (ID) — UUID v4
+  - `iat` (IssuedAt) — UTC
+  - `nbf` (NotBefore) — UTC
+  - `exp` (ExpiresAt) — конфигурируется (default: 24 часа)
+- `WithExpirationRequired()` — токен обязан содержать `exp`
+- Валидация `iss` и `aud` на каждом gRPC вызове
 
-**Не реализовано:**
-- `iss`, `aud`, `jti`, `nbf`, `sub` — отсутствуют в токене
-- Валидация минимальной длины секрета
+**Код:**
+- Генерация: `pkg/auth/jwt.go`
+- Валидация gRPC: `pkg/middleware/auth.go`
+- Валидация HTTP: `pkg/middleware/http.go`
 
 ### Пример токена
 
@@ -23,9 +37,33 @@
 {
   "user_id": "user-123",
   "role": "user",
-  "exp": 1718086400
+  "iss": "go-ozon-marketplace",
+  "aud": ["go-ozon-marketplace"],
+  "sub": "user-123",
+  "jti": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "iat": 1718086400,
+  "nbf": 1718086400,
+  "exp": 1718172800
 }
 ```
+
+### Secret Validation
+
+При старте `user-service` происходит fail-fast проверка:
+
+```go
+jwtSecret := config.MustGetEnv("JWT_SECRET")
+if len(jwtSecret) < 32 {
+    panic("JWT_SECRET must be at least 32 characters long")
+}
+```
+
+**Требования:**
+- Минимум 32 символа
+- Передача через env var (никогда не хардкодится)
+- Ротация секрета требует перезапуска всех сервисов
+
+---
 
 ## Авторизация (RBAC)
 
@@ -48,32 +86,74 @@ if !ok || role != middleware.RoleAdmin {
 }
 ```
 
-> **Примечание:** GraphQL gateway **не проверяет роли** — проверка происходит только на уровне gRPC сервисов.
+Или через хелпер:
+
+```go
+if err := middleware.RequireRole(ctx, middleware.RoleAdmin); err != nil {
+    return nil, err
+}
+```
+
+### IDOR / BOLA защита
+
+`GetUser` доступен только себе или админу:
+
+```go
+// user-service internal/delivery/grpc/handler.go
+if role != middleware.RoleAdmin && reqUserID != callerUserID {
+    return nil, status.Error(codes.PermissionDenied, "access denied")
+}
+```
+
+### Публичные эндпоинты
+
+Аутентификация пропускается для:
+- `/user.v1.UserService/Register`
+- `/user.v1.UserService/Login`
+- `/grpc.health.v1.Health/Check`
+
+---
 
 ## mTLS между сервисами
 
-Все gRPC вызовы между сервисами могут использовать mTLS:
+Все gRPC вызовы между сервисами поддерживают mTLS:
 
 - Если задан `CERT_PATH` — используется `LoadClientMTLSCredentials` / `LoadServerMTLSCredentials`
 - Если `CERT_PATH` пуст — используется `insecure.NewCredentials()`
 
-Генерация сертификатов:
+**Генерация сертификатов:**
 
 ```bash
 ./scripts/generate-certs.sh
 ```
 
-> mTLS **опционален**, не обязателен для запуска.
+**Файлы:**
+- `server-cert.pem` / `server-key.pem` — сертификат сервера
+- `ca-cert.pem` — CA для mutual verification
 
-## Rate Limiting
+> mTLS **опционален** для локальной разработки, **обязателен** в production.
+
+---
+
+## Rate Limiting by Role
 
 Sliding window rate limiter в `api-gateway`:
 
-- Хранение счётчиков в **Redis**
-- Один лимит для всех: **10 RPS** по умолчанию (настраивается через `RATE_LIMIT_RPS`)
-- Учёт `X-Forwarded-For` при наличии доверенных прокси (`TRUSTED_PROXIES`)
+| Роль | Лимит | Окно |
+|------|-------|------|
+| `user` | 100 RPS | 1 секунда |
+| `admin` | 1000 RPS | 1 секунда |
+| `service` | ∞ | — |
 
-При превышении лимита:
+**Хранение счётчиков:** Redis (Lua-скрипт `ZREMRANGEBYSCORE`)
+
+**X-Forwarded-For:**
+- Учитывается только при наличии `TRUSTED_PROXIES` (CIDR-список)
+- Если peer не в trusted — используется `RemoteAddr`
+
+**Graceful degradation:** Если Redis недоступен — `fail open` (пропускаем запрос)
+
+**При превышении лимита:**
 
 ```json
 {
@@ -85,11 +165,90 @@ Sliding window rate limiter в `api-gateway`:
 }
 ```
 
-> **Не реализовано:** разделение лимитов по ролям (user/admin/service).
+**Код:** `pkg/middleware/ratelimit.go`
+
+---
 
 ## Circuit Breaker
 
-> **Не реализован.** Заявлен в дизайн-документе, но отсутствует в коде.
+Circuit breaker защищает gateway от каскадных отказов downstream-сервисов.
+
+**Параметры (api-gateway):**
+- `failureThreshold` = 5 ошибок подряд → `Open`
+- `successThreshold` = 2 успеха → `Closed`
+- `timeout` = 30 секунд → переход в `HalfOpen`
+
+**Применение:**
+- Интерцептор на всех исходящих gRPC соединениях gateway
+- При `Open` — мгновенный отказ без вызова downstream
+
+**Код:** `pkg/circuitbreaker/circuitbreaker.go`
+
+---
+
+## Input Validation
+
+Централизованные правила в `pkg/validation/validation.go`:
+
+| Поле | Правило |
+|------|---------|
+| Email | Regex: `^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$` |
+| Пароль | Минимум 8 символов |
+| Имя | 2–100 символов |
+| Цена | `> 0` |
+| Количество | `> 0` |
+| Page size | 1–100 |
+
+**Валидация на уровне usecase** — до обращения к БД.
+
+### GraphQL Complexity Limits
+
+- `MaxBytesReader` на HTTP body (`MAX_BODY_SIZE_BYTES = 1MB`)
+- `pageSize` clamp: 1–100
+- Introspection и Playground за env-флагом (выключены в production по умолчанию)
+
+---
+
+## CORS Policy
+
+Настраивается через `CORS_ALLOWED_ORIGINS` (comma-separated).
+
+**Default:** `*` (для разработки)
+
+**Production:** явный whitelist:
+
+```bash
+CORS_ALLOWED_ORIGINS=https://marketplace.example.com,https://admin.marketplace.example.com
+```
+
+**Заголовки:**
+- `Access-Control-Allow-Origin`
+- `Access-Control-Allow-Methods: GET, POST, OPTIONS`
+- `Access-Control-Allow-Headers: Content-Type, Authorization`
+- `Access-Control-Allow-Credentials: true`
+
+**Preflight:** `OPTIONS` возвращает `200 OK` без проксирования downstream.
+
+**Код:** `services/api-gateway/internal/app/app.go`
+
+---
+
+## Security Headers
+
+> **Статус:** Не реализованы в текущей версии. Запланированы к добавлению в gateway.
+
+**Ожидаемые заголовки:**
+
+| Заголовок | Значение | Защита от |
+|-----------|----------|-----------|
+| `X-Content-Type-Options` | `nosniff` | MIME-sniffing |
+| `X-Frame-Options` | `DENY` | Clickjacking |
+| `Content-Security-Policy` | `default-src 'self'` | XSS, injection |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | Downgrade to HTTP |
+| `X-XSS-Protection` | `1; mode=block` | Reflected XSS (legacy) |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Утечка referrer |
+
+---
 
 ## Защита данных
 
@@ -97,22 +256,47 @@ Sliding window rate limiter в `api-gateway`:
 
 - Хеширование через **bcrypt** с `DefaultCost = 10`
 - Никогда не хранятся в открытом виде
+- Анти-энумерация: единая ошибка логина, dummy-bcrypt на not-found
+- Защита от timing-атак: постоянное время проверки
 
 ### Деньги
 
-- В БД — `BIGINT` (копейки, `price * 100`)
-- В proto и GraphQL — `double` / `Float` (доллары)
+- В БД — `BIGINT` (копейки / minor units, `price * 100`)
+- В proto и GraphQL — `double` / `Float` (доллары / рубли)
+- CHECK constraints: `price > 0`, `quantity > 0`, `total_amount >= 0`
 
 ### SQL-инъекции
 
-- Использование **pgx** с параметризованными запросами
+- Использование **pgx** с параметризованными запросами (`$1`, `$2`)
 - Никакого конкатенации SQL
 
-### Чувствительные данные
+### NoSQL-инъекции
 
-- JWT secret — `JWT_SECRET` env var
-- Пароли БД — `POSTGRES_DSN` env var
-- TLS ключи — `CERT_PATH` env var
+- Elasticsearch: query builder через `olivere/elastic`, без raw JSON拼接
+
+---
+
+## Сетевая безопасность
+
+### Kubernetes NetworkPolicies
+
+```mermaid
+graph TD
+    A[default-deny-all] -->|block all| B[allow-dns]
+    A -->|ingress-nginx only| C[api-gateway]
+    C -->|service mesh| D[all services]
+    D -->|same namespace| E[PostgreSQL]
+    D -->|same namespace| F[Redis]
+    D -->|same namespace| G[Kafka]
+```
+
+- `default-deny-all` — блокировка всего ingress/egress по умолчанию
+- `api-gateway` — ingress только из `ingress-nginx`
+- `order-service` — egress только к `inventory-service` и `payment-service`
+
+**Манифесты:** `infra/k8s/network-policies/`
+
+---
 
 ## Аудит
 
@@ -121,12 +305,41 @@ Sliding window rate limiter в `api-gateway`:
 - `user_id` — кто делал запрос
 - `method` — какой метод вызван
 - `duration` — сколько заняло
+- `request_id` — уникальный ID запроса (HTTP-level)
 
 Все логи — structured JSON через Zap.
 
-## Что ещё не реализовано
+**Что НЕ логируется:**
+- JWT tokens
+- Пароли
+- PII (email, имена) — только ID
+- Payment payloads
 
-- Поля `iss`, `aud`, `jti`, `nbf` в JWT
-- Circuit breaker
-- Разделение rate limit по ролям
-- Валидация минимальной длины JWT секрета
+---
+
+## Secrets Management
+
+| Секрет | Источник | Примечание |
+|--------|----------|------------|
+| JWT secret | `JWT_SECRET` env var | Минимум 32 символа |
+| Пароли БД | `POSTGRES_DSN` env var | В Helm через Kubernetes Secrets |
+| TLS ключи | `CERT_PATH` env var | Монтируются как volume |
+| Redis | Нет пароля (localhost) | В production: Redis ACL + password |
+
+**Kubernetes:**
+- Secrets хранятся в `infra/k8s/helm-charts/*/templates/secret.yaml`
+- В production: интеграция с Vault / External Secrets Operator (запланировано)
+
+---
+
+## Security Checklist
+
+- [ ] JWT secret ≥ 32 символов
+- [ ] mTLS включён в production (`CERT_PATH` задан)
+- [ ] Rate limiting включён (Redis доступен)
+- [ ] CORS origins заданы явно (не `*`)
+- [ ] GraphQL introspection отключён в production
+- [ ] NetworkPolicies применены
+- [ ] Логи не содержат PII
+- [ ] Все сервисы на последней стабильной версии зависимостей
+- [ ] `govulncheck` проходит в CI

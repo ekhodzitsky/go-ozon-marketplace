@@ -1,4 +1,4 @@
-.PHONY: up down test test-integration test-e2e proto lint migrate-user ci dev-up dev-down dev-seed dev-logs bench bench-grpc bench-graphql profile
+.PHONY: up down test test-integration test-e2e chaos-test proto lint migrate-user ci dev-up dev-down dev-seed dev-logs bench bench-grpc bench-graphql profile
 
 up:
 	docker compose -f infra/docker/docker-compose.yml up --build -d
@@ -30,6 +30,9 @@ test-integration:
 test-e2e:
 	cd tests && go test -race -tags=e2e ./e2e/...
 
+chaos-test:
+	cd tests && go test -tags=chaos -timeout=10m ./chaos/...
+
 proto:
 	cd api && buf generate
 
@@ -60,3 +63,6 @@ bench-graphql:
 
 profile:
 	bash scripts/profile.sh
+
+ws-test:
+	open docs/websocket-example.html

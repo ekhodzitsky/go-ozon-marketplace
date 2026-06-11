@@ -8,6 +8,7 @@ require (
 	github.com/ekhodzitsky/go-ozon-marketplace/api v0.0.0
 	github.com/ekhodzitsky/go-ozon-marketplace/pkg v0.0.0
 	github.com/ekhodzitsky/go-ozon-marketplace/tests v0.0.0-20260610112408-5ac3f18809d6
+	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/fx v1.24.0
@@ -45,7 +46,6 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect

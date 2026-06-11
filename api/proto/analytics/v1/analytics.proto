@@ -7,6 +7,7 @@ option go_package = "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/analy
 service AnalyticsService {
   rpc TrackEvent(TrackEventRequest) returns (TrackEventResponse);
   rpc GetDailyRevenue(GetDailyRevenueRequest) returns (GetDailyRevenueResponse);
+  rpc TrackABTestEvent(TrackABTestEventRequest) returns (TrackABTestEventResponse);
 }
 
 message TrackEventRequest {
@@ -26,4 +27,16 @@ message GetDailyRevenueRequest {
 
 message GetDailyRevenueResponse {
   double revenue = 1;
+}
+
+message TrackABTestEventRequest {
+  string experiment = 1;
+  string variation = 2;
+  string user_id = 3;
+  bool conversion = 4;
+  int64 revenue_minor = 5;
+}
+
+message TrackABTestEventResponse {
+  bool success = 1;
 }

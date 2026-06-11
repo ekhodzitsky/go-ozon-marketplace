@@ -1,0 +1,22 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: stress-test-postgres
+  namespace: chaos-testing
+spec:
+  mode: one
+  selector:
+    namespaces:
+      - default
+    labelSelectors:
+      app: postgres
+  stressors:
+    cpu:
+      workers: 4
+      load: 80
+    memory:
+      workers: 2
+      size: "256MiB"
+  duration: "5m"
+  scheduler:
+    cron: "@every 120m"

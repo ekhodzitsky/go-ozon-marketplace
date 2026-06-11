@@ -7,9 +7,11 @@ require (
 	github.com/ekhodzitsky/go-ozon-marketplace/api v0.0.0
 	github.com/ekhodzitsky/go-ozon-marketplace/pkg v0.0.0
 	github.com/ekhodzitsky/go-ozon-marketplace/tests v0.0.0-20260610112408-5ac3f18809d6
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/prometheus/client_golang v1.23.2
+	github.com/redis/go-redis/v9 v9.5.3
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/fx v1.24.0
 	go.uber.org/mock v0.6.0
@@ -41,7 +43,6 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
-	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
@@ -74,7 +75,6 @@ require (
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9 // indirect
-	github.com/redis/go-redis/v9 v9.5.3 // indirect
 	github.com/shirou/gopsutil/v4 v4.26.3 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/testcontainers/testcontainers-go v0.42.0 // indirect

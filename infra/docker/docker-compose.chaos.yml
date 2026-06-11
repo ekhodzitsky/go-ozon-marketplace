@@ -1,0 +1,140 @@
+version: "3.8"
+
+services:
+  order-service:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: order-service
+    environment:
+      POSTGRES_DSN: postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable
+      GRPC_PORT: "50051"
+      METRICS_PORT: "15051"
+      INVENTORY_ADDR: inventory-service:50052
+      PAYMENT_ADDR: payment-service:50053
+      JWT_SECRET: chaos-test-secret
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_TOPIC: order-events
+      DEFAULT_CALL_TIMEOUT: 5s
+      DEFAULT_QUERY_TIMEOUT: 3s
+    ports:
+      - "50051:50051"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+
+  inventory-service:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: inventory-service
+    environment:
+      POSTGRES_DSN: postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable
+      GRPC_PORT: "50052"
+      METRICS_PORT: "15052"
+      REDIS_ADDR: redis:6379
+      JWT_SECRET: chaos-test-secret
+      DEFAULT_CALL_TIMEOUT: 5s
+      DEFAULT_QUERY_TIMEOUT: 3s
+    ports:
+      - "50052:50052"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  payment-service:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: payment-service
+    environment:
+      POSTGRES_DSN: postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable
+      GRPC_PORT: "50053"
+      METRICS_PORT: "15053"
+      JWT_SECRET: chaos-test-secret
+      DEFAULT_CALL_TIMEOUT: 5s
+      DEFAULT_QUERY_TIMEOUT: 3s
+    ports:
+      - "50053:50053"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  user-service:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: user-service
+    environment:
+      POSTGRES_DSN: postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable
+      GRPC_PORT: "50054"
+      METRICS_PORT: "15054"
+      JWT_SECRET: chaos-test-secret
+      DEFAULT_CALL_TIMEOUT: 5s
+      DEFAULT_QUERY_TIMEOUT: 3s
+    ports:
+      - "50054:50054"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  catalog-service:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: catalog-service
+    environment:
+      POSTGRES_DSN: postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable
+      GRPC_PORT: "50055"
+      METRICS_PORT: "15055"
+      ES_URL: http://elasticsearch:9200
+      JWT_SECRET: chaos-test-secret
+      DEFAULT_CALL_TIMEOUT: 5s
+      DEFAULT_QUERY_TIMEOUT: 3s
+    ports:
+      - "50055:50055"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+  api-gateway:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: api-gateway
+    environment:
+      USER_SERVICE_ADDR: user-service:50054
+      CATALOG_SERVICE_ADDR: catalog-service:50055
+      ORDER_SERVICE_ADDR: order-service:50051
+      INVENTORY_SERVICE_ADDR: inventory-service:50052
+      PAYMENT_SERVICE_ADDR: payment-service:50053
+      PORT: "8080"
+      METRICS_PORT: "9080"
+      REDIS_ADDR: redis:6379
+      JWT_SECRET: chaos-test-secret
+      DEFAULT_CALL_TIMEOUT: 5s
+      DEFAULT_QUERY_TIMEOUT: 3s
+      RATE_LIMIT_USER_RPS: "10"
+      RATE_LIMIT_ADMIN_RPS: "100"
+      RATE_LIMIT_WINDOW: 1s
+    ports:
+      - "8080:8080"
+    depends_on:
+      - order-service
+      - inventory-service
+      - payment-service
+      - user-service
+      - catalog-service
+      - redis

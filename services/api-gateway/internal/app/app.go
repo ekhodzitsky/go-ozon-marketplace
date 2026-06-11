@@ -17,19 +17,24 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler/lru"
 	"github.com/99designs/gqlgen/graphql/handler/transport"
 	"github.com/99designs/gqlgen/graphql/playground"
+	analyticsv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/analytics/v1"
 	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
 	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/abtesting"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/circuitbreaker"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/featureflags"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/redis"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/server"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/tracing"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/admin"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/config"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/ws"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/gqlerror"
@@ -173,22 +178,84 @@ func (a *App) Run() error {
 	}
 	defer paymentConn.Close()
 
+	analyticsConn, err := grpc.DialContext(ctx, a.cfg.AnalyticsServiceAddr,
+		grpc.WithTransportCredentials(creds),
+		interceptorChain,
+		grpc.WithBlock(),
+	)
+	if err != nil {
+		return fmt.Errorf("dial analytics-service: %w", err)
+	}
+	defer analyticsConn.Close()
+
 	redisClient, err := redis.NewClient(context.Background(), a.cfg.RedisAddr)
 	if err != nil {
 		return fmt.Errorf("connect redis: %w", err)
 	}
 	defer redisClient.Close()
 
+	// Feature flags engine.
+	ffEngine := featureflags.NewEngine(redisClient)
+	_ = ffEngine.LoadFromRedis()
+	ffEngine.Register(&featureflags.Flag{Name: "new-checkout-flow", Enabled: false, Strategy: "default"})
+	ffEngine.Register(&featureflags.Flag{Name: "fast-search", Enabled: false, Strategy: "default"})
+	ffEngine.Register(&featureflags.Flag{Name: "discount-system", Enabled: false, Strategy: "default"})
+	ffEngine.Register(&featureflags.Flag{Name: "real-time-updates", Enabled: false, Strategy: "default"})
+	_ = ffEngine.SaveToRedis()
+
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				_ = ffEngine.LoadFromRedis()
+			case <-ffEngine.Done():
+				return
+			}
+		}
+	}()
+
+	// A/B testing experiments.
+	abExperiments := []*abtesting.Experiment{
+		{
+			Name: "checkout-button-color",
+			Variations: []abtesting.Variation{
+				{Name: "control", Weight: 50},
+				{Name: "green", Weight: 50},
+			},
+		},
+		{
+			Name: "search-algorithm",
+			Variations: []abtesting.Variation{
+				{Name: "v1", Weight: 70},
+				{Name: "v2", Weight: 30},
+			},
+		},
+	}
+
 	rl := middleware.NewRoleRateLimiter(redisClient, a.cfg.RateLimitUserRPS, a.cfg.RateLimitAdminRPS, a.cfg.RateLimitWindow)
 
+	hub := ws.NewHub()
+	go hub.Run()
+
+	go func() {
+		ws.StartRedisPubSub(context.Background(), redisClient, hub)
+	}()
+
 	resolver := &graph.Resolver{
-		UserService:      userv1.NewUserServiceClient(userConn),
-		CatalogService:   catalogv1.NewCatalogServiceClient(catalogConn),
-		OrderService:     orderv1.NewOrderServiceClient(orderConn),
-		InventoryService: inventoryv1.NewInventoryServiceClient(inventoryConn),
-		PaymentService:   paymentv1.NewPaymentServiceClient(paymentConn),
-		CallTimeout:      a.cfg.DefaultCallTimeout,
-		QueryTimeout:     a.cfg.DefaultQueryTimeout,
+		UserService:        userv1.NewUserServiceClient(userConn),
+		CatalogService:     catalogv1.NewCatalogServiceClient(catalogConn),
+		OrderService:       orderv1.NewOrderServiceClient(orderConn),
+		InventoryService:   inventoryv1.NewInventoryServiceClient(inventoryConn),
+		PaymentService:     paymentv1.NewPaymentServiceClient(paymentConn),
+		AnalyticsService:   analyticsv1.NewAnalyticsServiceClient(analyticsConn),
+		FeatureFlagsEngine: ffEngine,
+		ABExperiments:      abExperiments,
+		Hub:                hub,
+		Redis:              redisClient,
+		CallTimeout:        a.cfg.DefaultCallTimeout,
+		QueryTimeout:       a.cfg.DefaultQueryTimeout,
 	}
 
 	srv := handler.New(graph.NewExecutableSchema(graph.Config{Resolvers: resolver}))
@@ -196,6 +263,7 @@ func (a *App) Run() error {
 	srv.AddTransport(transport.Options{})
 	srv.AddTransport(transport.GET{})
 	srv.AddTransport(transport.POST{})
+	srv.AddTransport(transport.Websocket{})
 
 	srv.SetQueryCache(lru.New[*ast.QueryDocument](1000))
 
@@ -223,6 +291,9 @@ func (a *App) Run() error {
 	})
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		ws.ServeWs(hub, w, r)
+	})
 	mux.Handle("/", playground.Handler("GraphQL playground", "/query"))
 
 	var gqlHandler http.Handler = srv
@@ -235,6 +306,11 @@ func (a *App) Run() error {
 	gqlHandler = corsMiddleware(a.cfg.CORSAllowedOrigins)(gqlHandler)
 
 	mux.Handle("/query", gqlHandler)
+
+	// Admin API.
+	adminHandler := admin.NewHandler(ffEngine)
+	mux.Handle("/admin/flags", adminHandler)
+	mux.Handle("/admin/flags/", adminHandler)
 
 	handler := middleware.RequestID(middleware.AccessLog(mux))
 

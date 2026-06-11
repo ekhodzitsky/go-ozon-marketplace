@@ -2,6 +2,18 @@
 
 package model
 
+type ABTestAssignment struct {
+	Experiment string `json:"experiment"`
+	Variation  string `json:"variation"`
+}
+
+type FeatureFlags struct {
+	NewCheckoutFlow bool `json:"newCheckoutFlow"`
+	FastSearch      bool `json:"fastSearch"`
+	DiscountSystem  bool `json:"discountSystem"`
+	RealTimeUpdates bool `json:"realTimeUpdates"`
+}
+
 type Inventory struct {
 	ProductID string `json:"productId"`
 	Available int32  `json:"available"`
@@ -53,6 +65,9 @@ type ProductConnection struct {
 }
 
 type Query struct {
+}
+
+type Subscription struct {
 }
 
 type User struct {

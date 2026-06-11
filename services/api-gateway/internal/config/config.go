@@ -13,6 +13,7 @@ type Config struct {
 	OrderServiceAddr         string
 	InventoryServiceAddr     string
 	PaymentServiceAddr       string
+	AnalyticsServiceAddr     string
 	HTTPPort                 string
 	MetricsPort              int
 	LogLevel                 string
@@ -59,6 +60,7 @@ func Load() *Config {
 		OrderServiceAddr:         config.GetEnv("ORDER_SERVICE_ADDR", "localhost:50055"),
 		InventoryServiceAddr:     config.GetEnv("INVENTORY_SERVICE_ADDR", "localhost:50053"),
 		PaymentServiceAddr:       config.GetEnv("PAYMENT_SERVICE_ADDR", "localhost:50054"),
+		AnalyticsServiceAddr:     config.GetEnv("ANALYTICS_SERVICE_ADDR", "localhost:50056"),
 		HTTPPort:                 config.GetEnv("PORT", "8080"),
 		MetricsPort:              config.GetEnvInt("METRICS_PORT", httpPort+1000),
 		LogLevel:                 config.GetEnv("LOG_LEVEL", "info"),

@@ -1,0 +1,15 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: pod-kill-order-service
+  namespace: chaos-testing
+spec:
+  action: pod-kill
+  mode: one
+  selector:
+    namespaces:
+      - default
+    labelSelectors:
+      app: order-service
+  scheduler:
+    cron: "@every 30m"
