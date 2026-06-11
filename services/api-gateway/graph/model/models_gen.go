@@ -2,7 +2,40 @@
 
 package model
 
+type Inventory struct {
+	ProductID string `json:"productId"`
+	Available int32  `json:"available"`
+	Reserved  int32  `json:"reserved"`
+}
+
 type Mutation struct {
+}
+
+type Order struct {
+	ID          string       `json:"id"`
+	UserID      string       `json:"userId"`
+	Items       []*OrderItem `json:"items"`
+	TotalAmount float64      `json:"totalAmount"`
+	Status      string       `json:"status"`
+	CreatedAt   string       `json:"createdAt"`
+	UpdatedAt   string       `json:"updatedAt"`
+}
+
+type OrderConnection struct {
+	Orders []*Order `json:"orders"`
+	Total  int32    `json:"total"`
+}
+
+type OrderItem struct {
+	ProductID string  `json:"productId"`
+	Quantity  int32   `json:"quantity"`
+	Price     float64 `json:"price"`
+}
+
+type OrderItemInput struct {
+	ProductID string  `json:"productId"`
+	Quantity  int32   `json:"quantity"`
+	Price     float64 `json:"price"`
 }
 
 type Product struct {

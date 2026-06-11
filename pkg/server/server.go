@@ -25,10 +25,11 @@ type GRPCServer struct {
 }
 
 func NewGRPC(port int, opts ...grpc.ServerOption) *GRPCServer {
+	log, _ := logger.New("info", "json")
 	return &GRPCServer{
 		Server: grpc.NewServer(opts...),
 		Port:   port,
-		log:    logger.New(),
+		log:    log,
 	}
 }
 
@@ -127,6 +128,7 @@ type HTTPServer struct {
 }
 
 func NewHTTP(handler http.Handler, port int) *HTTPServer {
+	log, _ := logger.New("info", "json")
 	return &HTTPServer{
 		Server: &http.Server{
 			Addr:         fmt.Sprintf(":%d", port),
@@ -134,7 +136,7 @@ func NewHTTP(handler http.Handler, port int) *HTTPServer {
 			ReadTimeout:  5 * time.Second,
 			WriteTimeout: 10 * time.Second,
 		},
-		log: logger.New(),
+		log: log,
 	}
 }
 

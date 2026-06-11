@@ -11,7 +11,9 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/server"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/tracing"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/internal/config"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/internal/consumer"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/internal/repository/clickhouse"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/internal/usecase"
@@ -25,18 +27,37 @@ func New() *fx.App {
 	return fx.New(
 		fx.Provide(
 			config.Load,
-			logger.New,
+			func(cfg *config.Config) (*zap.Logger, error) {
+				return logger.New(cfg.LogLevel, cfg.LogFormat)
+			},
 			func(cfg *config.Config) (*clickhouse.EventRepo, error) {
 				return clickhouse.NewEventRepo(cfg.ClickHouseAddr, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
 			},
 			func(cfg *config.Config, repo *clickhouse.EventRepo) usecase.AnalyticsUsecase {
 				return usecase.NewAnalyticsUsecase(repo, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
 			},
+			func(cfg *config.Config, uc usecase.AnalyticsUsecase, log *zap.Logger) (*consumer.Consumer, error) {
+				return consumer.NewConsumer(cfg.KafkaBrokers, cfg.KafkaConsumerGroup, cfg.KafkaTopics, uc, log)
+			},
 			grpcdelivery.NewAnalyticsHandler,
 		),
+		fx.Invoke(func(lc fx.Lifecycle, c *consumer.Consumer, log *zap.Logger) {
+			lc.Append(fx.Hook{
+				OnStart: func(ctx context.Context) error {
+					c.Start(ctx)
+					return nil
+				},
+				OnStop: func(ctx context.Context) error {
+					if err := c.Close(); err != nil {
+						log.Error("consumer close error", zap.Error(err))
+					}
+					return nil
+				},
+			})
+		}),
 		fx.Invoke(func(lc fx.Lifecycle, handler *grpcdelivery.AnalyticsHandler, cfg *config.Config, log *zap.Logger) {
 			opts := []grpc.ServerOption{
-				grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor, middleware.AuthUnaryInterceptor(cfg.JWTSecret)),
+				grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor, tracing.UnaryServerInterceptor(), middleware.AuthUnaryInterceptor(cfg.JWTSecret)),
 			}
 			if cfg.CertPath != "" {
 				tlsOpt, err := server.LoadServerMTLSCredentials(

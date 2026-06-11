@@ -19,14 +19,52 @@ type ProductConnection {
   total: Int!
 }
 
+type OrderItem {
+  productId: ID!
+  quantity: Int!
+  price: Float!
+}
+
+type Order {
+  id: ID!
+  userId: ID!
+  items: [OrderItem!]!
+  totalAmount: Float!
+  status: String!
+  createdAt: String!
+  updatedAt: String!
+}
+
+type OrderConnection {
+  orders: [Order!]!
+  total: Int!
+}
+
+type Inventory {
+  productId: ID!
+  available: Int!
+  reserved: Int!
+}
+
+input OrderItemInput {
+  productId: ID!
+  quantity: Int!
+  price: Float!
+}
+
 type Query {
   user(id: ID!): User
   product(id: ID!): Product
   searchProducts(query: String!, page: Int, pageSize: Int): ProductConnection
+  order(id: ID!): Order
+  orders(userId: ID!, page: Int, pageSize: Int): OrderConnection
+  inventory(productId: ID!): Inventory
 }
 
 type Mutation {
   register(email: String!, password: String!, name: String!): ID!
   login(email: String!, password: String!): String!
   createProduct(name: String!, description: String!, price: Float!, categories: [String!]!): ID!
+  createOrder(userId: ID!, items: [OrderItemInput!]!): ID!
+  cancelOrder(orderId: ID!): Boolean!
 }

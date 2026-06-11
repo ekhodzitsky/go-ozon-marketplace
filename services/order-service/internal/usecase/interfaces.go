@@ -11,5 +11,7 @@ import (
 type OrderUsecase interface {
 	CreateOrder(ctx context.Context, userID uuid.UUID, items []domain.OrderItem) (uuid.UUID, error)
 	GetOrder(ctx context.Context, id uuid.UUID) (*domain.Order, error)
+	CancelOrder(ctx context.Context, id uuid.UUID) error
+	UpdateOrderStatus(ctx context.Context, id uuid.UUID, status string) error
 	ListOrders(ctx context.Context, userID uuid.UUID, page, pageSize int) ([]domain.Order, int, error)
 }

@@ -13,6 +13,7 @@ import (
 	pkgpostgres "github.com/ekhodzitsky/go-ozon-marketplace/pkg/postgres"
 	pkgredis "github.com/ekhodzitsky/go-ozon-marketplace/pkg/redis"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/server"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/tracing"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/config"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/repository"
@@ -30,7 +31,9 @@ func New() *fx.App {
 	return fx.New(
 		fx.Provide(
 			config.Load,
-			logger.New,
+			func(cfg *config.Config) (*zap.Logger, error) {
+				return logger.New(cfg.LogLevel, cfg.LogFormat)
+			},
 			func(cfg *config.Config) (*pgxpool.Pool, error) {
 				ctx, cancel := context.WithTimeout(context.Background(), cfg.DefaultQueryTimeout)
 				defer cancel()
@@ -51,7 +54,7 @@ func New() *fx.App {
 		),
 		fx.Invoke(func(lc fx.Lifecycle, handler *grpcdelivery.InventoryHandler, cfg *config.Config, log *zap.Logger) {
 			opts := []grpc.ServerOption{
-				grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor, middleware.AuthUnaryInterceptor(cfg.JWTSecret)),
+				grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor, tracing.UnaryServerInterceptor(), middleware.AuthUnaryInterceptor(cfg.JWTSecret)),
 			}
 			if cfg.CertPath != "" {
 				tlsOpt, err := server.LoadServerMTLSCredentials(

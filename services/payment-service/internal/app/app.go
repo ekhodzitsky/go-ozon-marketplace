@@ -12,8 +12,10 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	pkgpostgres "github.com/ekhodzitsky/go-ozon-marketplace/pkg/postgres"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/server"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/tracing"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/config"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/delivery/grpc"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/dlq"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/repository"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/repository/postgres"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/usecase"
@@ -28,7 +30,9 @@ func New() *fx.App {
 	return fx.New(
 		fx.Provide(
 			config.Load,
-			logger.New,
+			func(cfg *config.Config) (*zap.Logger, error) {
+				return logger.New(cfg.LogLevel, cfg.LogFormat)
+			},
 			func(cfg *config.Config) (*pgxpool.Pool, error) {
 				ctx, cancel := context.WithTimeout(context.Background(), cfg.DefaultQueryTimeout)
 				defer cancel()
@@ -39,11 +43,24 @@ func New() *fx.App {
 			func(repo repository.PaymentRepository, txm repository.TxManager, log *zap.Logger, cfg *config.Config) usecase.PaymentUsecase {
 				return usecase.NewPaymentUsecase(repo, txm, log, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
 			},
+			func(cfg *config.Config) (*dlq.Producer, error) {
+				return dlq.NewProducer(cfg.KafkaBrokers, cfg.DLQTopic)
+			},
 			grpcdelivery.NewPaymentHandler,
 		),
+		fx.Invoke(func(lc fx.Lifecycle, p *dlq.Producer, log *zap.Logger) {
+			lc.Append(fx.Hook{
+				OnStop: func(ctx context.Context) error {
+					if err := p.Close(); err != nil {
+						log.Error("dlq producer close error", zap.Error(err))
+					}
+					return nil
+				},
+			})
+		}),
 		fx.Invoke(func(lc fx.Lifecycle, handler *grpcdelivery.PaymentHandler, cfg *config.Config, log *zap.Logger) {
 			opts := []grpc.ServerOption{
-				grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor, middleware.AuthUnaryInterceptor(cfg.JWTSecret)),
+				grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor, tracing.UnaryServerInterceptor(), middleware.AuthUnaryInterceptor(cfg.JWTSecret)),
 			}
 			if cfg.CertPath != "" {
 				tlsOpt, err := server.LoadServerMTLSCredentials(

@@ -59,6 +59,30 @@ func (r *ProductPostgres) GetByID(ctx context.Context, id uuid.UUID) (*domain.Pr
 	return &product, nil
 }
 
+func (r *ProductPostgres) Update(ctx context.Context, product *domain.Product) error {
+	ctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
+	defer cancel()
+
+	query := `UPDATE products SET name=$1, description=$2, price=$3, categories=$4 WHERE id=$5`
+	_, err := r.db.Exec(ctx, query, product.Name, product.Description, product.Price, product.Categories, product.ID)
+	if err != nil {
+		return fmt.Errorf("update product: %w", err)
+	}
+	return nil
+}
+
+func (r *ProductPostgres) Delete(ctx context.Context, id uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
+	defer cancel()
+
+	query := `DELETE FROM products WHERE id=$1`
+	_, err := r.db.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("delete product: %w", err)
+	}
+	return nil
+}
+
 func (r *ProductPostgres) List(ctx context.Context, page, pageSize int) ([]*domain.Product, int, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
 	defer cancel()

@@ -13,6 +13,7 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	pkgpostgres "github.com/ekhodzitsky/go-ozon-marketplace/pkg/postgres"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/server"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/tracing"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/config"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/infrastructure/grpcclient"
@@ -53,7 +54,9 @@ func New() *fx.App {
 	return fx.New(
 		fx.Provide(
 			config.Load,
-			logger.New,
+			func(cfg *config.Config) (*zap.Logger, error) {
+				return logger.New(cfg.LogLevel, cfg.LogFormat)
+			},
 			func(cfg *config.Config) (*pgxpool.Pool, error) {
 				ctx, cancel := initCtx(cfg)
 				defer cancel()
@@ -147,9 +150,10 @@ func New() *fx.App {
 				orderRepo repository.OrderRepository,
 				outboxRepo repository.OutboxRepository,
 				orchestrator *saga.Orchestrator,
+				invClient saga.InventoryClient,
 				cfg *config.Config,
 			) usecase.OrderUsecase {
-				return usecase.NewOrderUsecase(uowFactory, orderRepo, outboxRepo, orchestrator, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
+				return usecase.NewOrderUsecase(uowFactory, orderRepo, outboxRepo, orchestrator, invClient, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
 			},
 			grpcdelivery.NewOrderHandler,
 			func(cfg *config.Config, lc fx.Lifecycle) (outbox.Producer, error) {
@@ -170,7 +174,7 @@ func New() *fx.App {
 		),
 		fx.Invoke(func(lc fx.Lifecycle, handler *grpcdelivery.OrderHandler, cfg *config.Config, log *zap.Logger) {
 			opts := []grpc.ServerOption{
-				grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor, middleware.AuthUnaryInterceptor(cfg.JWTSecret)),
+				grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor, tracing.UnaryServerInterceptor(), middleware.AuthUnaryInterceptor(cfg.JWTSecret)),
 			}
 			if cfg.CertPath != "" {
 				tlsOpt, err := server.LoadServerMTLSCredentials(

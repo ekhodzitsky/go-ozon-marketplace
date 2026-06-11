@@ -10,6 +10,8 @@ import (
 type ProductRepository interface {
 	Create(ctx context.Context, product *domain.Product) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Product, error)
+	Update(ctx context.Context, product *domain.Product) error
+	Delete(ctx context.Context, id uuid.UUID) error
 	List(ctx context.Context, page, pageSize int) ([]*domain.Product, int, error)
 }
 

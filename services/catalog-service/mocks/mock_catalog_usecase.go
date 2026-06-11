@@ -57,6 +57,20 @@ func (mr *MockCatalogUsecaseMockRecorder) CreateProduct(ctx, name, description, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateProduct", reflect.TypeOf((*MockCatalogUsecase)(nil).CreateProduct), ctx, name, description, price, categories)
 }
 
+// DeleteProduct mocks base method.
+func (m *MockCatalogUsecase) DeleteProduct(ctx context.Context, id uuid.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteProduct", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteProduct indicates an expected call of DeleteProduct.
+func (mr *MockCatalogUsecaseMockRecorder) DeleteProduct(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteProduct", reflect.TypeOf((*MockCatalogUsecase)(nil).DeleteProduct), ctx, id)
+}
+
 // GetProduct mocks base method.
 func (m *MockCatalogUsecase) GetProduct(ctx context.Context, id uuid.UUID) (*domain.Product, error) {
 	m.ctrl.T.Helper()
@@ -102,4 +116,18 @@ func (m *MockCatalogUsecase) SearchProducts(ctx context.Context, query string, p
 func (mr *MockCatalogUsecaseMockRecorder) SearchProducts(ctx, query, page, pageSize any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SearchProducts", reflect.TypeOf((*MockCatalogUsecase)(nil).SearchProducts), ctx, query, page, pageSize)
+}
+
+// UpdateProduct mocks base method.
+func (m *MockCatalogUsecase) UpdateProduct(ctx context.Context, id uuid.UUID, name, description string, price int64, categories []string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateProduct", ctx, id, name, description, price, categories)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateProduct indicates an expected call of UpdateProduct.
+func (mr *MockCatalogUsecaseMockRecorder) UpdateProduct(ctx, id, name, description, price, categories any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProduct", reflect.TypeOf((*MockCatalogUsecase)(nil).UpdateProduct), ctx, id, name, description, price, categories)
 }

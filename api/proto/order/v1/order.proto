@@ -8,6 +8,8 @@ service OrderService {
   rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse);
   rpc GetOrder(GetOrderRequest) returns (GetOrderResponse);
   rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse);
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+  rpc UpdateOrderStatus(UpdateOrderStatusRequest) returns (UpdateOrderStatusResponse);
 }
 
 message CreateOrderRequest {
@@ -53,4 +55,22 @@ message OrderItem {
   string product_id = 1;
   int32 quantity = 2;
   double price = 3;
+}
+
+message CancelOrderRequest {
+  string order_id = 1;
+}
+
+message CancelOrderResponse {
+  bool success = 1;
+}
+
+message UpdateOrderStatusRequest {
+  string order_id = 1;
+  string status = 2;
+}
+
+message UpdateOrderStatusResponse {
+  string order_id = 1;
+  string status = 2;
 }

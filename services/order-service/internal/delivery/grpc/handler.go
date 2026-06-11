@@ -128,6 +128,71 @@ func (h *OrderHandler) ListOrders(ctx context.Context, req *orderv1.ListOrdersRe
 	}, nil
 }
 
+func (h *OrderHandler) CancelOrder(ctx context.Context, req *orderv1.CancelOrderRequest) (*orderv1.CancelOrderResponse, error) {
+	authUserID, ok := middleware.GetUserID(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "missing user_id in context")
+	}
+
+	orderID, err := uuid.Parse(req.OrderId)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid order_id")
+	}
+
+	order, err := h.usecase.GetOrder(ctx, orderID)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, err.Error())
+		}
+		return nil, status.Errorf(codes.Internal, "get order: %v", err)
+	}
+
+	role, _ := middleware.GetRole(ctx)
+	if order.UserID.String() != authUserID && role != middleware.RoleAdmin {
+		return nil, status.Error(codes.PermissionDenied, "order does not belong to user")
+	}
+
+	if err := h.usecase.CancelOrder(ctx, orderID); err != nil {
+		if errors.Is(err, apperrors.ErrInvalidArgument) {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+		return nil, status.Errorf(codes.Internal, "cancel order: %v", err)
+	}
+
+	return &orderv1.CancelOrderResponse{Success: true}, nil
+}
+
+func (h *OrderHandler) UpdateOrderStatus(ctx context.Context, req *orderv1.UpdateOrderStatusRequest) (*orderv1.UpdateOrderStatusResponse, error) {
+	authUserID, ok := middleware.GetUserID(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "missing user_id in context")
+	}
+
+	orderID, err := uuid.Parse(req.OrderId)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid order_id")
+	}
+
+	order, err := h.usecase.GetOrder(ctx, orderID)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, err.Error())
+		}
+		return nil, status.Errorf(codes.Internal, "get order: %v", err)
+	}
+
+	role, _ := middleware.GetRole(ctx)
+	if order.UserID.String() != authUserID && role != middleware.RoleAdmin {
+		return nil, status.Error(codes.PermissionDenied, "order does not belong to user")
+	}
+
+	if err := h.usecase.UpdateOrderStatus(ctx, orderID, req.Status); err != nil {
+		return nil, status.Errorf(codes.Internal, "update order status: %v", err)
+	}
+
+	return &orderv1.UpdateOrderStatusResponse{OrderId: req.OrderId, Status: req.Status}, nil
+}
+
 func mapOrderToProto(order *domain.Order) *orderv1.Order {
 	items := make([]*orderv1.OrderItem, 0, len(order.Items))
 	for _, item := range order.Items {

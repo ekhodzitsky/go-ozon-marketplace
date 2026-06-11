@@ -1,8 +1,11 @@
 version: v1
 plugins:
   - plugin: go
-    out: gen/go
-  - plugin: go-grpc
-    out: gen/go
+    out: ..
     opt:
+      - module=github.com/ekhodzitsky/go-ozon-marketplace
+  - plugin: go-grpc
+    out: ..
+    opt:
+      - module=github.com/ekhodzitsky/go-ozon-marketplace
       - require_unimplemented_servers=false

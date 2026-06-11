@@ -28,7 +28,7 @@ func init() {
 
 func LoggingUnaryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 	start := time.Now()
-	log := logger.New()
+	log, _ := logger.New("info", "json")
 
 	resp, err := handler(ctx, req)
 

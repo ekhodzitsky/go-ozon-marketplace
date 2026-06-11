@@ -6,8 +6,11 @@ package graph
 
 import (
 	"context"
+	"fmt"
 
 	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
+	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
+	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph/model"
 )
@@ -55,6 +58,34 @@ func (r *mutationResolver) CreateProduct(ctx context.Context, name string, descr
 		return "", err
 	}
 	return resp.ProductId, nil
+}
+
+// CreateOrder is the resolver for the createOrder field.
+func (r *mutationResolver) CreateOrder(ctx context.Context, userID string, items []*model.OrderItemInput) (string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	protoItems := make([]*orderv1.OrderItem, len(items))
+	for i, item := range items {
+		protoItems[i] = &orderv1.OrderItem{
+			ProductId: item.ProductID,
+			Quantity:  item.Quantity,
+			Price:     item.Price,
+		}
+	}
+	resp, err := r.OrderService.CreateOrder(ctx, &orderv1.CreateOrderRequest{
+		UserId: userID,
+		Items:  protoItems,
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.OrderId, nil
+}
+
+// CancelOrder is the resolver for the cancelOrder field.
+func (r *mutationResolver) CancelOrder(ctx context.Context, orderID string) (bool, error) {
+	// TODO: implement CancelOrder when the proto method is available
+	return false, fmt.Errorf("cancelOrder not implemented: CancelOrder proto method does not exist yet")
 }
 
 // User is the resolver for the user field.
@@ -115,33 +146,68 @@ func (r *queryResolver) SearchProducts(ctx context.Context, query string, page *
 	}, nil
 }
 
+// Order is the resolver for the order field.
+func (r *queryResolver) Order(ctx context.Context, id string) (*model.Order, error) {
+	ctx, cancel := r.withQueryTimeout(ctx)
+	defer cancel()
+	resp, err := r.OrderService.GetOrder(ctx, &orderv1.GetOrderRequest{
+		OrderId: id,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return protoOrderToModel(resp.Order), nil
+}
+
+// Orders is the resolver for the orders field.
+func (r *queryResolver) Orders(ctx context.Context, userID string, page *int32, pageSize *int32) (*model.OrderConnection, error) {
+	ctx, cancel := r.withQueryTimeout(ctx)
+	defer cancel()
+	req := &orderv1.ListOrdersRequest{
+		UserId: userID,
+	}
+	if page != nil {
+		req.Page = *page
+	}
+	if pageSize != nil {
+		req.PageSize = *pageSize
+	}
+	resp, err := r.OrderService.ListOrders(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	orders := make([]*model.Order, len(resp.Orders))
+	for i, o := range resp.Orders {
+		orders[i] = protoOrderToModel(o)
+	}
+	return &model.OrderConnection{
+		Orders: orders,
+		Total:  resp.Total,
+	}, nil
+}
+
+// Inventory is the resolver for the inventory field.
+func (r *queryResolver) Inventory(ctx context.Context, productID string) (*model.Inventory, error) {
+	ctx, cancel := r.withQueryTimeout(ctx)
+	defer cancel()
+	resp, err := r.InventoryService.GetStock(ctx, &inventoryv1.GetStockRequest{
+		ProductId: productID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &model.Inventory{
+		ProductID: productID,
+		Available: resp.Available,
+		Reserved:  resp.Reserved,
+	}, nil
+}
+
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 
 // Query returns QueryResolver implementation.
 func (r *Resolver) Query() QueryResolver { return &queryResolver{r} }
-
-func (r *Resolver) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, r.CallTimeout)
-}
-
-func (r *Resolver) withQueryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, r.QueryTimeout)
-}
-
-func protoProductToModel(p *catalogv1.Product) *model.Product {
-	if p == nil {
-		return nil
-	}
-	return &model.Product{
-		ID:          p.ProductId,
-		Name:        p.Name,
-		Description: p.Description,
-		Price:       p.Price,
-		Categories:  p.Categories,
-		CreatedAt:   p.CreatedAt,
-	}
-}
 
 type mutationResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }

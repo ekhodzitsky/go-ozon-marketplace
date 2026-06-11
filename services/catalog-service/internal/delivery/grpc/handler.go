@@ -6,6 +6,7 @@ import (
 	"time"
 
 	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/usecase"
 	"github.com/google/uuid"
@@ -67,6 +68,46 @@ func (h *CatalogHandler) SearchProducts(ctx context.Context, req *catalogv1.Sear
 		Products: toProtoProducts(products),
 		Total:    int32(total),
 	}, nil
+}
+
+func (h *CatalogHandler) UpdateProduct(ctx context.Context, req *catalogv1.UpdateProductRequest) (*catalogv1.UpdateProductResponse, error) {
+	if err := middleware.RequireRole(ctx, middleware.RoleAdmin); err != nil {
+		return nil, err
+	}
+
+	id, err := uuid.Parse(req.ProductId)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid product_id")
+	}
+
+	if err := h.usecase.UpdateProduct(ctx, id, req.Name, req.Description, int64(req.Price*100), req.Categories); err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, err.Error())
+		}
+		return nil, status.Errorf(codes.Internal, "update product: %v", err)
+	}
+
+	return &catalogv1.UpdateProductResponse{Success: true}, nil
+}
+
+func (h *CatalogHandler) DeleteProduct(ctx context.Context, req *catalogv1.DeleteProductRequest) (*catalogv1.DeleteProductResponse, error) {
+	if err := middleware.RequireRole(ctx, middleware.RoleAdmin); err != nil {
+		return nil, err
+	}
+
+	id, err := uuid.Parse(req.ProductId)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid product_id")
+	}
+
+	if err := h.usecase.DeleteProduct(ctx, id); err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, err.Error())
+		}
+		return nil, status.Errorf(codes.Internal, "delete product: %v", err)
+	}
+
+	return &catalogv1.DeleteProductResponse{Success: true}, nil
 }
 
 func toProtoProduct(p *domain.Product) *catalogv1.Product {

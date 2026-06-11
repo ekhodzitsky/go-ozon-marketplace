@@ -18,11 +18,15 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler/transport"
 	"github.com/99designs/gqlgen/graphql/playground"
 	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
+	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
+	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
+	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/redis"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/server"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/tracing"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/config"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -71,14 +75,21 @@ func (a *App) Run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.DefaultCallTimeout)
 	defer cancel()
 
+	log, err := logger.New(a.cfg.LogLevel, a.cfg.LogFormat)
+	if err != nil {
+		return fmt.Errorf("init logger: %w", err)
+	}
+
 	creds, err := clientCreds(a.cfg)
 	if err != nil {
 		return fmt.Errorf("load tls credentials: %w", err)
 	}
 
+	interceptorChain := grpc.WithChainUnaryInterceptor(authClientInterceptor, tracing.UnaryClientInterceptor())
+
 	userConn, err := grpc.DialContext(ctx, a.cfg.UserServiceAddr,
 		grpc.WithTransportCredentials(creds),
-		grpc.WithUnaryInterceptor(authClientInterceptor),
+		interceptorChain,
 		grpc.WithBlock(),
 	)
 	if err != nil {
@@ -88,13 +99,43 @@ func (a *App) Run() error {
 
 	catalogConn, err := grpc.DialContext(ctx, a.cfg.CatalogServiceAddr,
 		grpc.WithTransportCredentials(creds),
-		grpc.WithUnaryInterceptor(authClientInterceptor),
+		interceptorChain,
 		grpc.WithBlock(),
 	)
 	if err != nil {
 		return fmt.Errorf("dial catalog-service: %w", err)
 	}
 	defer catalogConn.Close()
+
+	orderConn, err := grpc.DialContext(ctx, a.cfg.OrderServiceAddr,
+		grpc.WithTransportCredentials(creds),
+		interceptorChain,
+		grpc.WithBlock(),
+	)
+	if err != nil {
+		return fmt.Errorf("dial order-service: %w", err)
+	}
+	defer orderConn.Close()
+
+	inventoryConn, err := grpc.DialContext(ctx, a.cfg.InventoryServiceAddr,
+		grpc.WithTransportCredentials(creds),
+		interceptorChain,
+		grpc.WithBlock(),
+	)
+	if err != nil {
+		return fmt.Errorf("dial inventory-service: %w", err)
+	}
+	defer inventoryConn.Close()
+
+	paymentConn, err := grpc.DialContext(ctx, a.cfg.PaymentServiceAddr,
+		grpc.WithTransportCredentials(creds),
+		interceptorChain,
+		grpc.WithBlock(),
+	)
+	if err != nil {
+		return fmt.Errorf("dial payment-service: %w", err)
+	}
+	defer paymentConn.Close()
 
 	redisClient, err := redis.NewClient(context.Background(), a.cfg.RedisAddr)
 	if err != nil {
@@ -105,10 +146,13 @@ func (a *App) Run() error {
 	rl := middleware.NewRedisRateLimiter(redisClient, a.cfg.RateLimitRPS, a.cfg.RateLimitWindow)
 
 	resolver := &graph.Resolver{
-		UserService:    userv1.NewUserServiceClient(userConn),
-		CatalogService: catalogv1.NewCatalogServiceClient(catalogConn),
-		CallTimeout:    a.cfg.DefaultCallTimeout,
-		QueryTimeout:   a.cfg.DefaultQueryTimeout,
+		UserService:      userv1.NewUserServiceClient(userConn),
+		CatalogService:   catalogv1.NewCatalogServiceClient(catalogConn),
+		OrderService:     orderv1.NewOrderServiceClient(orderConn),
+		InventoryService: inventoryv1.NewInventoryServiceClient(inventoryConn),
+		PaymentService:   paymentv1.NewPaymentServiceClient(paymentConn),
+		CallTimeout:      a.cfg.DefaultCallTimeout,
+		QueryTimeout:     a.cfg.DefaultQueryTimeout,
 	}
 
 	srv := handler.New(graph.NewExecutableSchema(graph.Config{Resolvers: resolver}))
@@ -151,7 +195,6 @@ func (a *App) Run() error {
 	gqlHandler = middleware.RateLimitHTTP(rl, a.cfg.TrustedProxies)(gqlHandler)
 
 	mux.Handle("/query", gqlHandler)
-	mux.Handle("/metrics", promhttp.Handler())
 
 	handler := middleware.RequestID(middleware.AccessLog(mux))
 
@@ -165,12 +208,24 @@ func (a *App) Run() error {
 		Handler: handler,
 	}
 
-	log := logger.New()
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", promhttp.Handler())
+	metricsServer := &http.Server{
+		Addr:    fmt.Sprintf(":%d", a.cfg.MetricsPort),
+		Handler: metricsMux,
+	}
 
 	go func() {
 		log.Info("starting gateway", zap.String("addr", "http://localhost:"+port+"/"))
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal("gateway serve failed", zap.Error(err))
+		}
+	}()
+
+	go func() {
+		log.Info("starting metrics server", zap.Int("port", a.cfg.MetricsPort))
+		if err := metricsServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal("metrics server failed", zap.Error(err))
 		}
 	}()
 
@@ -181,5 +236,9 @@ func (a *App) Run() error {
 	log.Info("shutting down gateway")
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
+
+	if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+		log.Error("metrics server shutdown error", zap.Error(err))
+	}
 	return httpSrv.Shutdown(shutdownCtx)
 }

@@ -6,6 +6,7 @@ import (
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/dlq"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/usecase"
 	"github.com/google/uuid"
@@ -16,10 +17,11 @@ import (
 type PaymentHandler struct {
 	paymentv1.UnimplementedPaymentServiceServer
 	usecase usecase.PaymentUsecase
+	dlq     *dlq.Producer
 }
 
-func NewPaymentHandler(uc usecase.PaymentUsecase) *PaymentHandler {
-	return &PaymentHandler{usecase: uc}
+func NewPaymentHandler(uc usecase.PaymentUsecase, dlqProducer *dlq.Producer) *PaymentHandler {
+	return &PaymentHandler{usecase: uc, dlq: dlqProducer}
 }
 
 func statusToProto(s domain.Status) paymentv1.PaymentStatus {
@@ -59,6 +61,7 @@ func (h *PaymentHandler) ProcessPayment(ctx context.Context, req *paymentv1.Proc
 
 	payment, err := h.usecase.ProcessPayment(ctx, orderID, userID, int64(req.Amount*100))
 	if err != nil {
+		_ = h.dlq.SendToDLQ("ProcessPaymentFailed", req.String(), err.Error())
 		return nil, apperrors.ToStatus(err)
 	}
 

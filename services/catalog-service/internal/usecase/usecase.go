@@ -101,6 +101,56 @@ func (u *catalogUsecase) GetProduct(ctx context.Context, id uuid.UUID) (*domain.
 	return u.productRepo.GetByID(ctx, id)
 }
 
+func (u *catalogUsecase) UpdateProduct(ctx context.Context, id uuid.UUID, name, description string, price int64, categories []string) error {
+	product := &domain.Product{
+		ID:          id,
+		Name:        name,
+		Description: description,
+		Price:       price,
+		Categories:  categories,
+	}
+
+	txCtx, cancel := context.WithTimeout(ctx, u.queryTimeout)
+	defer cancel()
+
+	uow := u.uowFactory()
+	if err := uow.Begin(txCtx); err != nil {
+		return fmt.Errorf("begin uow: %w", err)
+	}
+	defer uow.Rollback(txCtx)
+
+	if err := uow.ProductRepo().Update(txCtx, product); err != nil {
+		return fmt.Errorf("update product: %w", err)
+	}
+
+	if err := uow.Commit(txCtx); err != nil {
+		return fmt.Errorf("commit uow: %w", err)
+	}
+
+	return nil
+}
+
+func (u *catalogUsecase) DeleteProduct(ctx context.Context, id uuid.UUID) error {
+	txCtx, cancel := context.WithTimeout(ctx, u.queryTimeout)
+	defer cancel()
+
+	uow := u.uowFactory()
+	if err := uow.Begin(txCtx); err != nil {
+		return fmt.Errorf("begin uow: %w", err)
+	}
+	defer uow.Rollback(txCtx)
+
+	if err := uow.ProductRepo().Delete(txCtx, id); err != nil {
+		return fmt.Errorf("delete product: %w", err)
+	}
+
+	if err := uow.Commit(txCtx); err != nil {
+		return fmt.Errorf("commit uow: %w", err)
+	}
+
+	return nil
+}
+
 func (u *catalogUsecase) ListProducts(ctx context.Context, page, pageSize int) ([]*domain.Product, int, error) {
 	ctx, cancel := context.WithTimeout(ctx, u.queryTimeout)
 	defer cancel()

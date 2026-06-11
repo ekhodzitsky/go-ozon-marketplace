@@ -14,11 +14,16 @@ import (
 	"github.com/google/uuid"
 )
 
+var (
+	_ OrderUsecase = (*orderUsecase)(nil)
+)
+
 type orderUsecase struct {
 	uowFactory   func() unitofwork.UnitOfWork
 	orderRepo    repository.OrderRepository
 	outboxRepo   repository.OutboxRepository
 	orchestrator *saga.Orchestrator
+	invClient    saga.InventoryClient
 	callTimeout  time.Duration
 	queryTimeout time.Duration
 }
@@ -28,6 +33,7 @@ func NewOrderUsecase(
 	orderRepo repository.OrderRepository,
 	outboxRepo repository.OutboxRepository,
 	orchestrator *saga.Orchestrator,
+	invClient saga.InventoryClient,
 	callTimeout time.Duration,
 	queryTimeout time.Duration,
 ) OrderUsecase {
@@ -42,6 +48,7 @@ func NewOrderUsecase(
 		orderRepo:    orderRepo,
 		outboxRepo:   outboxRepo,
 		orchestrator: orchestrator,
+		invClient:    invClient,
 		callTimeout:  callTimeout,
 		queryTimeout: queryTimeout,
 	}
@@ -135,4 +142,38 @@ func (u *orderUsecase) ListOrders(ctx context.Context, userID uuid.UUID, page, p
 	ctx, cancel := context.WithTimeout(ctx, u.queryTimeout)
 	defer cancel()
 	return u.orderRepo.ListByUser(ctx, userID, page, pageSize)
+}
+
+func (u *orderUsecase) CancelOrder(ctx context.Context, id uuid.UUID) error {
+	qCtx, cancel := context.WithTimeout(ctx, u.queryTimeout)
+	defer cancel()
+
+	order, err := u.orderRepo.GetByID(qCtx, id)
+	if err != nil {
+		return fmt.Errorf("get order: %w", err)
+	}
+
+	if order.Status == "cancelled" {
+		return fmt.Errorf("%w: order already cancelled", apperrors.ErrInvalidArgument)
+	}
+
+	if err := u.orderRepo.UpdateStatus(qCtx, id, "cancelled"); err != nil {
+		return fmt.Errorf("update order status: %w", err)
+	}
+
+	cCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
+	defer cancel()
+	for _, item := range order.Items {
+		if err := u.invClient.Release(cCtx, item.ProductID.String(), int32(item.Quantity), order.ID.String()); err != nil {
+			return fmt.Errorf("release inventory for product %s: %w", item.ProductID, err)
+		}
+	}
+
+	return nil
+}
+
+func (u *orderUsecase) UpdateOrderStatus(ctx context.Context, id uuid.UUID, status string) error {
+	qCtx, cancel := context.WithTimeout(ctx, u.queryTimeout)
+	defer cancel()
+	return u.orderRepo.UpdateStatus(qCtx, id, status)
 }

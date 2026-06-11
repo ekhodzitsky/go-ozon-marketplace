@@ -9,6 +9,8 @@ service CatalogService {
   rpc GetProduct(GetProductRequest) returns (GetProductResponse);
   rpc ListProducts(ListProductsRequest) returns (ListProductsResponse);
   rpc SearchProducts(SearchProductsRequest) returns (SearchProductsResponse);
+  rpc UpdateProduct(UpdateProductRequest) returns (UpdateProductResponse);
+  rpc DeleteProduct(DeleteProductRequest) returns (DeleteProductResponse);
 }
 
 message CreateProductRequest {
@@ -58,4 +60,24 @@ message Product {
   double price = 4;
   repeated string categories = 5;
   string created_at = 6;
+}
+
+message UpdateProductRequest {
+  string product_id = 1;
+  string name = 2;
+  string description = 3;
+  double price = 4;
+  repeated string categories = 5;
+}
+
+message UpdateProductResponse {
+  bool success = 1;
+}
+
+message DeleteProductRequest {
+  string product_id = 1;
+}
+
+message DeleteProductResponse {
+  bool success = 1;
 }

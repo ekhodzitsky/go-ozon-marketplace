@@ -6,6 +6,8 @@ type EventType string
 
 const (
 	EventTypeOrderCreated   EventType = "order_created"
+	EventTypeOrderConfirmed EventType = "order_confirmed"
+	EventTypeOrderCancelled EventType = "order_cancelled"
 	EventTypePaymentSuccess EventType = "payment_success"
 	EventTypeUserRegistered EventType = "user_registered"
 )

@@ -56,6 +56,20 @@ func (mr *MockProductRepositoryMockRecorder) Create(ctx, product any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockProductRepository)(nil).Create), ctx, product)
 }
 
+// Delete mocks base method.
+func (m *MockProductRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Delete", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Delete indicates an expected call of Delete.
+func (mr *MockProductRepositoryMockRecorder) Delete(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockProductRepository)(nil).Delete), ctx, id)
+}
+
 // GetByID mocks base method.
 func (m *MockProductRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Product, error) {
 	m.ctrl.T.Helper()
@@ -85,6 +99,20 @@ func (m *MockProductRepository) List(ctx context.Context, page, pageSize int) ([
 func (mr *MockProductRepositoryMockRecorder) List(ctx, page, pageSize any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockProductRepository)(nil).List), ctx, page, pageSize)
+}
+
+// Update mocks base method.
+func (m *MockProductRepository) Update(ctx context.Context, product *domain.Product) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Update", ctx, product)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Update indicates an expected call of Update.
+func (mr *MockProductRepositoryMockRecorder) Update(ctx, product any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockProductRepository)(nil).Update), ctx, product)
 }
 
 // MockProductSearchRepository is a mock of ProductSearchRepository interface.
