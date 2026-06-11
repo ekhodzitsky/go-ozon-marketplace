@@ -19,7 +19,7 @@
 
 Использовать **Transactional Outbox** с ручным relay в `order-service`.
 
-> **Оговорка:** На момент принятия решения реальный Kafka producer **не реализован** — relay только логирует события через Zap и помечает их `processed`. Брокер Redpanda поднимается в Docker Compose, но producer/consumer отсутствуют. Это задокументировано как честный TODO ([ORD-OBX-01](../AUDIT_BACKLOG.md), [DOC-00](../AUDIT_BACKLOG.md)).
+> **Оговорка:** На момент принятия решения реальный Kafka producer **не реализован** — relay только логирует события через Zap и помечает их `processed`. Брокер Redpanda поднимается в Docker Compose, но producer/consumer отсутствуют. Это задокументировано как честный TODO: реализовать Kafka producer и poison-handling.
 
 ## Trade-offs
 
