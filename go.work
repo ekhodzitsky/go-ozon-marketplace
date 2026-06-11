@@ -3,6 +3,7 @@ go 1.26
 use (
 	./api
 	./pkg
+	./scripts
 	./services/analytics-service
 	./services/api-gateway
 	./services/catalog-service

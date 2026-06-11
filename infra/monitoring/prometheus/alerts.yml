@@ -1,0 +1,50 @@
+groups:
+  - name: marketplace
+    rules:
+      - alert: HighErrorRate
+        expr: rate(grpc_server_handled_total{status!="OK"}[5m]) / rate(grpc_server_handled_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate in {{ $labels.service }}"
+
+      - alert: HighLatency
+        expr: histogram_quantile(0.99, rate(grpc_server_handling_seconds_bucket[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High latency in {{ $labels.service }}"
+
+      - alert: LowAvailability
+        expr: avg_over_time(up[1h]) < 0.999
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low availability"
+
+      - alert: DBConnectionsHigh
+        expr: db_connections_active / db_connections_max > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DB connections high in {{ $labels.service }}"
+
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory high"
+
+      - alert: KafkaConsumerLag
+        expr: kafka_consumer_group_lag > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka consumer lag high for {{ $labels.topic }}"

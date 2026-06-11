@@ -1,0 +1,335 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: monitoring
+data:
+  red-method.json: |
+    {
+      "id": null,
+      "uid": "red-method",
+      "title": "RED Method",
+      "tags": ["red", "grpc", "slo"],
+      "timezone": "browser",
+      "schemaVersion": 36,
+      "version": 1,
+      "refresh": "10s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Request Rate (RPM)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "sum(rate(grpc_server_handled_total[1m])) by (service) * 60",
+              "legendFormat": "{{service}}",
+              "refId": "A"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+          "fieldConfig": {
+            "defaults": {
+              "unit": "cpm",
+              "custom": {"drawStyle": "line"}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 2,
+          "title": "Error Rate (%)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "sum(rate(grpc_server_handled_total{status!=\"OK\"}[5m])) by (service) / sum(rate(grpc_server_handled_total[5m])) by (service) * 100",
+              "legendFormat": "{{service}}",
+              "refId": "A"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "custom": {"drawStyle": "line"}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "title": "Duration p50 / p95 / p99",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum(rate(grpc_server_handling_seconds_bucket[5m])) by (le, service))",
+              "legendFormat": "p50 {{service}}",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(grpc_server_handling_seconds_bucket[5m])) by (le, service))",
+              "legendFormat": "p95 {{service}}",
+              "refId": "B"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(grpc_server_handling_seconds_bucket[5m])) by (le, service))",
+              "legendFormat": "p99 {{service}}",
+              "refId": "C"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {"drawStyle": "line"}
+            },
+            "overrides": []
+          }
+        }
+      ]
+    }
+  business-metrics.json: |
+    {
+      "id": null,
+      "uid": "business-metrics",
+      "title": "Business Metrics",
+      "tags": ["business"],
+      "timezone": "browser",
+      "schemaVersion": 36,
+      "version": 1,
+      "refresh": "10s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Orders Created",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(orders_created_total[5m])",
+              "legendFormat": "{{service}}",
+              "refId": "A"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {"drawStyle": "line"}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 2,
+          "title": "Orders Confirmed",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(orders_confirmed_total[5m])",
+              "legendFormat": "{{service}}",
+              "refId": "A"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {"drawStyle": "line"}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "title": "Orders Cancelled",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(orders_cancelled_total[5m])",
+              "legendFormat": "{{service}}",
+              "refId": "A"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {"drawStyle": "line"}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 4,
+          "title": "Revenue (RUB/min)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(revenue_rub[5m]) * 60",
+              "legendFormat": "revenue",
+              "refId": "A"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "fieldConfig": {
+            "defaults": {
+              "unit": "currencyRUB",
+              "custom": {"drawStyle": "line"}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "title": "Active Users",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "active_users",
+              "legendFormat": "{{service}}",
+              "refId": "A"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {"drawStyle": "line"}
+            },
+            "overrides": []
+          }
+        }
+      ]
+    }
+  infrastructure.json: |
+    {
+      "id": null,
+      "uid": "infrastructure",
+      "title": "Infrastructure",
+      "tags": ["infra", "k8s", "db"],
+      "timezone": "browser",
+      "schemaVersion": 36,
+      "version": 1,
+      "refresh": "10s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "CPU Usage by Pod",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(container_cpu_usage_seconds_total[1m])",
+              "legendFormat": "{{pod}}",
+              "refId": "A"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {"drawStyle": "line"}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 2,
+          "title": "Memory Usage by Pod",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "container_memory_usage_bytes",
+              "legendFormat": "{{pod}}",
+              "refId": "A"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {"drawStyle": "line"}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "title": "DB Connections Active",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "db_connections_active",
+              "legendFormat": "{{service}}",
+              "refId": "A"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {"drawStyle": "line"}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 4,
+          "title": "Redis Hit Ratio",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(redis_keyspace_hits_total[1m]) / (rate(redis_keyspace_hits_total[1m]) + rate(redis_keyspace_misses_total[1m]))",
+              "legendFormat": "hit ratio",
+              "refId": "A"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {"drawStyle": "line"}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "title": "Kafka Consumer Lag",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "kafka_consumer_group_lag",
+              "legendFormat": "{{topic}} / {{consumer_group}}",
+              "refId": "A"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {"drawStyle": "line"}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "title": "ClickHouse Insert Rate",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "rate(clickhouse_profile_events_insert[1m])",
+              "legendFormat": "inserts/s",
+              "refId": "A"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {"drawStyle": "line"}
+            },
+            "overrides": []
+          }
+        }
+      ]
+    }

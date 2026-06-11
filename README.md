@@ -71,7 +71,7 @@ graph TB
 - **Go 1.26**, gRPC, GraphQL (gqlgen)
 - **PostgreSQL 16**, Redis 7, ClickHouse, Elasticsearch
 - **Kafka** (Redpanda), Transactional Outbox, Saga Orchestrator
-- **Prometheus**, Grafana, **OpenTelemetry** (пакет есть, инициализация — в планах)
+- **Prometheus**, Grafana, **OpenTelemetry** tracing и metrics
 - **mTLS** между сервисами (опционально)
 - **Kubernetes**, Helm, GitHub Actions CI/CD
 
@@ -130,6 +130,7 @@ make lint
 - [Безопасность](docs/SECURITY.md) — JWT, роли, mTLS, rate limiting
 - [Дизайн-документ](docs/design.md) — полный design doc с ADR
 - [Аудит](docs/AUDIT_REPORT.md) — актуальность документации
+- [CHANGELOG](CHANGELOG.md) — история изменений
 
 ## CI/CD
 

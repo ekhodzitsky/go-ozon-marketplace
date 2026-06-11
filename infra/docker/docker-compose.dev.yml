@@ -1,0 +1,172 @@
+version: "3.8"
+
+services:
+  api-gateway:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: api-gateway
+    environment:
+      - PORT=8080
+      - USER_SERVICE_ADDR=user-service:50051
+      - CATALOG_SERVICE_ADDR=catalog-service:50052
+      - ORDER_SERVICE_ADDR=order-service:50055
+      - INVENTORY_SERVICE_ADDR=inventory-service:50053
+      - PAYMENT_SERVICE_ADDR=payment-service:50054
+      - REDIS_ADDR=redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+    ports:
+      - "8080:8080"
+    depends_on:
+      user-service:
+        condition: service_started
+      catalog-service:
+        condition: service_started
+      order-service:
+        condition: service_started
+      inventory-service:
+        condition: service_started
+      payment-service:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+
+  user-service:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: user-service
+    environment:
+      - GRPC_PORT=50051
+      - POSTGRES_DSN=postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable
+      - JWT_SECRET=${JWT_SECRET}
+    ports:
+      - "50051:50051"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  catalog-service:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: catalog-service
+    environment:
+      - GRPC_PORT=50052
+      - POSTGRES_DSN=postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable
+      - ES_URL=http://elasticsearch:9200
+      - JWT_SECRET=${JWT_SECRET}
+    ports:
+      - "50052:50052"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+
+  inventory-service:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: inventory-service
+    environment:
+      - GRPC_PORT=50053
+      - POSTGRES_DSN=postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable
+      - REDIS_ADDR=redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+    ports:
+      - "50053:50053"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  payment-service:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: payment-service
+    environment:
+      - GRPC_PORT=50054
+      - POSTGRES_DSN=postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable
+      - JWT_SECRET=${JWT_SECRET}
+      - KAFKA_BROKERS=redpanda:9092
+    ports:
+      - "50054:50054"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+
+  order-service:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: order-service
+    environment:
+      - GRPC_PORT=50055
+      - POSTGRES_DSN=postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable
+      - INVENTORY_ADDR=inventory-service:50053
+      - PAYMENT_ADDR=payment-service:50054
+      - JWT_SECRET=${JWT_SECRET}
+      - KAFKA_BROKERS=redpanda:9092
+    ports:
+      - "50055:50055"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      inventory-service:
+        condition: service_started
+      payment-service:
+        condition: service_started
+      redpanda:
+        condition: service_healthy
+
+  notification-service:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: notification-service
+    environment:
+      - GRPC_PORT=50056
+      - JWT_SECRET=${JWT_SECRET}
+      - KAFKA_BROKERS=redpanda:9092
+      - KAFKA_CONSUMER_GROUP=notification-service
+      - KAFKA_TOPICS=order-events
+    ports:
+      - "50056:50056"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+  analytics-service:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: analytics-service
+    environment:
+      - GRPC_PORT=50057
+      - CLICKHOUSE_DSN=clickhouse:9000
+      - JWT_SECRET=${JWT_SECRET}
+      - KAFKA_BROKERS=redpanda:9092
+    ports:
+      - "50057:50057"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy

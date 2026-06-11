@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"net/http"
+	_ "net/http/pprof"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/tracing"
@@ -24,6 +26,13 @@ func main() {
 	defer func() {
 		if err := tracing.ShutdownTracer(tp, context.Background()); err != nil {
 			log.Error("shutdown tracer", zap.Error(err))
+		}
+	}()
+
+	go func() {
+		log.Info("starting pprof server", zap.String("addr", "localhost:6060"))
+		if err := http.ListenAndServe("localhost:6060", nil); err != nil {
+			log.Error("pprof server error", zap.Error(err))
 		}
 	}()
 

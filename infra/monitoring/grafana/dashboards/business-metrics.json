@@ -1,0 +1,112 @@
+{
+  "id": null,
+  "uid": "business-metrics",
+  "title": "Business Metrics",
+  "tags": ["business"],
+  "timezone": "browser",
+  "schemaVersion": 36,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Orders Created",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(orders_created_total[5m])",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {"drawStyle": "line"}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Orders Confirmed",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(orders_confirmed_total[5m])",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {"drawStyle": "line"}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Orders Cancelled",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(orders_cancelled_total[5m])",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {"drawStyle": "line"}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Revenue (RUB/min)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(revenue_rub[5m]) * 60",
+          "legendFormat": "revenue",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyRUB",
+          "custom": {"drawStyle": "line"}
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Active Users",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "active_users",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {"drawStyle": "line"}
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

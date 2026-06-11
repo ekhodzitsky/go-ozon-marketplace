@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
@@ -62,43 +61,55 @@ func (r *OrderPostgres) Create(ctx context.Context, order *domain.Order) error {
 }
 
 func (r *OrderPostgres) GetByID(ctx context.Context, id uuid.UUID) (*domain.Order, error) {
-	query := `SELECT id, user_id, total_amount, status, created_at, updated_at FROM orders WHERE id=$1`
-	row := r.db.QueryRow(ctx, query, id)
-	var order domain.Order
-	if err := row.Scan(&order.ID, &order.UserID, &order.TotalAmount, &order.Status, &order.CreatedAt, &order.UpdatedAt); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("%w: order", apperrors.ErrNotFound)
-		}
+	query := `
+		SELECT o.id, o.user_id, o.total_amount, o.status, o.created_at, o.updated_at,
+		       i.id, i.order_id, i.product_id, i.quantity, i.price
+		FROM orders o
+		LEFT JOIN order_items i ON o.id = i.order_id
+		WHERE o.id=$1
+		ORDER BY i.id`
+	rows, err := r.db.Query(ctx, query, id)
+	if err != nil {
 		return nil, fmt.Errorf("get order by id: %w", err)
-	}
-	items, err := r.getItemsByOrderID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	order.Items = items
-	return &order, nil
-}
-
-func (r *OrderPostgres) getItemsByOrderID(ctx context.Context, orderID uuid.UUID) ([]domain.OrderItem, error) {
-	query := `SELECT id, order_id, product_id, quantity, price FROM order_items WHERE order_id=$1`
-	rows, err := r.db.Query(ctx, query, orderID)
-	if err != nil {
-		return nil, fmt.Errorf("get order items: %w", err)
 	}
 	defer rows.Close()
 
-	var items []domain.OrderItem
+	var order *domain.Order
 	for rows.Next() {
-		var item domain.OrderItem
-		if err := rows.Scan(&item.ID, &item.OrderID, &item.ProductID, &item.Quantity, &item.Price); err != nil {
-			return nil, fmt.Errorf("scan order item: %w", err)
+		var o domain.Order
+		var itemID, itemOrderID, itemProductID *uuid.UUID
+		var itemQuantity *int
+		var itemPrice *int64
+
+		if err := rows.Scan(
+			&o.ID, &o.UserID, &o.TotalAmount, &o.Status, &o.CreatedAt, &o.UpdatedAt,
+			&itemID, &itemOrderID, &itemProductID, &itemQuantity, &itemPrice,
+		); err != nil {
+			return nil, fmt.Errorf("scan order row: %w", err)
 		}
-		items = append(items, item)
+
+		if order == nil {
+			order = &o
+			order.Items = []domain.OrderItem{}
+		}
+
+		if itemID != nil {
+			order.Items = append(order.Items, domain.OrderItem{
+				ID:        *itemID,
+				OrderID:   *itemOrderID,
+				ProductID: *itemProductID,
+				Quantity:  *itemQuantity,
+				Price:     *itemPrice,
+			})
+		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate order items: %w", err)
+		return nil, fmt.Errorf("iterate order: %w", err)
 	}
-	return items, nil
+	if order == nil {
+		return nil, fmt.Errorf("%w: order", apperrors.ErrNotFound)
+	}
+	return order, nil
 }
 
 func (r *OrderPostgres) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {

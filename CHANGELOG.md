@@ -3,6 +3,31 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 проект следует [Semantic Versioning](https://semver.org/lang/ru/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-06-10
+
+### Added
+- GraphQL gateway: order-service, inventory-service, payment-service clients
+- GraphQL queries: me, orders, inventory, order, cancelOrder
+- gRPC методы: CancelOrder, UpdateOrderStatus, UpdateProduct, DeleteProduct
+- Observability: OpenTelemetry tracing, configurable LOG_LEVEL/LOG_FORMAT, Prometheus metrics
+- Kafka consumers: analytics-service, notification-service
+- DLQ: payment-service dead letter queue
+- Inventory ledger таблица и API
+- Payment refunds таблица и API
+- Unit и E2E тесты для всех новых функций
+- K8s HPA для всех сервисов
+- K8s monitoring stack: Prometheus, Grafana, Jaeger
+- K8s NetworkPolicies
+
+### Changed
+- Документация приведена в соответствие с кодом (15 файлов, 1600+ строк)
+- CI/CD: добавлены integration тесты
+- Makefile: test-integration, test-e2e targets
+
+### Fixed
+- Имена env vars в документации (POSTGRES_DSN, REDIS_ADDR и т.д.)
+- GraphQL примеры в QUICKSTART.md
+
 ## [0.2.0] — 2026-06-10
 
 ### Безопасность
@@ -87,5 +112,6 @@
 - GitHub Actions CI/CD
 - Docker multi-stage builds
 
+[0.3.0]: https://github.com/ekhodzitsky/go-ozon-marketplace/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ekhodzitsky/go-ozon-marketplace/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ekhodzitsky/go-ozon-marketplace/releases/tag/v0.1.0
