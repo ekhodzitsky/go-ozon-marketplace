@@ -13,6 +13,7 @@ message TrackEventRequest {
   string event_type = 1;
   string aggregate_id = 2;
   string payload = 3;
+  string aggregation_key = 4;
 }
 
 message TrackEventResponse {

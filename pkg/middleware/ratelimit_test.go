@@ -1,144 +1,97 @@
 package middleware
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func TestRateLimiter_Allow(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		rps       int
-		requests  int
-		wantAllow bool
-	}{
-		{
-			name:      "under_limit",
-			rps:       10,
-			requests:  5,
-			wantAllow: true,
-		},
-		{
-			name:      "at_limit",
-			rps:       10,
-			requests:  10,
-			wantAllow: true,
-		},
-		{
-			name:      "over_limit",
-			rps:       2,
-			requests:  3,
-			wantAllow: false,
-		},
-		{
-			name:      "zero_rps_defaults_to_ten",
-			rps:       0,
-			requests:  5,
-			wantAllow: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			rl := NewRateLimiter(tt.rps)
-
-			var last bool
-			for i := 0; i < tt.requests; i++ {
-				last = rl.Allow("127.0.0.1")
-			}
-			assert.Equal(t, tt.wantAllow, last)
-		})
-	}
+type mockLimiter struct {
+	allowed bool
 }
 
-func TestGraphQLMutationRateLimiter(t *testing.T) {
+func (m *mockLimiter) Allow(ctx context.Context, key string) bool {
+	return m.allowed
+}
+
+func TestRateLimitHTTP(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		body       string
-		requests   int
-		wantStatus int
+		name     string
+		allowed  bool
+		wantCode int
 	}{
-		{
-			name:       "mutation_register_allowed",
-			body:       `{"query":"mutation { register(email:\"a\",password:\"b\",name:\"c\") }"}`,
-			requests:   1,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "mutation_register_rate_limited",
-			body:       `{"query":"mutation { register(email:\"a\",password:\"b\",name:\"c\") }"}`,
-			requests:   11,
-			wantStatus: http.StatusTooManyRequests,
-		},
-		{
-			name:       "mutation_login_rate_limited",
-			body:       `{"query":"mutation { login(email:\"a\",password:\"b\") }"}`,
-			requests:   11,
-			wantStatus: http.StatusTooManyRequests,
-		},
-		{
-			name:       "mutation_createProduct_rate_limited",
-			body:       `{"query":"mutation { createProduct(name:\"a\",description:\"b\",price:1.0,stock:1,categories:[\"c\"]) }"}`,
-			requests:   11,
-			wantStatus: http.StatusTooManyRequests,
-		},
-		{
-			name:       "query_not_limited",
-			body:       `{"query":"query { user(id:\"1\") { id } }"}`,
-			requests:   20,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "invalid_json_not_limited",
-			body:       `not-json`,
-			requests:   20,
-			wantStatus: http.StatusOK,
-		},
+		{"allowed", true, http.StatusOK},
+		{"denied", false, http.StatusTooManyRequests},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			rl := NewRateLimiter(10)
-			handler := GraphQLMutationRateLimiter(rl)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rl := &mockLimiter{allowed: tt.allowed}
+			h := RateLimitHTTP(rl, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
-
-			var lastStatus int
-			for i := 0; i < tt.requests; i++ {
-				req := httptest.NewRequest(http.MethodPost, "/query", strings.NewReader(tt.body))
-				req.Header.Set("Content-Type", "application/json")
-				req.RemoteAddr = "127.0.0.1:1234"
-				rr := httptest.NewRecorder()
-				handler.ServeHTTP(rr, req)
-				lastStatus = rr.Code
-			}
-			assert.Equal(t, tt.wantStatus, lastStatus)
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.RemoteAddr = "127.0.0.1:1234"
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, req)
+			assert.Equal(t, tt.wantCode, rr.Code)
 		})
 	}
 }
 
-func TestGraphQLMutationRateLimiter_NonPost(t *testing.T) {
+func TestClientIP(t *testing.T) {
 	t.Parallel()
 
-	rl := NewRateLimiter(10)
-	handler := GraphQLMutationRateLimiter(rl)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
+	tests := []struct {
+		name    string
+		remote  string
+		xff     string
+		trusted []string
+		want    string
+	}{
+		{"no_proxy", "192.168.1.1:1234", "", nil, "192.168.1.1"},
+		{"trusted_xff", "10.0.0.1:1234", "1.2.3.4, 5.6.7.8", []string{"10.0.0.0/8"}, "1.2.3.4"},
+		{"untrusted_xff", "192.168.1.1:1234", "1.2.3.4", []string{"10.0.0.0/8"}, "192.168.1.1"},
+		{"empty_xff", "10.0.0.1:1234", "", []string{"10.0.0.0/8"}, "10.0.0.1"},
+	}
 
-	req := httptest.NewRequest(http.MethodGet, "/query", nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = tt.remote
+			if tt.xff != "" {
+				req.Header.Set("X-Forwarded-For", tt.xff)
+			}
+			got := ClientIP(req, tt.trusted)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestMaxBytesHandler(t *testing.T) {
+	t.Parallel()
+
+	handler := MaxBytesHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}), 10)
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("hello world!!"))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
-	require.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rr.Code)
 }

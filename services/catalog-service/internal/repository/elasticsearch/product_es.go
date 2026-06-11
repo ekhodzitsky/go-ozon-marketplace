@@ -10,19 +10,27 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/repository"
 	"github.com/google/uuid"
 	"github.com/olivere/elastic/v7"
+	"go.uber.org/zap"
 )
 
-const indexName = "products"
+const (
+	indexName           = "products"
+	DefaultCallTimeout  = 5 * time.Second
+)
 
 type ProductES struct {
 	client *elastic.Client
+	log    *zap.Logger
 }
 
-func NewProductES(client *elastic.Client) repository.ProductSearchRepository {
-	return &ProductES{client: client}
+func NewProductES(client *elastic.Client, log *zap.Logger) repository.ProductSearchRepository {
+	return &ProductES{client: client, log: log}
 }
 
 func (r *ProductES) Index(ctx context.Context, product *domain.Product) error {
+	ctx, cancel := context.WithTimeout(ctx, DefaultCallTimeout)
+	defer cancel()
+
 	_, err := r.client.Index().
 		Index(indexName).
 		Id(product.ID.String()).
@@ -31,7 +39,6 @@ func (r *ProductES) Index(ctx context.Context, product *domain.Product) error {
 			"name":        product.Name,
 			"description": product.Description,
 			"price":       product.Price,
-			"stock":       product.Stock,
 			"categories":  product.Categories,
 			"created_at":  product.CreatedAt.Format(time.RFC3339),
 		}).
@@ -43,6 +50,9 @@ func (r *ProductES) Index(ctx context.Context, product *domain.Product) error {
 }
 
 func (r *ProductES) Search(ctx context.Context, query string, page, pageSize int) ([]*domain.Product, int, error) {
+	ctx, cancel := context.WithTimeout(ctx, DefaultCallTimeout)
+	defer cancel()
+
 	if page < 1 {
 		page = 1
 	}
@@ -69,7 +79,7 @@ func (r *ProductES) Search(ctx context.Context, query string, page, pageSize int
 		if err := json.Unmarshal(hit.Source, &source); err != nil {
 			return nil, 0, fmt.Errorf("unmarshal hit: %w", err)
 		}
-		product, err := mapToProduct(source)
+		product, err := r.mapToProduct(source)
 		if err != nil {
 			return nil, 0, fmt.Errorf("map hit to product: %w", err)
 		}
@@ -80,40 +90,62 @@ func (r *ProductES) Search(ctx context.Context, query string, page, pageSize int
 	return products, total, nil
 }
 
-func mapToProduct(source map[string]interface{}) (*domain.Product, error) {
-	idStr, _ := source["id"].(string)
+func (r *ProductES) mapToProduct(source map[string]interface{}) (*domain.Product, error) {
+	if source == nil {
+		r.log.Warn("mapToProduct: source is nil")
+		return nil, fmt.Errorf("source is nil")
+	}
+
+	idStr, ok := source["id"].(string)
+	if !ok || idStr == "" {
+		r.log.Warn("mapToProduct: missing or invalid id", zap.Any("value", source["id"]))
+		return nil, fmt.Errorf("missing or invalid id")
+	}
 	id, err := uuid.Parse(idStr)
 	if err != nil {
+		r.log.Warn("mapToProduct: invalid id", zap.String("value", idStr), zap.Error(err))
 		return nil, fmt.Errorf("parse id: %w", err)
 	}
 
-	name, _ := source["name"].(string)
-	description, _ := source["description"].(string)
-
-	var price float64
-	if v, ok := source["price"].(float64); ok {
-		price = v
+	name, ok := source["name"].(string)
+	if !ok {
+		r.log.Warn("mapToProduct: missing or invalid name", zap.Any("value", source["name"]))
 	}
 
-	var stock int
-	if v, ok := source["stock"].(float64); ok {
-		stock = int(v)
+	description, ok := source["description"].(string)
+	if !ok {
+		r.log.Warn("mapToProduct: missing or invalid description", zap.Any("value", source["description"]))
+	}
+
+	var price int64
+	if v, ok := source["price"].(float64); ok {
+		price = int64(v)
+	} else {
+		r.log.Warn("mapToProduct: missing or invalid price", zap.Any("value", source["price"]))
 	}
 
 	var categories []string
 	if arr, ok := source["categories"].([]interface{}); ok {
-		for _, c := range arr {
+		for i, c := range arr {
 			if s, ok := c.(string); ok {
 				categories = append(categories, s)
+			} else {
+				r.log.Warn("mapToProduct: invalid category element", zap.Int("index", i), zap.Any("value", c))
 			}
 		}
+	} else {
+		r.log.Warn("mapToProduct: missing or invalid categories", zap.Any("value", source["categories"]))
 	}
 
 	createdAt := time.Time{}
 	if tStr, ok := source["created_at"].(string); ok {
 		if t, err := time.Parse(time.RFC3339, tStr); err == nil {
 			createdAt = t
+		} else {
+			r.log.Warn("mapToProduct: invalid created_at", zap.String("value", tStr), zap.Error(err))
 		}
+	} else {
+		r.log.Warn("mapToProduct: missing or invalid created_at", zap.Any("value", source["created_at"]))
 	}
 
 	return &domain.Product{
@@ -121,7 +153,6 @@ func mapToProduct(source map[string]interface{}) (*domain.Product, error) {
 		Name:        name,
 		Description: description,
 		Price:       price,
-		Stock:       stock,
 		Categories:  categories,
 		CreatedAt:   createdAt,
 	}, nil

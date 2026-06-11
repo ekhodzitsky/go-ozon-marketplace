@@ -1,3 +1,5 @@
+//go:build e2e
+
 package e2e
 
 import (
@@ -41,11 +43,11 @@ type mockPaymentServer struct {
 }
 
 func (s *mockPaymentServer) ProcessPayment(_ context.Context, _ *paymentv1.ProcessPaymentRequest) (*paymentv1.ProcessPaymentResponse, error) {
-	return &paymentv1.ProcessPaymentResponse{PaymentId: uuid.New().String(), Status: "completed"}, nil
+	return &paymentv1.ProcessPaymentResponse{PaymentId: uuid.New().String(), Status: paymentv1.PaymentStatus_PAYMENT_STATUS_SUCCESS}, nil
 }
 
 func (s *mockPaymentServer) Refund(_ context.Context, _ *paymentv1.RefundRequest) (*paymentv1.RefundResponse, error) {
-	return &paymentv1.RefundResponse{Status: "refunded"}, nil
+	return &paymentv1.RefundResponse{Status: paymentv1.PaymentStatus_PAYMENT_STATUS_REFUNDED}, nil
 }
 
 func startMockGRPCServer(t *testing.T, register func(*grpc.Server)) string {
@@ -89,6 +91,9 @@ func graphqlRequest(t *testing.T, url, query string) map[string]interface{} {
 }
 
 func TestOrderFlow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
 	ctx := context.Background()
 
 	// Start PostgreSQL and Elasticsearch
@@ -168,7 +173,7 @@ func TestOrderFlow(t *testing.T) {
 	}
 
 	// Step 2: Create product via API Gateway
-	prodResult := graphqlRequest(t, gatewayURL+"/query", `mutation { createProduct(name: "Test Product", description: "A test product", price: 99.99, stock: 10, categories: ["test"]) }`)
+	prodResult := graphqlRequest(t, gatewayURL+"/query", `mutation { createProduct(name: "Test Product", description: "A test product", price: 99.99, categories: ["test"]) }`)
 	data, ok = prodResult["data"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("createProduct returned no data: %v", prodResult)

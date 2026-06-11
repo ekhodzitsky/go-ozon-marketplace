@@ -12,16 +12,29 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-type UserUsecase struct {
-	repo      repository.UserRepository
-	jwtSecret string
+const (
+	DefaultCallTimeout  = 5 * time.Second
+	DefaultQueryTimeout = 3 * time.Second
+)
+
+type userUsecase struct {
+	repo         repository.UserRepository
+	jwtSecret    string
+	callTimeout  time.Duration
+	queryTimeout time.Duration
 }
 
-func NewUserUsecase(repo repository.UserRepository, jwtSecret string) *UserUsecase {
-	return &UserUsecase{repo: repo, jwtSecret: jwtSecret}
+func NewUserUsecase(repo repository.UserRepository, jwtSecret string, callTimeout time.Duration, queryTimeout time.Duration) UserUsecase {
+	if callTimeout == 0 {
+		callTimeout = DefaultCallTimeout
+	}
+	if queryTimeout == 0 {
+		queryTimeout = DefaultQueryTimeout
+	}
+	return &userUsecase{repo: repo, jwtSecret: jwtSecret, callTimeout: callTimeout, queryTimeout: queryTimeout}
 }
 
-func (u *UserUsecase) Register(ctx context.Context, email, password, name string) (uuid.UUID, error) {
+func (u *userUsecase) Register(ctx context.Context, email, password, name string) (uuid.UUID, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("hash password: %w", err)
@@ -35,13 +48,17 @@ func (u *UserUsecase) Register(ctx context.Context, email, password, name string
 		CreatedAt:    time.Now().UTC(),
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, u.queryTimeout)
+	defer cancel()
 	if err := u.repo.Create(ctx, user); err != nil {
 		return uuid.Nil, fmt.Errorf("create user: %w", err)
 	}
 	return user.ID, nil
 }
 
-func (u *UserUsecase) Login(ctx context.Context, email, password string) (string, error) {
+func (u *userUsecase) Login(ctx context.Context, email, password string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, u.queryTimeout)
+	defer cancel()
 	user, err := u.repo.GetByEmail(ctx, email)
 	if err != nil {
 		return "", fmt.Errorf("user not found: %w", err)
@@ -63,6 +80,8 @@ func (u *UserUsecase) Login(ctx context.Context, email, password string) (string
 	return tokenString, nil
 }
 
-func (u *UserUsecase) GetUser(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+func (u *userUsecase) GetUser(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+	ctx, cancel := context.WithTimeout(ctx, u.queryTimeout)
+	defer cancel()
 	return u.repo.GetByID(ctx, id)
 }

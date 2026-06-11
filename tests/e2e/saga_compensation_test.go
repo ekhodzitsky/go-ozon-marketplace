@@ -1,3 +1,5 @@
+//go:build e2e
+
 package e2e
 
 import (
@@ -42,11 +44,11 @@ type trackingPaymentServer struct {
 
 func (s *trackingPaymentServer) ProcessPayment(_ context.Context, _ *paymentv1.ProcessPaymentRequest) (*paymentv1.ProcessPaymentResponse, error) {
 	s.processPaymentCalled.Store(true)
-	return &paymentv1.ProcessPaymentResponse{PaymentId: uuid.New().String(), Status: "completed"}, nil
+	return &paymentv1.ProcessPaymentResponse{PaymentId: uuid.New().String(), Status: paymentv1.PaymentStatus_PAYMENT_STATUS_SUCCESS}, nil
 }
 
 func (s *trackingPaymentServer) Refund(_ context.Context, _ *paymentv1.RefundRequest) (*paymentv1.RefundResponse, error) {
-	return &paymentv1.RefundResponse{Status: "refunded"}, nil
+	return &paymentv1.RefundResponse{Status: paymentv1.PaymentStatus_PAYMENT_STATUS_REFUNDED}, nil
 }
 
 func authContext(ctx context.Context, userID, secret string) context.Context {
@@ -62,6 +64,9 @@ func authContext(ctx context.Context, userID, secret string) context.Context {
 }
 
 func TestSagaCompensation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode")
+	}
 	cases := []struct {
 		name         string
 		wantStatus   string

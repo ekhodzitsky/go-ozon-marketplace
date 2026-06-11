@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/saga"
@@ -13,11 +14,13 @@ import (
 	"github.com/google/uuid"
 )
 
-type OrderUsecase struct {
+type orderUsecase struct {
 	uowFactory   func() unitofwork.UnitOfWork
 	orderRepo    repository.OrderRepository
 	outboxRepo   repository.OutboxRepository
 	orchestrator *saga.Orchestrator
+	callTimeout  time.Duration
+	queryTimeout time.Duration
 }
 
 func NewOrderUsecase(
@@ -25,19 +28,43 @@ func NewOrderUsecase(
 	orderRepo repository.OrderRepository,
 	outboxRepo repository.OutboxRepository,
 	orchestrator *saga.Orchestrator,
-) *OrderUsecase {
-	return &OrderUsecase{
+	callTimeout time.Duration,
+	queryTimeout time.Duration,
+) OrderUsecase {
+	if callTimeout == 0 {
+		callTimeout = 5 * time.Second
+	}
+	if queryTimeout == 0 {
+		queryTimeout = 3 * time.Second
+	}
+	return &orderUsecase{
 		uowFactory:   uowFactory,
 		orderRepo:    orderRepo,
 		outboxRepo:   outboxRepo,
 		orchestrator: orchestrator,
+		callTimeout:  callTimeout,
+		queryTimeout: queryTimeout,
 	}
 }
 
-func (u *OrderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items []domain.OrderItem) (uuid.UUID, error) {
-	var total float64
+func (u *orderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items []domain.OrderItem) (uuid.UUID, error) {
+	if len(items) == 0 {
+		return uuid.Nil, fmt.Errorf("%w: order must contain at least one item", apperrors.ErrInvalidArgument)
+	}
+
+	var total int64
 	for _, item := range items {
-		total += item.Price * float64(item.Quantity)
+		if item.Quantity <= 0 {
+			return uuid.Nil, fmt.Errorf("%w: quantity must be positive", apperrors.ErrInvalidArgument)
+		}
+		if item.Price < 0 {
+			return uuid.Nil, fmt.Errorf("%w: price cannot be negative", apperrors.ErrInvalidArgument)
+		}
+		total += item.Price * int64(item.Quantity)
+	}
+
+	if total <= 0 {
+		return uuid.Nil, fmt.Errorf("%w: total amount must be greater than zero", apperrors.ErrInvalidArgument)
 	}
 
 	order := &domain.Order{
@@ -56,12 +83,14 @@ func (u *OrderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items 
 	}
 
 	uow := u.uowFactory()
-	if err := uow.Begin(ctx); err != nil {
+	txCtx, cancel := context.WithTimeout(ctx, u.queryTimeout)
+	defer cancel()
+	if err := uow.Begin(txCtx); err != nil {
 		return uuid.Nil, fmt.Errorf("begin uow: %w", err)
 	}
-	defer uow.Rollback(ctx)
+	defer uow.Rollback(txCtx)
 
-	if err := uow.OrderRepo().Create(ctx, order); err != nil {
+	if err := uow.OrderRepo().Create(txCtx, order); err != nil {
 		return uuid.Nil, fmt.Errorf("create order: %w", err)
 	}
 
@@ -79,25 +108,31 @@ func (u *OrderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items 
 		CreatedAt:     time.Now().UTC(),
 	}
 
-	if err := uow.OutboxRepo().Create(ctx, event); err != nil {
+	if err := uow.OutboxRepo().Create(txCtx, event); err != nil {
 		return uuid.Nil, fmt.Errorf("create outbox event: %w", err)
 	}
 
-	if err := uow.Commit(ctx); err != nil {
+	if err := uow.Commit(txCtx); err != nil {
 		return uuid.Nil, fmt.Errorf("commit uow: %w", err)
 	}
 
-	if err := u.orchestrator.ProcessOrder(ctx, order); err != nil {
+	sagaCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
+	defer cancel()
+	if err := u.orchestrator.ProcessOrder(sagaCtx, order); err != nil {
 		return order.ID, fmt.Errorf("saga process order: %w", err)
 	}
 
 	return order.ID, nil
 }
 
-func (u *OrderUsecase) GetOrder(ctx context.Context, id uuid.UUID) (*domain.Order, error) {
+func (u *orderUsecase) GetOrder(ctx context.Context, id uuid.UUID) (*domain.Order, error) {
+	ctx, cancel := context.WithTimeout(ctx, u.queryTimeout)
+	defer cancel()
 	return u.orderRepo.GetByID(ctx, id)
 }
 
-func (u *OrderUsecase) ListOrders(ctx context.Context, userID uuid.UUID, page, pageSize int) ([]domain.Order, int, error) {
+func (u *orderUsecase) ListOrders(ctx context.Context, userID uuid.UUID, page, pageSize int) ([]domain.Order, int, error) {
+	ctx, cancel := context.WithTimeout(ctx, u.queryTimeout)
+	defer cancel()
 	return u.orderRepo.ListByUser(ctx, userID, page, pageSize)
 }

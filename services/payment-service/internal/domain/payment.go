@@ -4,17 +4,19 @@ import (
 	"github.com/google/uuid"
 )
 
+type Status string
+
+const (
+	StatusPending  Status = "pending"
+	StatusSuccess  Status = "success"
+	StatusFailed   Status = "failed"
+	StatusRefunded Status = "refunded"
+)
+
 type Payment struct {
 	ID      uuid.UUID
 	OrderID uuid.UUID
 	UserID  uuid.UUID
-	Amount  float64
-	Status  string
+	Amount  int64
+	Status  Status
 }
-
-const (
-	StatusPending  = "pending"
-	StatusSuccess  = "success"
-	StatusFailed   = "failed"
-	StatusRefunded = "refunded"
-)

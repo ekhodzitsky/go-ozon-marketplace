@@ -77,7 +77,7 @@ func TestUserUsecase_Register(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			repo := newMockUserRepository()
-			uc := NewUserUsecase(repo, "test-secret")
+			uc := NewUserUsecase(repo, "test-secret", time.Second, time.Second)
 
 			// Pre-seed existing user for duplicate test
 			if tt.name == "duplicate_email" {
@@ -111,7 +111,7 @@ func TestUserUsecase_Login(t *testing.T) {
 	t.Parallel()
 
 	repo := newMockUserRepository()
-	uc := NewUserUsecase(repo, "test-secret")
+	uc := NewUserUsecase(repo, "test-secret", time.Second, time.Second)
 
 	// Register a user first
 	email := "login@ozon.ru"
@@ -165,7 +165,7 @@ func TestUserUsecase_GetUser(t *testing.T) {
 	t.Parallel()
 
 	repo := newMockUserRepository()
-	uc := NewUserUsecase(repo, "test-secret")
+	uc := NewUserUsecase(repo, "test-secret", time.Second, time.Second)
 
 	id, err := uc.Register(context.Background(), "get@ozon.ru", "password", "Get User")
 	require.NoError(t, err)

@@ -17,15 +17,15 @@ import (
 
 type CatalogHandler struct {
 	catalogv1.UnimplementedCatalogServiceServer
-	usecase *usecase.CatalogUsecase
+	usecase usecase.CatalogUsecase
 }
 
-func NewCatalogHandler(uc *usecase.CatalogUsecase) *CatalogHandler {
+func NewCatalogHandler(uc usecase.CatalogUsecase) *CatalogHandler {
 	return &CatalogHandler{usecase: uc}
 }
 
 func (h *CatalogHandler) CreateProduct(ctx context.Context, req *catalogv1.CreateProductRequest) (*catalogv1.CreateProductResponse, error) {
-	id, err := h.usecase.CreateProduct(ctx, req.Name, req.Description, req.Price, int(req.Stock), req.Categories)
+	id, err := h.usecase.CreateProduct(ctx, req.Name, req.Description, int64(req.Price*100), req.Categories)
 	if err != nil {
 		return nil, err
 	}
@@ -77,8 +77,7 @@ func toProtoProduct(p *domain.Product) *catalogv1.Product {
 		ProductId:   p.ID.String(),
 		Name:        p.Name,
 		Description: p.Description,
-		Price:       p.Price,
-		Stock:       int32(p.Stock),
+		Price:       float64(p.Price),
 		Categories:  p.Categories,
 		CreatedAt:   p.CreatedAt.Format(time.RFC3339),
 	}

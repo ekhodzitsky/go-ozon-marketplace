@@ -30,11 +30,13 @@ func New() *fx.App {
 			config.Load,
 			logger.New,
 			func(cfg *config.Config) (*pgxpool.Pool, error) {
-				return pkgpostgres.NewPool(context.Background(), cfg.PostgresDSN)
+				ctx, cancel := context.WithTimeout(context.Background(), cfg.DefaultQueryTimeout)
+				defer cancel()
+				return pkgpostgres.NewPool(ctx, cfg.PostgresDSN)
 			},
 			postgres.NewUserPostgres,
-			func(repo repository.UserRepository, cfg *config.Config) *usecase.UserUsecase {
-				return usecase.NewUserUsecase(repo, cfg.JWTSecret)
+			func(repo repository.UserRepository, cfg *config.Config) usecase.UserUsecase {
+				return usecase.NewUserUsecase(repo, cfg.JWTSecret, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
 			},
 			grpcdelivery.NewUserHandler,
 		),
@@ -44,9 +46,10 @@ func New() *fx.App {
 			}
 
 			if cfg.CertPath != "" {
-				tlsOpt, err := server.LoadServerCredentials(
+				tlsOpt, err := server.LoadServerMTLSCredentials(
 					filepath.Join(cfg.CertPath, "server-cert.pem"),
 					filepath.Join(cfg.CertPath, "server-key.pem"),
+					filepath.Join(cfg.CertPath, "ca-cert.pem"),
 				)
 				if err != nil {
 					return fmt.Errorf("load tls credentials: %w", err)
@@ -69,12 +72,12 @@ func New() *fx.App {
 				OnStart: func(ctx context.Context) error {
 					go func() {
 						if err := metricsServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-							log.Error("metrics server error", zap.Error(err))
+							log.Fatal("metrics server error", zap.Error(err))
 						}
 					}()
 					go func() {
 						if err := grpcServer.Start(); err != nil {
-							log.Error("grpc server error", zap.Error(err))
+							log.Fatal("grpc server error", zap.Error(err))
 						}
 					}()
 					return nil

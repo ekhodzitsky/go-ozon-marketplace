@@ -1,3 +1,5 @@
+//go:build integration
+
 package tests
 
 import (
@@ -11,6 +13,9 @@ import (
 )
 
 func TestUserServicePostgres(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
 	ctx := context.Background()
 
 	dsn := StartPostgres(ctx, t)

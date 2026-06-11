@@ -1,106 +1,151 @@
 package middleware
 
 import (
-	"bytes"
-	"encoding/json"
-	"io"
+	"context"
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
-	lru "github.com/hashicorp/golang-lru/v2"
-	"golang.org/x/time/rate"
+	"github.com/redis/go-redis/v9"
 )
 
-// RateLimiter provides a simple in-memory token-bucket rate limiter per client IP.
-type RateLimiter struct {
-	rps   rate.Limit
-	burst int
-	cache *lru.Cache[string, *rate.Limiter]
+// RateLimiter is the generic rate-limiter interface.
+type RateLimiter interface {
+	Allow(ctx context.Context, key string) bool
 }
 
-// NewRateLimiter creates a RateLimiter with the given requests-per-second.
-func NewRateLimiter(rps int) *RateLimiter {
-	if rps <= 0 {
-		rps = 10
+// RedisRateLimiter implements a sliding-window rate limiter backed by Redis.
+type RedisRateLimiter struct {
+	client *redis.Client
+	limit  int
+	window time.Duration
+	script *redis.Script
+}
+
+// NewRedisRateLimiter creates a Redis-backed sliding-window rate limiter.
+func NewRedisRateLimiter(client *redis.Client, limit int, window time.Duration) *RedisRateLimiter {
+	if limit <= 0 {
+		limit = 10
 	}
-	cache, _ := lru.New[string, *rate.Limiter](10000)
-	return &RateLimiter{
-		rps:   rate.Limit(rps),
-		burst: rps,
-		cache: cache,
+	if window <= 0 {
+		window = time.Second
+	}
+	lua := `
+		local key = KEYS[1]
+		local window = tonumber(ARGV[1])
+		local now = tonumber(ARGV[2])
+		local limit = tonumber(ARGV[3])
+		redis.call('ZREMRANGEBYSCORE', key, 0, now - window)
+		local count = redis.call('ZCARD', key)
+		if count < limit then
+			redis.call('ZADD', key, now, now)
+			redis.call('EXPIRE', key, window)
+			return 1
+		end
+		return 0
+	`
+	return &RedisRateLimiter{
+		client: client,
+		limit:  limit,
+		window: window,
+		script: redis.NewScript(lua),
 	}
 }
 
 // Allow reports whether one request from key is allowed.
-func (rl *RateLimiter) Allow(key string) bool {
-	lim, ok := rl.cache.Get(key)
-	if !ok {
-		lim = rate.NewLimiter(rl.rps, rl.burst)
-		rl.cache.Add(key, lim)
+func (rl *RedisRateLimiter) Allow(ctx context.Context, key string) bool {
+	now := time.Now().UnixMilli()
+	res, err := rl.script.Run(ctx, rl.client, []string{key}, int(rl.window.Seconds()), now, rl.limit).Int()
+	if err != nil {
+		// fail open: if Redis is down, allow request
+		return true
 	}
-	return lim.Allow()
+	return res == 1
 }
 
-type graphQLRequest struct {
-	Query string `json:"query"`
+// ClientIP returns the client IP. It respects X-Forwarded-For only when the
+// immediate peer (RemoteAddr) is within one of the trusted CIDRs.
+func ClientIP(r *http.Request, trusted []string) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	if len(trusted) == 0 {
+		return host
+	}
+
+	var cidrs []*net.IPNet
+	for _, c := range trusted {
+		_, ipNet, err := net.ParseCIDR(c)
+		if err != nil {
+			continue
+		}
+		cidrs = append(cidrs, ipNet)
+	}
+
+	peerIP := net.ParseIP(host)
+	trustedPeer := false
+	for _, cidr := range cidrs {
+		if cidr.Contains(peerIP) {
+			trustedPeer = true
+			break
+		}
+	}
+	if !trustedPeer {
+		return host
+	}
+
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff == "" {
+		return host
+	}
+	parts := strings.Split(xff, ",")
+	for _, p := range parts {
+		ip := strings.TrimSpace(p)
+		if ip != "" {
+			return ip
+		}
+	}
+	return host
 }
 
-// GraphQLMutationRateLimiter returns HTTP middleware that applies rate limiting
-// to GraphQL mutations: register, login, createProduct.
-func GraphQLMutationRateLimiter(limiter *RateLimiter) func(http.Handler) http.Handler {
+// MaxBytesHandler wraps the next handler with http.MaxBytesReader.
+func MaxBytesHandler(next http.Handler, maxBytes int64) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if maxBytes > 0 {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RateLimitHTTP returns middleware that rate-limits all requests by IP.
+func RateLimitHTTP(rl RateLimiter, trusted []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodPost {
-				next.ServeHTTP(w, r)
+			ip := ClientIP(r, trusted)
+			if !rl.Allow(r.Context(), ip) {
+				w.WriteHeader(http.StatusTooManyRequests)
 				return
 			}
-
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				http.Error(w, "bad request", http.StatusBadRequest)
-				return
-			}
-			r.Body.Close()
-
-			var gqlReq graphQLRequest
-			if err := json.Unmarshal(body, &gqlReq); err != nil {
-				r.Body = io.NopCloser(bytes.NewReader(body))
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			if isTargetedMutation(gqlReq.Query) {
-				ip := clientIP(r)
-				if !limiter.Allow(ip) {
-					w.WriteHeader(http.StatusTooManyRequests)
-					return
-				}
-			}
-
-			r.Body = io.NopCloser(bytes.NewReader(body))
 			next.ServeHTTP(w, r)
 		})
 	}
 }
 
-func isTargetedMutation(query string) bool {
-	q := strings.ToLower(query)
-	if !strings.Contains(q, "mutation") {
-		return false
-	}
-	for _, field := range []string{"register", "login", "createproduct"} {
-		if strings.Contains(q, field) {
-			return true
-		}
-	}
-	return false
+type ctxKeyRateLimitIP struct{}
+
+// WithRateLimitIP puts the client IP into the request context.
+func WithRateLimitIP(next http.Handler, trusted []string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), ctxKeyRateLimitIP{}, ClientIP(r, trusted))
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
+// RateLimitIPFromContext extracts the client IP set by WithRateLimitIP.
+func RateLimitIPFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(ctxKeyRateLimitIP{}).(string)
+	return v
 }

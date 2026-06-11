@@ -10,7 +10,6 @@ type Product {
   name: String!
   description: String!
   price: Float!
-  stock: Int!
   categories: [String!]!
   createdAt: String!
 }
@@ -29,5 +28,5 @@ type Query {
 type Mutation {
   register(email: String!, password: String!, name: String!): ID!
   login(email: String!, password: String!): String!
-  createProduct(name: String!, description: String!, price: Float!, stock: Int!, categories: [String!]!): ID!
+  createProduct(name: String!, description: String!, price: Float!, categories: [String!]!): ID!
 }

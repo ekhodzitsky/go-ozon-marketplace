@@ -15,10 +15,10 @@ import (
 
 type UserHandler struct {
 	userv1.UnimplementedUserServiceServer
-	usecase *usecase.UserUsecase
+	usecase usecase.UserUsecase
 }
 
-func NewUserHandler(uc *usecase.UserUsecase) *UserHandler {
+func NewUserHandler(uc usecase.UserUsecase) *UserHandler {
 	return &UserHandler{usecase: uc}
 }
 

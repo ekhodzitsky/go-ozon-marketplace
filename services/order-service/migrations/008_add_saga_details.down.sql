@@ -1,0 +1,2 @@
+ALTER TABLE sagas DROP COLUMN IF EXISTS reserved_items;
+ALTER TABLE sagas DROP COLUMN IF EXISTS payment_id;

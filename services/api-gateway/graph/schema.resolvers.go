@@ -14,6 +14,8 @@ import (
 
 // Register is the resolver for the register field.
 func (r *mutationResolver) Register(ctx context.Context, email string, password string, name string) (string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
 	resp, err := r.UserService.Register(ctx, &userv1.RegisterRequest{
 		Email:    email,
 		Password: password,
@@ -27,6 +29,8 @@ func (r *mutationResolver) Register(ctx context.Context, email string, password 
 
 // Login is the resolver for the login field.
 func (r *mutationResolver) Login(ctx context.Context, email string, password string) (string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
 	resp, err := r.UserService.Login(ctx, &userv1.LoginRequest{
 		Email:    email,
 		Password: password,
@@ -38,12 +42,13 @@ func (r *mutationResolver) Login(ctx context.Context, email string, password str
 }
 
 // CreateProduct is the resolver for the createProduct field.
-func (r *mutationResolver) CreateProduct(ctx context.Context, name string, description string, price float64, stock int32, categories []string) (string, error) {
+func (r *mutationResolver) CreateProduct(ctx context.Context, name string, description string, price float64, categories []string) (string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
 	resp, err := r.CatalogService.CreateProduct(ctx, &catalogv1.CreateProductRequest{
 		Name:        name,
 		Description: description,
 		Price:       price,
-		Stock:       stock,
 		Categories:  categories,
 	})
 	if err != nil {
@@ -54,6 +59,8 @@ func (r *mutationResolver) CreateProduct(ctx context.Context, name string, descr
 
 // User is the resolver for the user field.
 func (r *queryResolver) User(ctx context.Context, id string) (*model.User, error) {
+	ctx, cancel := r.withQueryTimeout(ctx)
+	defer cancel()
 	resp, err := r.UserService.GetUser(ctx, &userv1.GetUserRequest{
 		UserId: id,
 	})
@@ -70,6 +77,8 @@ func (r *queryResolver) User(ctx context.Context, id string) (*model.User, error
 
 // Product is the resolver for the product field.
 func (r *queryResolver) Product(ctx context.Context, id string) (*model.Product, error) {
+	ctx, cancel := r.withQueryTimeout(ctx)
+	defer cancel()
 	resp, err := r.CatalogService.GetProduct(ctx, &catalogv1.GetProductRequest{
 		ProductId: id,
 	})
@@ -81,6 +90,8 @@ func (r *queryResolver) Product(ctx context.Context, id string) (*model.Product,
 
 // SearchProducts is the resolver for the searchProducts field.
 func (r *queryResolver) SearchProducts(ctx context.Context, query string, page *int32, pageSize *int32) (*model.ProductConnection, error) {
+	ctx, cancel := r.withQueryTimeout(ctx)
+	defer cancel()
 	req := &catalogv1.SearchProductsRequest{
 		Query: query,
 	}
@@ -110,8 +121,13 @@ func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 // Query returns QueryResolver implementation.
 func (r *Resolver) Query() QueryResolver { return &queryResolver{r} }
 
-type mutationResolver struct{ *Resolver }
-type queryResolver struct{ *Resolver }
+func (r *Resolver) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, r.CallTimeout)
+}
+
+func (r *Resolver) withQueryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, r.QueryTimeout)
+}
 
 func protoProductToModel(p *catalogv1.Product) *model.Product {
 	if p == nil {
@@ -122,8 +138,10 @@ func protoProductToModel(p *catalogv1.Product) *model.Product {
 		Name:        p.Name,
 		Description: p.Description,
 		Price:       p.Price,
-		Stock:       p.Stock,
 		Categories:  p.Categories,
 		CreatedAt:   p.CreatedAt,
 	}
 }
+
+type mutationResolver struct{ *Resolver }
+type queryResolver struct{ *Resolver }

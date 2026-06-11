@@ -8,6 +8,6 @@ type InventoryClient interface {
 }
 
 type PaymentClient interface {
-	ProcessPayment(ctx context.Context, orderID, userID string, amount float64) (string, error)
+	ProcessPayment(ctx context.Context, orderID, userID string, amount int64) (string, error)
 	Refund(ctx context.Context, paymentID string) error
 }

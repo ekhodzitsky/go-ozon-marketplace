@@ -2,19 +2,29 @@ package usecase
 
 import (
 	"context"
+	"time"
 
 	"go.uber.org/zap"
 )
 
-type NotificationUsecase struct {
-	log *zap.Logger
+const (
+	DefaultCallTimeout  = 5 * time.Second
+	DefaultQueryTimeout = 3 * time.Second
+)
+
+type notificationUsecase struct {
+	log          *zap.Logger
+	callTimeout  time.Duration
+	queryTimeout time.Duration
 }
 
-func NewNotificationUsecase(log *zap.Logger) *NotificationUsecase {
-	return &NotificationUsecase{log: log}
+func NewNotificationUsecase(log *zap.Logger, callTimeout time.Duration, queryTimeout time.Duration) NotificationUsecase {
+	return &notificationUsecase{log: log, callTimeout: callTimeout, queryTimeout: queryTimeout}
 }
 
-func (u *NotificationUsecase) SendEmail(ctx context.Context, to, subject, body string) error {
+func (u *notificationUsecase) SendEmail(ctx context.Context, to, subject, body string) error {
+	ctx, cancel := context.WithTimeout(ctx, u.callTimeout)
+	defer cancel()
 	u.log.Info("notification sent",
 		zap.String("type", "email"),
 		zap.String("to", to),

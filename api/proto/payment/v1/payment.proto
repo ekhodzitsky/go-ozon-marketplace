@@ -4,6 +4,14 @@ package payment.v1;
 
 option go_package = "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1;paymentv1";
 
+enum PaymentStatus {
+  PAYMENT_STATUS_UNSPECIFIED = 0;
+  PAYMENT_STATUS_PENDING = 1;
+  PAYMENT_STATUS_SUCCESS = 2;
+  PAYMENT_STATUS_FAILED = 3;
+  PAYMENT_STATUS_REFUNDED = 4;
+}
+
 service PaymentService {
   rpc ProcessPayment(ProcessPaymentRequest) returns (ProcessPaymentResponse);
   rpc Refund(RefundRequest) returns (RefundResponse);
@@ -17,7 +25,7 @@ message ProcessPaymentRequest {
 
 message ProcessPaymentResponse {
   string payment_id = 1;
-  string status = 2;
+  PaymentStatus status = 2;
 }
 
 message RefundRequest {
@@ -25,5 +33,5 @@ message RefundRequest {
 }
 
 message RefundResponse {
-  string status = 1;
+  PaymentStatus status = 1;
 }

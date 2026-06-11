@@ -6,24 +6,57 @@ import (
 	"math/rand"
 	"time"
 
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/repository"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
-type PaymentUsecase struct {
-	repo    repository.PaymentRepository
-	log     *zap.Logger
-	randGen func() float64
-	sleeper func()
+const (
+	DefaultCallTimeout  = 5 * time.Second
+	DefaultQueryTimeout = 3 * time.Second
+)
+
+type paymentUsecase struct {
+	repo         repository.PaymentRepository
+	txm          repository.TxManager
+	log          *zap.Logger
+	randGen      func() float64
+	callTimeout  time.Duration
+	queryTimeout time.Duration
 }
 
-func NewPaymentUsecase(repo repository.PaymentRepository, log *zap.Logger) *PaymentUsecase {
-	return &PaymentUsecase{repo: repo, log: log}
+func NewPaymentUsecase(repo repository.PaymentRepository, txm repository.TxManager, log *zap.Logger, callTimeout time.Duration, queryTimeout time.Duration) *paymentUsecase {
+	if callTimeout == 0 {
+		callTimeout = DefaultCallTimeout
+	}
+	if queryTimeout == 0 {
+		queryTimeout = DefaultQueryTimeout
+	}
+	return &paymentUsecase{repo: repo, txm: txm, log: log, callTimeout: callTimeout, queryTimeout: queryTimeout}
 }
 
-func (u *PaymentUsecase) ProcessPayment(ctx context.Context, orderID, userID uuid.UUID, amount float64) (*domain.Payment, error) {
+func (u *paymentUsecase) ProcessPayment(ctx context.Context, orderID, userID uuid.UUID, amount int64) (*domain.Payment, error) {
+	if amount <= 0 {
+		return nil, fmt.Errorf("%w: amount must be greater than 0", apperrors.ErrInvalidArgument)
+	}
+
+	// simulate processing result deterministically
+	randVal := rand.Float64()
+	if u.randGen != nil {
+		randVal = u.randGen()
+	}
+	var finalStatus domain.Status
+	if randVal < 0.9 {
+		finalStatus = domain.StatusSuccess
+	} else {
+		finalStatus = domain.StatusFailed
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, u.callTimeout)
+	defer cancel()
+
 	payment := &domain.Payment{
 		ID:      uuid.New(),
 		OrderID: orderID,
@@ -32,48 +65,49 @@ func (u *PaymentUsecase) ProcessPayment(ctx context.Context, orderID, userID uui
 		Status:  domain.StatusPending,
 	}
 
-	if err := u.repo.Create(ctx, payment); err != nil {
-		return nil, fmt.Errorf("create payment: %w", err)
+	var result *domain.Payment
+	err := u.txm.Run(ctx, func(repo repository.PaymentRepository) error {
+		existing, err := repo.CreateOrGet(ctx, payment)
+		if err != nil {
+			return fmt.Errorf("create or get payment: %w", err)
+		}
+
+		if existing.Status == domain.StatusPending {
+			if _, err := repo.UpdateStatusIf(ctx, existing.ID, finalStatus, domain.StatusPending); err != nil {
+				return fmt.Errorf("update payment status: %w", err)
+			}
+			existing.Status = finalStatus
+		}
+
+		result = existing
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	// simulate async processing
-	if u.sleeper != nil {
-		u.sleeper()
-	} else {
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	// 90% success rate
-	randVal := rand.Float64()
-	if u.randGen != nil {
-		randVal = u.randGen()
-	}
-	if randVal < 0.9 {
-		payment.Status = domain.StatusSuccess
-	} else {
-		payment.Status = domain.StatusFailed
-	}
-
-	if err := u.repo.UpdateStatus(ctx, payment.ID, payment.Status); err != nil {
-		return nil, fmt.Errorf("update payment status: %w", err)
-	}
-
-	u.log.Info("payment event published",
+	u.log.Info("payment processed",
 		zap.String("event", "payment.processed"),
-		zap.String("payment_id", payment.ID.String()),
-		zap.String("order_id", payment.OrderID.String()),
-		zap.String("user_id", payment.UserID.String()),
-		zap.Float64("amount", payment.Amount),
-		zap.String("status", payment.Status),
+		zap.String("payment_id", result.ID.String()),
+		zap.String("order_id", result.OrderID.String()),
+		zap.String("user_id", result.UserID.String()),
+		zap.Int64("amount", result.Amount),
+		zap.String("status", string(result.Status)),
 	)
 
-	return payment, nil
+	return result, nil
 }
 
-func (u *PaymentUsecase) Refund(ctx context.Context, paymentID uuid.UUID) (*domain.Payment, error) {
+func (u *paymentUsecase) Refund(ctx context.Context, paymentID uuid.UUID) (*domain.Payment, error) {
+	ctx, cancel := context.WithTimeout(ctx, u.callTimeout)
+	defer cancel()
 	payment, err := u.repo.GetByID(ctx, paymentID)
 	if err != nil {
 		return nil, fmt.Errorf("get payment: %w", err)
+	}
+
+	if payment.Status != domain.StatusSuccess {
+		return nil, fmt.Errorf("%w: payment status %s cannot be refunded", apperrors.ErrFailedPrecondition, payment.Status)
 	}
 
 	if err := u.repo.UpdateStatus(ctx, payment.ID, domain.StatusRefunded); err != nil {
@@ -82,4 +116,10 @@ func (u *PaymentUsecase) Refund(ctx context.Context, paymentID uuid.UUID) (*doma
 
 	payment.Status = domain.StatusRefunded
 	return payment, nil
+}
+
+func (u *paymentUsecase) GetByID(ctx context.Context, paymentID uuid.UUID) (*domain.Payment, error) {
+	ctx, cancel := context.WithTimeout(ctx, u.queryTimeout)
+	defer cancel()
+	return u.repo.GetByID(ctx, paymentID)
 }

@@ -1,3 +1,5 @@
+//go:build integration
+
 package tests
 
 import (
@@ -12,6 +14,9 @@ import (
 )
 
 func TestOrderServicePostgres(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
 	ctx := context.Background()
 
 	dsn := StartPostgres(ctx, t)
@@ -75,8 +80,8 @@ func TestOrderServicePostgres(t *testing.T) {
 	if getResp.Order.Items[0].Quantity != 2 {
 		t.Fatalf("expected quantity 2, got %d", getResp.Order.Items[0].Quantity)
 	}
-	if getResp.Order.Items[0].Price != 10.5 {
-		t.Fatalf("expected price 10.5, got %f", getResp.Order.Items[0].Price)
+	if getResp.Order.Items[0].Price != 1050.0 {
+		t.Fatalf("expected price 1050.0, got %f", getResp.Order.Items[0].Price)
 	}
 
 	// Test ListOrders

@@ -18,10 +18,10 @@ import (
 
 type OrderHandler struct {
 	orderv1.UnimplementedOrderServiceServer
-	usecase *usecase.OrderUsecase
+	usecase usecase.OrderUsecase
 }
 
-func NewOrderHandler(uc *usecase.OrderUsecase) *OrderHandler {
+func NewOrderHandler(uc usecase.OrderUsecase) *OrderHandler {
 	return &OrderHandler{usecase: uc}
 }
 
@@ -47,7 +47,7 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *orderv1.CreateOrder
 		items = append(items, domain.OrderItem{
 			ProductID: productID,
 			Quantity:  int(item.Quantity),
-			Price:     item.Price,
+			Price:     int64(item.Price * 100),
 		})
 	}
 
@@ -134,14 +134,14 @@ func mapOrderToProto(order *domain.Order) *orderv1.Order {
 		items = append(items, &orderv1.OrderItem{
 			ProductId: item.ProductID.String(),
 			Quantity:  int32(item.Quantity),
-			Price:     item.Price,
+			Price:     float64(item.Price),
 		})
 	}
 	return &orderv1.Order{
 		OrderId:     order.ID.String(),
 		UserId:      order.UserID.String(),
 		Items:       items,
-		TotalAmount: order.TotalAmount,
+		TotalAmount: float64(order.TotalAmount),
 		Status:      order.Status,
 		CreatedAt:   order.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:   order.UpdatedAt.Format(time.RFC3339),

@@ -1,0 +1,263 @@
+package grpc_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
+	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/delivery/grpc"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/mocks"
+	"github.com/ekhodzitsky/go-ozon-marketplace/tests"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+func authCtx(userID string) context.Context {
+	return context.WithValue(context.Background(), middleware.ContextKeyUserID, userID)
+}
+
+func TestOrderHandler_CreateOrder(t *testing.T) {
+	t.Parallel()
+
+	validUser := uuid.New().String()
+	validProduct := uuid.New().String()
+
+	testsCases := []struct {
+		name      string
+		ctx       context.Context
+		req       *orderv1.CreateOrderRequest
+		setupMock func(m *mocks.MockOrderUsecase)
+		wantCode  codes.Code
+		wantErr   bool
+	}{
+		{
+			name: "success_without_user_id",
+			ctx:  authCtx(validUser),
+			req:  tests.NewOrderRequestBuilder().AddItem(validProduct, 1, 10.0).Build(),
+			setupMock: func(m *mocks.MockOrderUsecase) {
+				m.EXPECT().CreateOrder(gomock.Any(), gomock.Any(), gomock.Any()).Return(uuid.New(), nil)
+			},
+			wantCode: codes.OK,
+			wantErr:  false,
+		},
+		{
+			name: "success_with_matching_user_id",
+			ctx:  authCtx(validUser),
+			req:  tests.NewOrderRequestBuilder().WithUserID(validUser).AddItem(validProduct, 2, 5.0).Build(),
+			setupMock: func(m *mocks.MockOrderUsecase) {
+				m.EXPECT().CreateOrder(gomock.Any(), gomock.Any(), gomock.Any()).Return(uuid.New(), nil)
+			},
+			wantCode: codes.OK,
+			wantErr:  false,
+		},
+		{
+			name:     "unauthenticated",
+			ctx:      context.Background(),
+			req:      tests.NewOrderRequestBuilder().AddItem(validProduct, 1, 10.0).Build(),
+			wantCode: codes.Unauthenticated,
+			wantErr:  true,
+		},
+		{
+			name:     "permission_denied_spoof_user_id",
+			ctx:      authCtx(validUser),
+			req:      tests.NewOrderRequestBuilder().WithUserID(uuid.New().String()).AddItem(validProduct, 1, 10.0).Build(),
+			wantCode: codes.PermissionDenied,
+			wantErr:  true,
+		},
+		{
+			name:     "invalid_product_id",
+			ctx:      authCtx(validUser),
+			req:      tests.NewOrderRequestBuilder().AddItem("not-a-uuid", 1, 10.0).Build(),
+			wantCode: codes.Unknown,
+			wantErr:  true,
+		},
+		{
+			name: "usecase_error",
+			ctx:  authCtx(validUser),
+			req:  tests.NewOrderRequestBuilder().AddItem(validProduct, 1, 10.0).Build(),
+			setupMock: func(m *mocks.MockOrderUsecase) {
+				m.EXPECT().CreateOrder(gomock.Any(), gomock.Any(), gomock.Any()).Return(uuid.Nil, assert.AnError)
+			},
+			wantCode: codes.Unknown,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range testsCases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockUC := mocks.NewMockOrderUsecase(ctrl)
+			if tt.setupMock != nil {
+				tt.setupMock(mockUC)
+			}
+			h := grpcdelivery.NewOrderHandler(mockUC)
+			_, err := h.CreateOrder(tt.ctx, tt.req)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				s, _ := status.FromError(err)
+				assert.Equal(t, tt.wantCode, s.Code())
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestOrderHandler_GetOrder(t *testing.T) {
+	t.Parallel()
+
+	validUser := uuid.New().String()
+	orderID := uuid.New()
+
+	testsCases := []struct {
+		name      string
+		ctx       context.Context
+		req       *orderv1.GetOrderRequest
+		setupMock func(m *mocks.MockOrderUsecase)
+		wantCode  codes.Code
+		wantErr   bool
+	}{
+		{
+			name: "success",
+			ctx:  authCtx(validUser),
+			req:  tests.NewGetOrderRequestBuilder().WithOrderID(orderID.String()).Build(),
+			setupMock: func(m *mocks.MockOrderUsecase) {
+				m.EXPECT().GetOrder(gomock.Any(), gomock.Any()).Return(&domain.Order{
+					ID:        orderID,
+					UserID:    uuid.MustParse(validUser),
+					Items:     nil,
+					Status:    "pending",
+					CreatedAt: time.Now().UTC(),
+					UpdatedAt: time.Now().UTC(),
+				}, nil)
+			},
+			wantCode: codes.OK,
+			wantErr:  false,
+		},
+		{
+			name:     "unauthenticated",
+			ctx:      context.Background(),
+			req:      tests.NewGetOrderRequestBuilder().WithOrderID(orderID.String()).Build(),
+			wantCode: codes.Unauthenticated,
+			wantErr:  true,
+		},
+		{
+			name: "not_found",
+			ctx:  authCtx(validUser),
+			req:  tests.NewGetOrderRequestBuilder().WithOrderID(orderID.String()).Build(),
+			setupMock: func(m *mocks.MockOrderUsecase) {
+				m.EXPECT().GetOrder(gomock.Any(), gomock.Any()).Return(nil, apperrors.ErrNotFound)
+			},
+			wantCode: codes.NotFound,
+			wantErr:  true,
+		},
+		{
+			name: "permission_denied_other_user",
+			ctx:  authCtx(validUser),
+			req:  tests.NewGetOrderRequestBuilder().WithOrderID(orderID.String()).Build(),
+			setupMock: func(m *mocks.MockOrderUsecase) {
+				m.EXPECT().GetOrder(gomock.Any(), gomock.Any()).Return(&domain.Order{
+					ID:     orderID,
+					UserID: uuid.New(),
+				}, nil)
+			},
+			wantCode: codes.PermissionDenied,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range testsCases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockUC := mocks.NewMockOrderUsecase(ctrl)
+			if tt.setupMock != nil {
+				tt.setupMock(mockUC)
+			}
+			h := grpcdelivery.NewOrderHandler(mockUC)
+			_, err := h.GetOrder(tt.ctx, tt.req)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				s, _ := status.FromError(err)
+				assert.Equal(t, tt.wantCode, s.Code())
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestOrderHandler_ListOrders(t *testing.T) {
+	t.Parallel()
+
+	validUser := uuid.New().String()
+
+	testsCases := []struct {
+		name      string
+		ctx       context.Context
+		req       *orderv1.ListOrdersRequest
+		setupMock func(m *mocks.MockOrderUsecase)
+		wantCode  codes.Code
+		wantErr   bool
+	}{
+		{
+			name: "success",
+			ctx:  authCtx(validUser),
+			req:  tests.NewListOrdersRequestBuilder().Build(),
+			setupMock: func(m *mocks.MockOrderUsecase) {
+				m.EXPECT().ListOrders(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return([]domain.Order{}, 0, nil)
+			},
+			wantCode: codes.OK,
+			wantErr:  false,
+		},
+		{
+			name:     "unauthenticated",
+			ctx:      context.Background(),
+			req:      tests.NewListOrdersRequestBuilder().Build(),
+			wantCode: codes.Unauthenticated,
+			wantErr:  true,
+		},
+		{
+			name:     "permission_denied_spoof",
+			ctx:      authCtx(validUser),
+			req:      tests.NewListOrdersRequestBuilder().WithUserID(uuid.New().String()).Build(),
+			wantCode: codes.PermissionDenied,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range testsCases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockUC := mocks.NewMockOrderUsecase(ctrl)
+			if tt.setupMock != nil {
+				tt.setupMock(mockUC)
+			}
+			h := grpcdelivery.NewOrderHandler(mockUC)
+			_, err := h.ListOrders(tt.ctx, tt.req)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				s, _ := status.FromError(err)
+				assert.Equal(t, tt.wantCode, s.Code())
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

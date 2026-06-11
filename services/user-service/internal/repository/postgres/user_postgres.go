@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/repository"
@@ -15,14 +16,17 @@ import (
 )
 
 type UserPostgres struct {
-	db *pgxpool.Pool
+	db           *pgxpool.Pool
+	queryTimeout time.Duration
 }
 
 func NewUserPostgres(db *pgxpool.Pool) repository.UserRepository {
-	return &UserPostgres{db: db}
+	return &UserPostgres{db: db, queryTimeout: repository.DefaultQueryTimeout}
 }
 
 func (r *UserPostgres) Create(ctx context.Context, user *domain.User) error {
+	ctx, cancel := context.WithTimeout(ctx, r.queryTimeout)
+	defer cancel()
 	query := `INSERT INTO users (id, email, password_hash, name, created_at) VALUES ($1, $2, $3, $4, $5)`
 	_, err := r.db.Exec(ctx, query, user.ID, user.Email, user.PasswordHash, user.Name, user.CreatedAt)
 	if err != nil {
@@ -32,6 +36,8 @@ func (r *UserPostgres) Create(ctx context.Context, user *domain.User) error {
 }
 
 func (r *UserPostgres) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.queryTimeout)
+	defer cancel()
 	query := `SELECT id, email, password_hash, name, created_at FROM users WHERE id=$1`
 	row := r.db.QueryRow(ctx, query, id)
 	var user domain.User
@@ -45,6 +51,8 @@ func (r *UserPostgres) GetByID(ctx context.Context, id uuid.UUID) (*domain.User,
 }
 
 func (r *UserPostgres) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.queryTimeout)
+	defer cancel()
 	query := `SELECT id, email, password_hash, name, created_at FROM users WHERE email=$1`
 	row := r.db.QueryRow(ctx, query, email)
 	var user domain.User

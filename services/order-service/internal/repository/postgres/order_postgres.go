@@ -142,7 +142,7 @@ func (r *OrderPostgres) ListByUser(ctx context.Context, userID uuid.UUID, page, 
 		var order domain.Order
 		var itemID, itemOrderID, itemProductID *uuid.UUID
 		var itemQuantity *int
-		var itemPrice *float64
+		var itemPrice *int64
 
 		if err := rows.Scan(
 			&order.ID, &order.UserID, &order.TotalAmount, &order.Status, &order.CreatedAt, &order.UpdatedAt,

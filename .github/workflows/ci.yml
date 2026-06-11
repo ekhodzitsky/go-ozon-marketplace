@@ -20,30 +20,72 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version: '1.26'
           cache: true
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@ec5d18412c0aeab7936cb16880d708ba2a64e1ae # v6.2.0
         with:
           version: v1.59.1
           args: --timeout=5m
 
+  proto:
+    name: Proto Lint & Breaking
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
+
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Install buf
+        uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1
+        with:
+          version: 1.35.0
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: buf lint
+        run: cd api && buf lint
+
+      - name: buf breaking (against main)
+        if: github.ref != 'refs/heads/main'
+        run: cd api && buf breaking --against '.git#branch=main'
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
+
+      - name: govulncheck
+        uses: golang/govulncheck-action@dd0578b371c987f96d1185abb54344b44352bd58 # v1.0.3
+        with:
+          go-version-input: '1.26'
+          go-package: ./...
+
   test:
     name: Test
     runs-on: ubuntu-latest
+    needs: [proto]
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version: '1.26'
           cache: true
@@ -54,11 +96,21 @@ jobs:
       - name: Run tests with coverage
         run: |
           set -euo pipefail
-          go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
-          go tool cover -func=coverage.out | grep total | awk '{print "COVERAGE=" $3}' >> $GITHUB_ENV
+          coverage_files=()
+          for m in ./pkg ./services/* ./tests; do
+            echo "=== Testing $m ==="
+            covfile="coverage_$(echo "$m" | tr '/' '_').out"
+            (cd "$m" && go test -race -count=1 -coverprofile="$covfile" -covermode=atomic ./...) || exit 1
+            if [ -f "$m/$covfile" ]; then
+              coverage_files+=("$m/$covfile")
+            fi
+          done
+          if [ ${#coverage_files[@]} -gt 0 ]; then
+            go tool covdata merge -i "$(IFS=,; echo "${coverage_files[*]}")" -o coverage.out || true
+          fi
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@fa9a6909dc02281d24b410b6ee3dd8c5675a2e76 # v4.3.0
         with:
           files: ./coverage.out
           fail_ci_if_error: false
@@ -67,19 +119,25 @@ jobs:
       - name: Enforce minimum coverage
         run: |
           set -euo pipefail
-          COVERAGE="${{ env.COVERAGE }}"
-          if [ -z "$COVERAGE" ]; then
+          total_cov=0
+          count=0
+          for f in ./pkg/coverage_*.out ./services/*/coverage_*.out ./tests/coverage_*.out; do
+            [ -f "$f" ] || continue
+            cov=$(go tool cover -func="$f" | grep total | awk '{print $3}' | sed 's/%//')
+            total_cov=$(python3 -c "print($total_cov + $cov)")
+            count=$((count + 1))
+          done
+          if [ "$count" -eq 0 ]; then
             echo "Coverage not found"
             exit 1
           fi
-          python3 -c "
-          import sys
-          cov = float('$COVERAGE'.rstrip('%'))
-          if cov < 60:
-              print(f'Coverage {cov}% is below threshold 60%')
-              sys.exit(1)
-          print(f'Coverage {cov}% meets threshold')
-          "
+          avg=$(python3 -c "print(round($total_cov / $count, 2))")
+          echo "COVERAGE=${avg}%" >> "$GITHUB_ENV"
+          if (( $(echo "$avg < 60" | bc -l) )); then
+            echo "Coverage ${avg}% is below threshold 60%"
+            exit 1
+          fi
+          echo "Coverage ${avg}% meets threshold"
 
   build:
     name: Build Docker Images
@@ -99,10 +157,10 @@ jobs:
           - notification-service
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@f7ce87c1d6bead3e36075b2ce75da1f6cc28aaca # v3.9.0
 
       - name: Build Docker image
         run: |
@@ -112,13 +170,14 @@ jobs:
   helm:
     name: Lint Helm Charts
     runs-on: ubuntu-latest
+    needs: [lint]
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
 
       - name: Set up Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@fe7b79cd5ee1e45176fcad797de68ecaf3ca4814 # v4.2.0
         with:
           version: 3.14.0
 

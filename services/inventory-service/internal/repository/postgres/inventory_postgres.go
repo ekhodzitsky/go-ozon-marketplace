@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/repository"
@@ -14,15 +15,31 @@ import (
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 )
 
+const (
+	DefaultCallTimeout  = 5 * time.Second
+	DefaultQueryTimeout = 3 * time.Second
+)
+
 type InventoryPostgres struct {
-	db *pgxpool.Pool
+	db           *pgxpool.Pool
+	callTimeout  time.Duration
+	queryTimeout time.Duration
 }
 
-func NewInventoryPostgres(db *pgxpool.Pool) repository.InventoryRepository {
-	return &InventoryPostgres{db: db}
+func NewInventoryPostgres(db *pgxpool.Pool, callTimeout time.Duration, queryTimeout time.Duration) repository.InventoryRepository {
+	if callTimeout == 0 {
+		callTimeout = DefaultCallTimeout
+	}
+	if queryTimeout == 0 {
+		queryTimeout = DefaultQueryTimeout
+	}
+	return &InventoryPostgres{db: db, callTimeout: callTimeout, queryTimeout: queryTimeout}
 }
 
 func (r *InventoryPostgres) GetStock(ctx context.Context, productID uuid.UUID) (*domain.Stock, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
 	query := `SELECT product_id, available, reserved FROM inventory WHERE product_id = $1`
 	row := r.db.QueryRow(ctx, query, productID)
 	var stock domain.Stock
@@ -35,26 +52,59 @@ func (r *InventoryPostgres) GetStock(ctx context.Context, productID uuid.UUID) (
 	return &stock, nil
 }
 
-func (r *InventoryPostgres) Reserve(ctx context.Context, productID uuid.UUID, quantity int) error {
+func (r *InventoryPostgres) Reserve(ctx context.Context, productID uuid.UUID, quantity int, orderID uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(ctx, r.callTimeout)
+	defer cancel()
+
+	if quantity <= 0 {
+		return fmt.Errorf("%w: quantity must be positive", apperrors.ErrInvalidArgument)
+	}
+
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	var available, reserved int
-	query := `SELECT available, reserved FROM inventory WHERE product_id = $1 FOR UPDATE`
-	if err := tx.QueryRow(ctx, query, productID).Scan(&available, &reserved); err != nil {
-		return fmt.Errorf("select stock: %w", err)
+	// Idempotent reservation record: if already reserved for this (order, product), do nothing.
+	insertSQL := `
+		INSERT INTO reservations (order_id, product_id, quantity, status)
+		VALUES ($1, $2, $3, 'reserved')
+		ON CONFLICT (order_id, product_id) DO NOTHING
+	`
+	if _, err := tx.Exec(ctx, insertSQL, orderID, productID, quantity); err != nil {
+		return fmt.Errorf("insert reservation: %w", err)
 	}
 
-	if available < quantity {
-		return fmt.Errorf("insufficient available stock")
+	// Verify existing reservation to detect retries, mismatches or releases.
+	var existingQty int
+	var status string
+	if err := tx.QueryRow(ctx,
+		`SELECT quantity, status FROM reservations WHERE order_id = $1 AND product_id = $2`,
+		orderID, productID,
+	).Scan(&existingQty, &status); err != nil {
+		return fmt.Errorf("select reservation: %w", err)
 	}
 
-	update := `UPDATE inventory SET available = available - $1, reserved = reserved + $1 WHERE product_id = $2`
-	if _, err := tx.Exec(ctx, update, quantity, productID); err != nil {
+	if status != "reserved" {
+		return fmt.Errorf("%w: reservation already %s", apperrors.ErrFailedPrecondition, status)
+	}
+	if existingQty != quantity {
+		return fmt.Errorf("%w: reservation quantity mismatch (expected %d, found %d)", apperrors.ErrConflict, quantity, existingQty)
+	}
+
+	// Atomic stock deduction with oversell protection.
+	updateSQL := `
+		UPDATE inventory
+		SET available = available - $1, reserved = reserved + $1
+		WHERE product_id = $2 AND available >= $1
+	`
+	tag, err := tx.Exec(ctx, updateSQL, quantity, productID)
+	if err != nil {
 		return fmt.Errorf("update stock: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return apperrors.ErrInsufficientStock
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -63,26 +113,60 @@ func (r *InventoryPostgres) Reserve(ctx context.Context, productID uuid.UUID, qu
 	return nil
 }
 
-func (r *InventoryPostgres) Release(ctx context.Context, productID uuid.UUID, quantity int) error {
+func (r *InventoryPostgres) Release(ctx context.Context, productID uuid.UUID, quantity int, orderID uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(ctx, r.callTimeout)
+	defer cancel()
+
+	if quantity <= 0 {
+		return fmt.Errorf("%w: quantity must be positive", apperrors.ErrInvalidArgument)
+	}
+
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	var available, reserved int
-	query := `SELECT available, reserved FROM inventory WHERE product_id = $1 FOR UPDATE`
-	if err := tx.QueryRow(ctx, query, productID).Scan(&available, &reserved); err != nil {
-		return fmt.Errorf("select stock: %w", err)
+	// Bind release to the existing reservation row.
+	var reservedQty int
+	var status string
+	err = tx.QueryRow(ctx,
+		`SELECT quantity, status FROM reservations WHERE order_id = $1 AND product_id = $2 FOR UPDATE`,
+		orderID, productID,
+	).Scan(&reservedQty, &status)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: reservation not found", apperrors.ErrNotFound)
+		}
+		return fmt.Errorf("select reservation: %w", err)
 	}
 
-	if reserved < quantity {
-		return fmt.Errorf("insufficient reserved stock")
+	if status != "reserved" {
+		return fmt.Errorf("%w: reservation already %s", apperrors.ErrFailedPrecondition, status)
+	}
+	if reservedQty != quantity {
+		return fmt.Errorf("%w: release quantity mismatch (reserved %d, requested %d)", apperrors.ErrConflict, reservedQty, quantity)
 	}
 
-	update := `UPDATE inventory SET available = available + $1, reserved = reserved - $1 WHERE product_id = $2`
-	if _, err := tx.Exec(ctx, update, quantity, productID); err != nil {
+	// Atomic stock release with over-release protection.
+	updateSQL := `
+		UPDATE inventory
+		SET available = available + $1, reserved = reserved - $1
+		WHERE product_id = $2 AND reserved >= $1
+	`
+	tag, err := tx.Exec(ctx, updateSQL, quantity, productID)
+	if err != nil {
 		return fmt.Errorf("update stock: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return apperrors.ErrInsufficientStock
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE reservations SET status = 'released' WHERE order_id = $1 AND product_id = $2`,
+		orderID, productID,
+	); err != nil {
+		return fmt.Errorf("update reservation status: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

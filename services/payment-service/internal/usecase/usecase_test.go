@@ -3,9 +3,12 @@ package usecase
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/domain"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/repository"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -13,15 +16,21 @@ import (
 
 // mockPaymentRepository is a test double for PaymentRepository
 type mockPaymentRepository struct {
-	payments   map[uuid.UUID]*domain.Payment
-	createErr  error
-	updateErr  error
+	payments      map[uuid.UUID]*domain.Payment
+	orderPayments map[uuid.UUID]*domain.Payment
+	createErr     error
+	updateErr     error
 }
 
 func newMockPaymentRepository() *mockPaymentRepository {
 	return &mockPaymentRepository{
-		payments: make(map[uuid.UUID]*domain.Payment),
+		payments:      make(map[uuid.UUID]*domain.Payment),
+		orderPayments: make(map[uuid.UUID]*domain.Payment),
 	}
+}
+
+func (m *mockPaymentRepository) WithTx(_ pgx.Tx) repository.PaymentRepository {
+	return m
 }
 
 func (m *mockPaymentRepository) Create(ctx context.Context, payment *domain.Payment) error {
@@ -32,7 +41,20 @@ func (m *mockPaymentRepository) Create(ctx context.Context, payment *domain.Paym
 		return assert.AnError
 	}
 	m.payments[payment.ID] = payment
+	m.orderPayments[payment.OrderID] = payment
 	return nil
+}
+
+func (m *mockPaymentRepository) CreateOrGet(ctx context.Context, payment *domain.Payment) (*domain.Payment, error) {
+	if m.createErr != nil {
+		return nil, m.createErr
+	}
+	if existing, exists := m.orderPayments[payment.OrderID]; exists {
+		return existing, nil
+	}
+	m.payments[payment.ID] = payment
+	m.orderPayments[payment.OrderID] = payment
+	return payment, nil
 }
 
 func (m *mockPaymentRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Payment, error) {
@@ -43,7 +65,7 @@ func (m *mockPaymentRepository) GetByID(ctx context.Context, id uuid.UUID) (*dom
 	return payment, nil
 }
 
-func (m *mockPaymentRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
+func (m *mockPaymentRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.Status) error {
 	if m.updateErr != nil {
 		return m.updateErr
 	}
@@ -55,37 +77,75 @@ func (m *mockPaymentRepository) UpdateStatus(ctx context.Context, id uuid.UUID, 
 	return nil
 }
 
+func (m *mockPaymentRepository) UpdateStatusIf(ctx context.Context, id uuid.UUID, newStatus, expectedStatus domain.Status) (bool, error) {
+	if m.updateErr != nil {
+		return false, m.updateErr
+	}
+	payment, ok := m.payments[id]
+	if !ok {
+		return false, nil
+	}
+	if payment.Status != expectedStatus {
+		return false, nil
+	}
+	payment.Status = newStatus
+	return true, nil
+}
+
+type mockTxManager struct {
+	repo repository.PaymentRepository
+	err  error
+}
+
+func (m *mockTxManager) Run(ctx context.Context, fn func(repo repository.PaymentRepository) error) error {
+	if m.err != nil {
+		return m.err
+	}
+	return fn(m.repo)
+}
+
 func TestPaymentUsecase_ProcessPayment(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
+		amount     int64
 		randGen    func() float64
 		createErr  error
 		updateErr  error
-		wantStatus string
+		wantStatus domain.Status
 		wantErr    bool
 	}{
 		{
 			name:       "success",
+			amount:     10000,
 			randGen:    func() float64 { return 0.5 },
 			wantStatus: domain.StatusSuccess,
 			wantErr:    false,
 		},
 		{
 			name:       "failure",
+			amount:     10000,
 			randGen:    func() float64 { return 0.95 },
 			wantStatus: domain.StatusFailed,
 			wantErr:    false,
 		},
 		{
+			name:    "amount_zero",
+			amount:  0,
+			randGen: func() float64 { return 0.5 },
+			wantErr: true,
+		},
+		{
 			name:      "create_error",
+			amount:    10000,
 			randGen:   func() float64 { return 0.5 },
 			createErr: assert.AnError,
 			wantErr:   true,
 		},
 		{
 			name:      "update_status_error",
+			amount:    10000,
 			randGen:   func() float64 { return 0.5 },
 			updateErr: assert.AnError,
 			wantErr:   true,
@@ -98,11 +158,14 @@ func TestPaymentUsecase_ProcessPayment(t *testing.T) {
 			repo := newMockPaymentRepository()
 			repo.createErr = tt.createErr
 			repo.updateErr = tt.updateErr
-			uc := NewPaymentUsecase(repo, zap.NewNop())
+			txm := &mockTxManager{repo: repo}
+			uc := NewPaymentUsecase(repo, txm, zap.NewNop(), time.Second, time.Second)
 			uc.randGen = tt.randGen
-			uc.sleeper = func() {} // no-op for deterministic tests
 
-			payment, err := uc.ProcessPayment(context.Background(), uuid.New(), uuid.New(), 100.0)
+			orderID := uuid.New()
+			userID := uuid.New()
+
+			payment, err := uc.ProcessPayment(context.Background(), orderID, userID, tt.amount)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -116,20 +179,61 @@ func TestPaymentUsecase_ProcessPayment(t *testing.T) {
 	}
 }
 
+func TestPaymentUsecase_ProcessPayment_Idempotent(t *testing.T) {
+	t.Parallel()
+
+	repo := newMockPaymentRepository()
+	txm := &mockTxManager{repo: repo}
+	uc := NewPaymentUsecase(repo, txm, zap.NewNop(), time.Second, time.Second)
+	uc.randGen = func() float64 { return 0.5 } // success
+
+	orderID := uuid.New()
+	userID := uuid.New()
+
+	// first call
+	p1, err := uc.ProcessPayment(context.Background(), orderID, userID, 10000)
+	require.NoError(t, err)
+	assert.Equal(t, domain.StatusSuccess, p1.Status)
+
+	// second call with same order_id should return existing payment
+	uc.randGen = func() float64 { return 0.95 } // would be failed if not idempotent
+	p2, err := uc.ProcessPayment(context.Background(), orderID, userID, 10000)
+	require.NoError(t, err)
+	assert.Equal(t, p1.ID, p2.ID)
+	assert.Equal(t, domain.StatusSuccess, p2.Status)
+}
+
 func TestPaymentUsecase_Refund(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		wantErr bool
+		name          string
+		initialStatus domain.Status
+		wantErr       bool
 	}{
 		{
-			name:    "success",
-			wantErr: false,
+			name:          "success",
+			initialStatus: domain.StatusSuccess,
+			wantErr:       false,
 		},
 		{
 			name:    "not_found",
 			wantErr: true,
+		},
+		{
+			name:          "already_refunded",
+			initialStatus: domain.StatusRefunded,
+			wantErr:       true,
+		},
+		{
+			name:          "failed_status",
+			initialStatus: domain.StatusFailed,
+			wantErr:       true,
+		},
+		{
+			name:          "pending_status",
+			initialStatus: domain.StatusPending,
+			wantErr:       true,
 		},
 	}
 
@@ -137,13 +241,14 @@ func TestPaymentUsecase_Refund(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			repo := newMockPaymentRepository()
-			uc := NewPaymentUsecase(repo, zap.NewNop())
+			txm := &mockTxManager{repo: repo}
+			uc := NewPaymentUsecase(repo, txm, zap.NewNop(), time.Second, time.Second)
 
 			var paymentID uuid.UUID
-			if tt.name == "success" {
+			if tt.name != "not_found" {
 				payment := &domain.Payment{
 					ID:     uuid.New(),
-					Status: domain.StatusSuccess,
+					Status: tt.initialStatus,
 				}
 				require.NoError(t, repo.Create(context.Background(), payment))
 				paymentID = payment.ID

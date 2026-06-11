@@ -48,7 +48,7 @@ type DirectiveRoot struct {
 
 type ComplexityRoot struct {
 	Mutation struct {
-		CreateProduct func(childComplexity int, name string, description string, price float64, stock int32, categories []string) int
+		CreateProduct func(childComplexity int, name string, description string, price float64, categories []string) int
 		Login         func(childComplexity int, email string, password string) int
 		Register      func(childComplexity int, email string, password string, name string) int
 	}
@@ -60,7 +60,6 @@ type ComplexityRoot struct {
 		ID          func(childComplexity int) int
 		Name        func(childComplexity int) int
 		Price       func(childComplexity int) int
-		Stock       func(childComplexity int) int
 	}
 
 	ProductConnection struct {
@@ -85,7 +84,7 @@ type ComplexityRoot struct {
 type MutationResolver interface {
 	Register(ctx context.Context, email string, password string, name string) (string, error)
 	Login(ctx context.Context, email string, password string) (string, error)
-	CreateProduct(ctx context.Context, name string, description string, price float64, stock int32, categories []string) (string, error)
+	CreateProduct(ctx context.Context, name string, description string, price float64, categories []string) (string, error)
 }
 type QueryResolver interface {
 	User(ctx context.Context, id string) (*model.User, error)
@@ -122,7 +121,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.CreateProduct(childComplexity, args["name"].(string), args["description"].(string), args["price"].(float64), args["stock"].(int32), args["categories"].([]string)), true
+		return e.complexity.Mutation.CreateProduct(childComplexity, args["name"].(string), args["description"].(string), args["price"].(float64), args["categories"].([]string)), true
 
 	case "Mutation.login":
 		if e.complexity.Mutation.Login == nil {
@@ -189,13 +188,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.Product.Price(childComplexity), true
-
-	case "Product.stock":
-		if e.complexity.Product.Stock == nil {
-			break
-		}
-
-		return e.complexity.Product.Stock(childComplexity), true
 
 	case "ProductConnection.products":
 		if e.complexity.ProductConnection.Products == nil {
@@ -416,16 +408,11 @@ func (ec *executionContext) field_Mutation_createProduct_args(ctx context.Contex
 		return nil, err
 	}
 	args["price"] = arg2
-	arg3, err := ec.field_Mutation_createProduct_argsStock(ctx, rawArgs)
+	arg3, err := ec.field_Mutation_createProduct_argsCategories(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["stock"] = arg3
-	arg4, err := ec.field_Mutation_createProduct_argsCategories(ctx, rawArgs)
-	if err != nil {
-		return nil, err
-	}
-	args["categories"] = arg4
+	args["categories"] = arg3
 	return args, nil
 }
 func (ec *executionContext) field_Mutation_createProduct_argsName(
@@ -464,19 +451,6 @@ func (ec *executionContext) field_Mutation_createProduct_argsPrice(
 	}
 
 	var zeroVal float64
-	return zeroVal, nil
-}
-
-func (ec *executionContext) field_Mutation_createProduct_argsStock(
-	ctx context.Context,
-	rawArgs map[string]any,
-) (int32, error) {
-	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("stock"))
-	if tmp, ok := rawArgs["stock"]; ok {
-		return ec.unmarshalNInt2int32(ctx, tmp)
-	}
-
-	var zeroVal int32
 	return zeroVal, nil
 }
 
@@ -945,7 +919,7 @@ func (ec *executionContext) _Mutation_createProduct(ctx context.Context, field g
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Mutation().CreateProduct(rctx, fc.Args["name"].(string), fc.Args["description"].(string), fc.Args["price"].(float64), fc.Args["stock"].(int32), fc.Args["categories"].([]string))
+		return ec.resolvers.Mutation().CreateProduct(rctx, fc.Args["name"].(string), fc.Args["description"].(string), fc.Args["price"].(float64), fc.Args["categories"].([]string))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -1162,50 +1136,6 @@ func (ec *executionContext) fieldContext_Product_price(_ context.Context, field 
 	return fc, nil
 }
 
-func (ec *executionContext) _Product_stock(ctx context.Context, field graphql.CollectedField, obj *model.Product) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_Product_stock(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.Stock, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(int32)
-	fc.Result = res
-	return ec.marshalNInt2int32(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_Product_stock(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Product",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type Int does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
 func (ec *executionContext) _Product_categories(ctx context.Context, field graphql.CollectedField, obj *model.Product) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_Product_categories(ctx, field)
 	if err != nil {
@@ -1341,8 +1271,6 @@ func (ec *executionContext) fieldContext_ProductConnection_products(_ context.Co
 				return ec.fieldContext_Product_description(ctx, field)
 			case "price":
 				return ec.fieldContext_Product_price(ctx, field)
-			case "stock":
-				return ec.fieldContext_Product_stock(ctx, field)
 			case "categories":
 				return ec.fieldContext_Product_categories(ctx, field)
 			case "createdAt":
@@ -1504,8 +1432,6 @@ func (ec *executionContext) fieldContext_Query_product(ctx context.Context, fiel
 				return ec.fieldContext_Product_description(ctx, field)
 			case "price":
 				return ec.fieldContext_Product_price(ctx, field)
-			case "stock":
-				return ec.fieldContext_Product_stock(ctx, field)
 			case "categories":
 				return ec.fieldContext_Product_categories(ctx, field)
 			case "createdAt":
@@ -3943,11 +3869,6 @@ func (ec *executionContext) _Product(ctx context.Context, sel ast.SelectionSet, 
 			}
 		case "price":
 			out.Values[i] = ec._Product_price(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		case "stock":
-			out.Values[i] = ec._Product_stock(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

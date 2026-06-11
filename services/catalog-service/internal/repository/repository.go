@@ -17,3 +17,10 @@ type ProductSearchRepository interface {
 	Index(ctx context.Context, product *domain.Product) error
 	Search(ctx context.Context, query string, page, pageSize int) ([]*domain.Product, int, error)
 }
+
+type OutboxRepository interface {
+	Create(ctx context.Context, event *domain.OutboxEvent) error
+	GetUnprocessed(ctx context.Context, limit int) ([]domain.OutboxEvent, error)
+	MarkProcessed(ctx context.Context, id uuid.UUID) error
+	BatchMarkProcessed(ctx context.Context, ids []uuid.UUID) error
+}

@@ -2,20 +2,24 @@ package grpcclient
 
 import (
 	"context"
+	"time"
 
 	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
 	"google.golang.org/grpc"
 )
 
 type InventoryClient struct {
-	client inventoryv1.InventoryServiceClient
+	client       inventoryv1.InventoryServiceClient
+	callTimeout  time.Duration
 }
 
-func NewInventoryClient(conn *grpc.ClientConn) *InventoryClient {
-	return &InventoryClient{client: inventoryv1.NewInventoryServiceClient(conn)}
+func NewInventoryClient(conn *grpc.ClientConn, callTimeout time.Duration) *InventoryClient {
+	return &InventoryClient{client: inventoryv1.NewInventoryServiceClient(conn), callTimeout: callTimeout}
 }
 
 func (c *InventoryClient) Reserve(ctx context.Context, productID string, quantity int32, orderID string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.callTimeout)
+	defer cancel()
 	_, err := c.client.Reserve(ctx, &inventoryv1.ReserveRequest{
 		ProductId: productID,
 		Quantity:  quantity,
@@ -25,6 +29,8 @@ func (c *InventoryClient) Reserve(ctx context.Context, productID string, quantit
 }
 
 func (c *InventoryClient) Release(ctx context.Context, productID string, quantity int32, orderID string) error {
+	ctx, cancel := context.WithTimeout(ctx, c.callTimeout)
+	defer cancel()
 	_, err := c.client.Release(ctx, &inventoryv1.ReleaseRequest{
 		ProductId: productID,
 		Quantity:  quantity,

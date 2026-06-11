@@ -11,8 +11,9 @@ const (
 )
 
 type Event struct {
-	EventType   EventType
-	AggregateID string
-	Payload     string
-	CreatedAt   time.Time
+	EventType      EventType
+	AggregateID    string
+	Payload        string
+	CreatedAt      time.Time
+	AggregationKey string
 }

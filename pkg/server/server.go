@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"net/http"
@@ -71,6 +73,52 @@ func LoadClientCredentials(caFile string, serverName string) (credentials.Transp
 		return nil, fmt.Errorf("load client tls credentials: %w", err)
 	}
 	return creds, nil
+}
+
+// LoadServerMTLSCredentials loads server certificate, key and CA certificate
+// and returns a gRPC server option that enforces mutual TLS.
+func LoadServerMTLSCredentials(certFile, keyFile, caFile string) (grpc.ServerOption, error) {
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load server cert/key: %w", err)
+	}
+	caCert, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("load ca cert: %w", err)
+	}
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caCert) {
+		return nil, fmt.Errorf("failed to append ca cert")
+	}
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		ClientCAs:    caCertPool,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+	}
+	return grpc.Creds(credentials.NewTLS(tlsConfig)), nil
+}
+
+// LoadClientMTLSCredentials loads client certificate, key and CA certificate
+// and returns transport credentials for mutual TLS gRPC client connections.
+func LoadClientMTLSCredentials(certFile, keyFile, caFile, serverName string) (credentials.TransportCredentials, error) {
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load client cert/key: %w", err)
+	}
+	caCert, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("load ca cert: %w", err)
+	}
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caCert) {
+		return nil, fmt.Errorf("failed to append ca cert")
+	}
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		RootCAs:      caCertPool,
+		ServerName:   serverName,
+	}
+	return credentials.NewTLS(tlsConfig), nil
 }
 
 type HTTPServer struct {

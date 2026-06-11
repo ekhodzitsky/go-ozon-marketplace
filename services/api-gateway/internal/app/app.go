@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -19,11 +19,18 @@ import (
 	"github.com/99designs/gqlgen/graphql/playground"
 	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/redis"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/server"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/config"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/vektah/gqlparser/v2/ast"
+	"github.com/vektah/gqlparser/v2/gqlerror"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 )
@@ -47,29 +54,61 @@ func authClientInterceptor(ctx context.Context, method string, req, reply interf
 	return invoker(ctx, method, req, reply, cc, opts...)
 }
 
+func clientCreds(cfg *config.Config) (credentials.TransportCredentials, error) {
+	if cfg.CertPath != "" {
+		return server.LoadClientMTLSCredentials(
+			filepath.Join(cfg.CertPath, "server-cert.pem"),
+			filepath.Join(cfg.CertPath, "server-key.pem"),
+			filepath.Join(cfg.CertPath, "ca-cert.pem"),
+			"",
+		)
+	}
+	return insecure.NewCredentials(), nil
+}
+
 // Run starts the HTTP server with GraphQL playground and query endpoint.
 func (a *App) Run() error {
-	userConn, err := grpc.NewClient(a.cfg.UserServiceAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.DefaultCallTimeout)
+	defer cancel()
+
+	creds, err := clientCreds(a.cfg)
+	if err != nil {
+		return fmt.Errorf("load tls credentials: %w", err)
+	}
+
+	userConn, err := grpc.DialContext(ctx, a.cfg.UserServiceAddr,
+		grpc.WithTransportCredentials(creds),
 		grpc.WithUnaryInterceptor(authClientInterceptor),
+		grpc.WithBlock(),
 	)
 	if err != nil {
 		return fmt.Errorf("dial user-service: %w", err)
 	}
 	defer userConn.Close()
 
-	catalogConn, err := grpc.NewClient(a.cfg.CatalogServiceAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	catalogConn, err := grpc.DialContext(ctx, a.cfg.CatalogServiceAddr,
+		grpc.WithTransportCredentials(creds),
 		grpc.WithUnaryInterceptor(authClientInterceptor),
+		grpc.WithBlock(),
 	)
 	if err != nil {
 		return fmt.Errorf("dial catalog-service: %w", err)
 	}
 	defer catalogConn.Close()
 
+	redisClient, err := redis.NewClient(context.Background(), a.cfg.RedisAddr)
+	if err != nil {
+		return fmt.Errorf("connect redis: %w", err)
+	}
+	defer redisClient.Close()
+
+	rl := middleware.NewRedisRateLimiter(redisClient, a.cfg.RateLimitRPS, a.cfg.RateLimitWindow)
+
 	resolver := &graph.Resolver{
 		UserService:    userv1.NewUserServiceClient(userConn),
 		CatalogService: catalogv1.NewCatalogServiceClient(catalogConn),
+		CallTimeout:    a.cfg.DefaultCallTimeout,
+		QueryTimeout:   a.cfg.DefaultQueryTimeout,
 	}
 
 	srv := handler.New(graph.NewExecutableSchema(graph.Config{Resolvers: resolver}))
@@ -85,11 +124,36 @@ func (a *App) Run() error {
 		Cache: lru.New[string](100),
 	})
 
+	srv.AroundOperations(func(ctx context.Context, next graphql.OperationHandler) graphql.ResponseHandler {
+		opCtx := graphql.GetOperationContext(ctx)
+		if opCtx != nil && opCtx.Operation != nil && opCtx.Operation.Operation == ast.Mutation {
+			ip := middleware.RateLimitIPFromContext(ctx)
+			if ip == "" {
+				ip = "unknown"
+			}
+			if !rl.Allow(ctx, "mutation:"+ip) {
+				return func(ctx context.Context) *graphql.Response {
+					return &graphql.Response{
+						Errors: []*gqlerror.Error{{Message: "rate limit exceeded"}},
+					}
+				}
+			}
+		}
+		return next(ctx)
+	})
+
 	mux := http.NewServeMux()
 	mux.Handle("/", playground.Handler("GraphQL playground", "/query"))
 
-	rl := middleware.NewRateLimiter(a.cfg.RateLimitRPS)
-	mux.Handle("/query", middleware.GraphQLMutationRateLimiter(rl)(srv))
+	var gqlHandler http.Handler = srv
+	gqlHandler = middleware.WithRateLimitIP(gqlHandler, a.cfg.TrustedProxies)
+	gqlHandler = middleware.MaxBytesHandler(gqlHandler, a.cfg.MaxBodySizeBytes)
+	gqlHandler = middleware.RateLimitHTTP(rl, a.cfg.TrustedProxies)(gqlHandler)
+
+	mux.Handle("/query", gqlHandler)
+	mux.Handle("/metrics", promhttp.Handler())
+
+	handler := middleware.RequestID(middleware.AccessLog(mux))
 
 	port := a.cfg.HTTPPort
 	if envPort := os.Getenv("PORT"); envPort != "" {
@@ -98,13 +162,15 @@ func (a *App) Run() error {
 
 	httpSrv := &http.Server{
 		Addr:    ":" + port,
-		Handler: mux,
+		Handler: handler,
 	}
 
+	log := logger.New()
+
 	go func() {
-		log.Printf("connect to http://localhost:%s/ for GraphQL playground", port)
+		log.Info("starting gateway", zap.String("addr", "http://localhost:"+port+"/"))
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("gateway serve failed: %v", err)
+			log.Fatal("gateway serve failed", zap.Error(err))
 		}
 	}()
 
@@ -112,8 +178,8 @@ func (a *App) Run() error {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("shutting down gateway")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	return httpSrv.Shutdown(ctx)
+	log.Info("shutting down gateway")
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	return httpSrv.Shutdown(shutdownCtx)
 }

@@ -23,8 +23,11 @@ func (r *OutboxPostgres) WithTx(tx pgx.Tx) *OutboxPostgres {
 }
 
 func (r *OutboxPostgres) Create(ctx context.Context, event *domain.OutboxEvent) error {
-	query := `INSERT INTO outbox (id, aggregate_type, aggregate_id, event_type, payload, created_at) VALUES ($1, $2, $3, $4, $5, $6)`
-	_, err := r.db.Exec(ctx, query, event.ID, event.AggregateType, event.AggregateID, event.EventType, event.Payload, event.CreatedAt)
+	if event.NextRetryAt.IsZero() {
+		event.NextRetryAt = time.Now().UTC()
+	}
+	query := `INSERT INTO outbox (id, aggregate_type, aggregate_id, event_type, payload, created_at, retry_count, next_retry_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+	_, err := r.db.Exec(ctx, query, event.ID, event.AggregateType, event.AggregateID, event.EventType, event.Payload, event.CreatedAt, event.RetryCount, event.NextRetryAt)
 	if err != nil {
 		return fmt.Errorf("insert outbox event: %w", err)
 	}
@@ -32,7 +35,12 @@ func (r *OutboxPostgres) Create(ctx context.Context, event *domain.OutboxEvent) 
 }
 
 func (r *OutboxPostgres) GetUnprocessed(ctx context.Context, limit int) ([]domain.OutboxEvent, error) {
-	query := `SELECT id, aggregate_type, aggregate_id, event_type, payload, created_at, processed_at FROM outbox WHERE processed_at IS NULL ORDER BY created_at ASC LIMIT $1`
+	query := `SELECT id, aggregate_type, aggregate_id, event_type, payload, created_at, processed_at, retry_count, last_error, next_retry_at
+		FROM outbox
+		WHERE processed_at IS NULL AND next_retry_at <= NOW()
+		ORDER BY created_at ASC
+		LIMIT $1
+		FOR UPDATE SKIP LOCKED`
 	rows, err := r.db.Query(ctx, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("get unprocessed outbox: %w", err)
@@ -43,10 +51,12 @@ func (r *OutboxPostgres) GetUnprocessed(ctx context.Context, limit int) ([]domai
 	for rows.Next() {
 		var event domain.OutboxEvent
 		var processedAt *time.Time
-		if err := rows.Scan(&event.ID, &event.AggregateType, &event.AggregateID, &event.EventType, &event.Payload, &event.CreatedAt, &processedAt); err != nil {
+		var lastError *string
+		if err := rows.Scan(&event.ID, &event.AggregateType, &event.AggregateID, &event.EventType, &event.Payload, &event.CreatedAt, &processedAt, &event.RetryCount, &lastError, &event.NextRetryAt); err != nil {
 			return nil, fmt.Errorf("scan outbox event: %w", err)
 		}
 		event.ProcessedAt = processedAt
+		event.LastError = lastError
 		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {
@@ -69,6 +79,32 @@ func (r *OutboxPostgres) BatchMarkProcessed(ctx context.Context, ids []uuid.UUID
 	_, err := r.db.Exec(ctx, query, ids)
 	if err != nil {
 		return fmt.Errorf("batch mark outbox processed: %w", err)
+	}
+	return nil
+}
+
+func (r *OutboxPostgres) IncrementRetryAndSetError(ctx context.Context, id uuid.UUID, lastError string, nextRetryAt time.Time) error {
+	query := `UPDATE outbox SET retry_count = retry_count + 1, last_error = $2, next_retry_at = $3 WHERE id = $1`
+	_, err := r.db.Exec(ctx, query, id, lastError, nextRetryAt)
+	if err != nil {
+		return fmt.Errorf("increment outbox retry: %w", err)
+	}
+	return nil
+}
+
+func (r *OutboxPostgres) MoveToDLQ(ctx context.Context, event *domain.OutboxEvent, failedAt time.Time, lastError string) error {
+	insertQuery := `INSERT INTO outbox_dlq (id, aggregate_type, aggregate_id, event_type, payload, created_at, failed_at, last_error, retry_count)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (id) DO NOTHING`
+	_, err := r.db.Exec(ctx, insertQuery, event.ID, event.AggregateType, event.AggregateID, event.EventType, event.Payload, event.CreatedAt, failedAt, lastError, event.RetryCount+1)
+	if err != nil {
+		return fmt.Errorf("insert outbox dlq: %w", err)
+	}
+
+	deleteQuery := `DELETE FROM outbox WHERE id = $1`
+	_, err = r.db.Exec(ctx, deleteQuery, event.ID)
+	if err != nil {
+		return fmt.Errorf("delete outbox event: %w", err)
 	}
 	return nil
 }

@@ -3,6 +3,7 @@ package clickhouse
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -11,10 +12,16 @@ import (
 )
 
 type EventRepo struct {
-	conn driver.Conn
+	conn         driver.Conn
+	mu           sync.Mutex
+	// seen tracks aggregation keys for in-process deduplication.
+	// TODO: add TTL or external store for cross-process idempotency.
+	seen         map[string]struct{}
+	callTimeout  time.Duration
+	queryTimeout time.Duration
 }
 
-func NewEventRepo(addr string) (*EventRepo, error) {
+func NewEventRepo(addr string, callTimeout, queryTimeout time.Duration) (*EventRepo, error) {
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{addr},
 	})
@@ -22,7 +29,7 @@ func NewEventRepo(addr string) (*EventRepo, error) {
 		return nil, fmt.Errorf("clickhouse open: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
 	defer cancel()
 
 	if err := conn.Ping(ctx); err != nil {
@@ -34,17 +41,24 @@ func NewEventRepo(addr string) (*EventRepo, error) {
 			event_type String,
 			aggregate_id String,
 			payload String,
-			created_at DateTime
+			created_at DateTime,
+			aggregation_key String
 		) ENGINE = MergeTree()
 		ORDER BY created_at
 	`); err != nil {
 		return nil, fmt.Errorf("create table: %w", err)
 	}
 
-	return &EventRepo{conn: conn}, nil
+	return &EventRepo{conn: conn, seen: make(map[string]struct{}), callTimeout: callTimeout, queryTimeout: queryTimeout}, nil
 }
 
 func (r *EventRepo) BatchInsert(ctx context.Context, events []domain.Event) error {
+	if r.callTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, r.callTimeout)
+		defer cancel()
+	}
+
 	batch, err := r.conn.PrepareBatch(ctx, "INSERT INTO events")
 	if err != nil {
 		return fmt.Errorf("prepare batch: %w", err)
@@ -56,6 +70,7 @@ func (r *EventRepo) BatchInsert(ctx context.Context, events []domain.Event) erro
 			ev.AggregateID,
 			ev.Payload,
 			ev.CreatedAt,
+			ev.AggregationKey,
 		); err != nil {
 			return fmt.Errorf("append event: %w", err)
 		}
@@ -69,15 +84,63 @@ func (r *EventRepo) BatchInsert(ctx context.Context, events []domain.Event) erro
 }
 
 func (r *EventRepo) Insert(ctx context.Context, event domain.Event) error {
-	return r.BatchInsert(ctx, []domain.Event{event})
+	r.mu.Lock()
+	if event.AggregationKey != "" {
+		if _, exists := r.seen[event.AggregationKey]; exists {
+			r.mu.Unlock()
+			return nil
+		}
+	}
+	r.mu.Unlock()
+
+	if event.AggregationKey != "" {
+		var cnt uint64
+		queryCtx := ctx
+		if r.queryTimeout > 0 {
+			var cancel context.CancelFunc
+			queryCtx, cancel = context.WithTimeout(ctx, r.queryTimeout)
+			defer cancel()
+		}
+		if err := r.conn.QueryRow(queryCtx, "SELECT count() FROM events WHERE aggregation_key = ?", event.AggregationKey).Scan(&cnt); err != nil {
+			return fmt.Errorf("check aggregation key: %w", err)
+		}
+		if cnt > 0 {
+			r.mu.Lock()
+			r.seen[event.AggregationKey] = struct{}{}
+			r.mu.Unlock()
+			return nil
+		}
+	}
+
+	if r.callTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, r.callTimeout)
+		defer cancel()
+	}
+	if err := r.BatchInsert(ctx, []domain.Event{event}); err != nil {
+		return err
+	}
+
+	if event.AggregationKey != "" {
+		r.mu.Lock()
+		r.seen[event.AggregationKey] = struct{}{}
+		r.mu.Unlock()
+	}
+	return nil
 }
 
 func (r *EventRepo) GetDailyRevenue(ctx context.Context, date string) (float64, error) {
+	if r.queryTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, r.queryTimeout)
+		defer cancel()
+	}
+
 	var revenue float64
 	row := r.conn.QueryRow(ctx, `
-		SELECT COUNT() * 100.0
+		SELECT SUM(amount)
 		FROM events
-		WHERE toDate(created_at) = ?
+		WHERE toDate(created_at) = ? AND event_type = 'payment_success'
 	`, date)
 	if err := row.Scan(&revenue); err != nil {
 		return 0, fmt.Errorf("scan revenue: %w", err)

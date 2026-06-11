@@ -15,6 +15,15 @@ import (
 type contextKey string
 
 const ContextKeyUserID contextKey = "user_id"
+const ContextKeyRole contextKey = "role"
+
+type Role string
+
+const (
+	RoleUser    Role = "user"
+	RoleAdmin   Role = "admin"
+	RoleService Role = "service"
+)
 
 // AuthUnaryInterceptor validates JWT bearer token from gRPC metadata
 func AuthUnaryInterceptor(jwtSecret string) grpc.UnaryServerInterceptor {
@@ -59,7 +68,13 @@ func AuthUnaryInterceptor(jwtSecret string) grpc.UnaryServerInterceptor {
 			return nil, status.Error(codes.Unauthenticated, "missing user_id in token")
 		}
 
+		role, _ := claims["role"].(string)
+		if role == "" {
+			role = string(RoleUser)
+		}
+
 		ctx = context.WithValue(ctx, ContextKeyUserID, userID)
+		ctx = context.WithValue(ctx, ContextKeyRole, role)
 		return handler(ctx, req)
 	}
 }
@@ -82,4 +97,33 @@ func isPublicEndpoint(method string) bool {
 func GetUserID(ctx context.Context) (string, bool) {
 	v, ok := ctx.Value(ContextKeyUserID).(string)
 	return v, ok
+}
+
+// GetRole extracts role from context
+func GetRole(ctx context.Context) (Role, bool) {
+	v := ctx.Value(ContextKeyRole)
+	if v == nil {
+		return RoleUser, false
+	}
+	switch r := v.(type) {
+	case Role:
+		return r, true
+	case string:
+		return Role(r), true
+	}
+	return RoleUser, false
+}
+
+// RequireRole returns PermissionDenied if the context role is not in allowed.
+func RequireRole(ctx context.Context, allowed ...Role) error {
+	role, ok := GetRole(ctx)
+	if !ok {
+		return status.Error(codes.PermissionDenied, "missing role")
+	}
+	for _, a := range allowed {
+		if role == a {
+			return nil
+		}
+	}
+	return status.Errorf(codes.PermissionDenied, "role %s not allowed", role)
 }

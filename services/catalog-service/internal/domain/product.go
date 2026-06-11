@@ -10,8 +10,7 @@ type Product struct {
 	ID          uuid.UUID
 	Name        string
 	Description string
-	Price       float64
-	Stock       int
+	Price       int64
 	Categories  []string
 	CreatedAt   time.Time
 }
