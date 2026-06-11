@@ -93,3 +93,9 @@ func (u *inventoryUsecase) Release(ctx context.Context, productID uuid.UUID, qua
 	u.redis.Del(ctx, cacheKey(productID))
 	return nil
 }
+
+func (u *inventoryUsecase) GetLedger(ctx context.Context, productID uuid.UUID) ([]*domain.LedgerEntry, error) {
+	ctx, cancel := context.WithTimeout(ctx, u.queryTimeout)
+	defer cancel()
+	return u.repo.GetLedger(ctx, productID)
+}

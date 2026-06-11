@@ -193,6 +193,9 @@ func (a *App) Run() error {
 	gqlHandler = middleware.WithRateLimitIP(gqlHandler, a.cfg.TrustedProxies)
 	gqlHandler = middleware.MaxBytesHandler(gqlHandler, a.cfg.MaxBodySizeBytes)
 	gqlHandler = middleware.RateLimitHTTP(rl, a.cfg.TrustedProxies)(gqlHandler)
+	if a.cfg.JWTSecret != "" {
+		gqlHandler = middleware.AuthHTTP(a.cfg.JWTSecret)(gqlHandler)
+	}
 
 	mux.Handle("/query", gqlHandler)
 

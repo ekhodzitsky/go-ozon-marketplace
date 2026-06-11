@@ -174,3 +174,30 @@ func (r *InventoryPostgres) Release(ctx context.Context, productID uuid.UUID, qu
 	}
 	return nil
 }
+
+func (r *InventoryPostgres) GetLedger(ctx context.Context, productID uuid.UUID) ([]*domain.LedgerEntry, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.queryTimeout)
+	defer cancel()
+
+	query := `SELECT id, product_id, order_id, quantity_change, operation_type, created_at FROM inventory_ledger WHERE product_id = $1 ORDER BY created_at DESC`
+	rows, err := r.db.Query(ctx, query, productID)
+	if err != nil {
+		return nil, fmt.Errorf("get ledger: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []*domain.LedgerEntry
+	for rows.Next() {
+		var entry domain.LedgerEntry
+		var orderID *uuid.UUID
+		if err := rows.Scan(&entry.ID, &entry.ProductID, &orderID, &entry.QuantityChange, &entry.OperationType, &entry.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan ledger entry: %w", err)
+		}
+		entry.OrderID = orderID
+		entries = append(entries, &entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("ledger rows err: %w", err)
+	}
+	return entries, nil
+}

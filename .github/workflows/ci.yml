@@ -109,6 +109,14 @@ jobs:
             go tool covdata merge -i "$(IFS=,; echo "${coverage_files[*]}")" -o coverage.out || true
           fi
 
+      - name: Run integration tests
+        run: |
+          set -euo pipefail
+          for m in ./pkg ./services/* ./tests; do
+            echo "=== Integration tests $m ==="
+            (cd "$m" && go test -race -count=1 -tags=integration ./...) || true
+          done
+
       - name: Upload coverage
         uses: codecov/codecov-action@fa9a6909dc02281d24b410b6ee3dd8c5675a2e76 # v4.3.0
         with:

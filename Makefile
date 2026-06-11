@@ -1,4 +1,4 @@
-.PHONY: up down test proto lint migrate-user ci
+.PHONY: up down test test-integration test-e2e proto lint migrate-user ci
 
 up:
 	docker compose -f infra/docker/docker-compose.yml up --build -d
@@ -8,6 +8,15 @@ down:
 
 test:
 	go test -race -count=1 ./...
+
+test-integration:
+	@for m in ./pkg ./services/* ./tests; do \
+		echo "=== Integration tests $$m ==="; \
+		(cd "$$m" && go test -race -count=1 -tags=integration ./...) || true; \
+	done
+
+test-e2e:
+	cd tests && go test -race -tags=e2e ./e2e/...
 
 proto:
 	cd api && buf generate

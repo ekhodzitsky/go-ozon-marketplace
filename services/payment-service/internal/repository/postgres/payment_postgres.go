@@ -97,3 +97,38 @@ func (r *PaymentPostgres) UpdateStatusIf(ctx context.Context, id uuid.UUID, newS
 	}
 	return tag.RowsAffected() > 0, nil
 }
+
+func (r *PaymentPostgres) GetRefund(ctx context.Context, id uuid.UUID) (*domain.Refund, error) {
+	query := `SELECT id, payment_id, amount, reason, status, created_at FROM refunds WHERE id=$1`
+	row := r.db.QueryRow(ctx, query, id)
+	var refund domain.Refund
+	if err := row.Scan(&refund.ID, &refund.PaymentID, &refund.Amount, &refund.Reason, &refund.Status, &refund.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: refund", apperrors.ErrNotFound)
+		}
+		return nil, fmt.Errorf("get refund by id: %w", err)
+	}
+	return &refund, nil
+}
+
+func (r *PaymentPostgres) ListRefunds(ctx context.Context, paymentID uuid.UUID) ([]*domain.Refund, error) {
+	query := `SELECT id, payment_id, amount, reason, status, created_at FROM refunds WHERE payment_id=$1 ORDER BY created_at DESC`
+	rows, err := r.db.Query(ctx, query, paymentID)
+	if err != nil {
+		return nil, fmt.Errorf("list refunds: %w", err)
+	}
+	defer rows.Close()
+
+	var refunds []*domain.Refund
+	for rows.Next() {
+		var refund domain.Refund
+		if err := rows.Scan(&refund.ID, &refund.PaymentID, &refund.Amount, &refund.Reason, &refund.Status, &refund.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan refund: %w", err)
+		}
+		refunds = append(refunds, &refund)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("refund rows err: %w", err)
+	}
+	return refunds, nil
+}

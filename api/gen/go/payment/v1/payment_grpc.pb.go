@@ -21,6 +21,8 @@ const _ = grpc.SupportPackageIsVersion8
 const (
 	PaymentService_ProcessPayment_FullMethodName = "/payment.v1.PaymentService/ProcessPayment"
 	PaymentService_Refund_FullMethodName         = "/payment.v1.PaymentService/Refund"
+	PaymentService_GetRefund_FullMethodName      = "/payment.v1.PaymentService/GetRefund"
+	PaymentService_ListRefunds_FullMethodName    = "/payment.v1.PaymentService/ListRefunds"
 )
 
 // PaymentServiceClient is the client API for PaymentService service.
@@ -29,6 +31,8 @@ const (
 type PaymentServiceClient interface {
 	ProcessPayment(ctx context.Context, in *ProcessPaymentRequest, opts ...grpc.CallOption) (*ProcessPaymentResponse, error)
 	Refund(ctx context.Context, in *RefundRequest, opts ...grpc.CallOption) (*RefundResponse, error)
+	GetRefund(ctx context.Context, in *GetRefundRequest, opts ...grpc.CallOption) (*GetRefundResponse, error)
+	ListRefunds(ctx context.Context, in *ListRefundsRequest, opts ...grpc.CallOption) (*ListRefundsResponse, error)
 }
 
 type paymentServiceClient struct {
@@ -59,12 +63,34 @@ func (c *paymentServiceClient) Refund(ctx context.Context, in *RefundRequest, op
 	return out, nil
 }
 
+func (c *paymentServiceClient) GetRefund(ctx context.Context, in *GetRefundRequest, opts ...grpc.CallOption) (*GetRefundResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRefundResponse)
+	err := c.cc.Invoke(ctx, PaymentService_GetRefund_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *paymentServiceClient) ListRefunds(ctx context.Context, in *ListRefundsRequest, opts ...grpc.CallOption) (*ListRefundsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRefundsResponse)
+	err := c.cc.Invoke(ctx, PaymentService_ListRefunds_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PaymentServiceServer is the server API for PaymentService service.
 // All implementations should embed UnimplementedPaymentServiceServer
 // for forward compatibility
 type PaymentServiceServer interface {
 	ProcessPayment(context.Context, *ProcessPaymentRequest) (*ProcessPaymentResponse, error)
 	Refund(context.Context, *RefundRequest) (*RefundResponse, error)
+	GetRefund(context.Context, *GetRefundRequest) (*GetRefundResponse, error)
+	ListRefunds(context.Context, *ListRefundsRequest) (*ListRefundsResponse, error)
 }
 
 // UnimplementedPaymentServiceServer should be embedded to have forward compatible implementations.
@@ -76,6 +102,12 @@ func (UnimplementedPaymentServiceServer) ProcessPayment(context.Context, *Proces
 }
 func (UnimplementedPaymentServiceServer) Refund(context.Context, *RefundRequest) (*RefundResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Refund not implemented")
+}
+func (UnimplementedPaymentServiceServer) GetRefund(context.Context, *GetRefundRequest) (*GetRefundResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRefund not implemented")
+}
+func (UnimplementedPaymentServiceServer) ListRefunds(context.Context, *ListRefundsRequest) (*ListRefundsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListRefunds not implemented")
 }
 
 // UnsafePaymentServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -125,6 +157,42 @@ func _PaymentService_Refund_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PaymentService_GetRefund_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRefundRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PaymentServiceServer).GetRefund(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PaymentService_GetRefund_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PaymentServiceServer).GetRefund(ctx, req.(*GetRefundRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PaymentService_ListRefunds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRefundsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PaymentServiceServer).ListRefunds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PaymentService_ListRefunds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PaymentServiceServer).ListRefunds(ctx, req.(*ListRefundsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PaymentService_ServiceDesc is the grpc.ServiceDesc for PaymentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -139,6 +207,14 @@ var PaymentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Refund",
 			Handler:    _PaymentService_Refund_Handler,
+		},
+		{
+			MethodName: "GetRefund",
+			Handler:    _PaymentService_GetRefund_Handler,
+		},
+		{
+			MethodName: "ListRefunds",
+			Handler:    _PaymentService_ListRefunds_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

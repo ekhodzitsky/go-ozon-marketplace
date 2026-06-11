@@ -26,6 +26,7 @@ type Config struct {
 	DefaultCallTimeout       time.Duration
 	DefaultQueryTimeout      time.Duration
 	CertPath                 string
+	JWTSecret                string
 }
 
 func Load() *Config {
@@ -58,5 +59,6 @@ func Load() *Config {
 		DefaultCallTimeout:       config.GetEnvDuration("DEFAULT_CALL_TIMEOUT", 5*time.Second),
 		DefaultQueryTimeout:      config.GetEnvDuration("DEFAULT_QUERY_TIMEOUT", 3*time.Second),
 		CertPath:                 config.GetEnv("CERT_PATH", ""),
+		JWTSecret:                config.GetEnv("JWT_SECRET", ""),
 	}
 }

@@ -494,3 +494,71 @@ func (b *SendEmailRequestBuilder) Build() *notificationv1.SendEmailRequest {
 		Body:    b.body,
 	}
 }
+
+// UpdateProduct builder
+
+type UpdateProductRequestBuilder struct {
+	productID   string
+	name        string
+	description string
+	price       float64
+	categories  []string
+}
+
+func NewUpdateProductRequestBuilder() *UpdateProductRequestBuilder {
+	return &UpdateProductRequestBuilder{}
+}
+
+func (b *UpdateProductRequestBuilder) WithProductID(id string) *UpdateProductRequestBuilder {
+	b.productID = id
+	return b
+}
+
+func (b *UpdateProductRequestBuilder) WithName(name string) *UpdateProductRequestBuilder {
+	b.name = name
+	return b
+}
+
+func (b *UpdateProductRequestBuilder) WithDescription(desc string) *UpdateProductRequestBuilder {
+	b.description = desc
+	return b
+}
+
+func (b *UpdateProductRequestBuilder) WithPrice(price float64) *UpdateProductRequestBuilder {
+	b.price = price
+	return b
+}
+
+func (b *UpdateProductRequestBuilder) WithCategories(cats []string) *UpdateProductRequestBuilder {
+	b.categories = cats
+	return b
+}
+
+func (b *UpdateProductRequestBuilder) Build() *catalogv1.UpdateProductRequest {
+	return &catalogv1.UpdateProductRequest{
+		ProductId:   b.productID,
+		Name:        b.name,
+		Description: b.description,
+		Price:       b.price,
+		Categories:  b.categories,
+	}
+}
+
+// DeleteProduct builder
+
+type DeleteProductRequestBuilder struct {
+	productID string
+}
+
+func NewDeleteProductRequestBuilder() *DeleteProductRequestBuilder {
+	return &DeleteProductRequestBuilder{}
+}
+
+func (b *DeleteProductRequestBuilder) WithProductID(id string) *DeleteProductRequestBuilder {
+	b.productID = id
+	return b
+}
+
+func (b *DeleteProductRequestBuilder) Build() *catalogv1.DeleteProductRequest {
+	return &catalogv1.DeleteProductRequest{ProductId: b.productID}
+}

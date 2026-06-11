@@ -8,6 +8,7 @@ import (
 
 	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/mocks"
@@ -252,6 +253,190 @@ func TestCatalogHandler_SearchProducts(t *testing.T) {
 			mockUC := tt.setupMock(ctrl)
 			h := grpcdelivery.NewCatalogHandler(mockUC)
 			_, err := h.SearchProducts(context.Background(), tt.req)
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.wantCode != codes.OK {
+					s, _ := status.FromError(err)
+					assert.Equal(t, tt.wantCode, s.Code())
+				}
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func authCtxWithRole(role middleware.Role) context.Context {
+	return context.WithValue(context.Background(), middleware.ContextKeyRole, string(role))
+}
+
+func TestCatalogHandler_UpdateProduct(t *testing.T) {
+	t.Parallel()
+
+	productID := uuid.New()
+
+	testsCases := []struct {
+		name      string
+		ctx       context.Context
+		req       *catalogv1.UpdateProductRequest
+		setupMock func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase
+		wantCode  codes.Code
+		wantErr   bool
+	}{
+		{
+			name: "success",
+			ctx:  authCtxWithRole(middleware.RoleAdmin),
+			req:  tests.NewUpdateProductRequestBuilder().WithProductID(productID.String()).WithName("NewName").WithPrice(20.0).Build(),
+			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
+				m := mocks.NewMockCatalogUsecase(ctrl)
+				m.EXPECT().UpdateProduct(gomock.Any(), productID, "NewName", "", int64(2000), gomock.Any()).Return(nil)
+				return m
+			},
+			wantCode: codes.OK,
+			wantErr:  false,
+		},
+		{
+			name:     "missing_role",
+			ctx:      context.Background(),
+			req:      tests.NewUpdateProductRequestBuilder().WithProductID(productID.String()).WithName("NewName").Build(),
+			wantCode: codes.PermissionDenied,
+			wantErr:  true,
+		},
+		{
+			name:     "invalid_product_id",
+			ctx:      authCtxWithRole(middleware.RoleAdmin),
+			req:      tests.NewUpdateProductRequestBuilder().WithProductID("bad").WithName("NewName").Build(),
+			wantCode: codes.InvalidArgument,
+			wantErr:  true,
+		},
+		{
+			name: "not_found",
+			ctx:  authCtxWithRole(middleware.RoleAdmin),
+			req:  tests.NewUpdateProductRequestBuilder().WithProductID(productID.String()).WithName("NewName").Build(),
+			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
+				m := mocks.NewMockCatalogUsecase(ctrl)
+				m.EXPECT().UpdateProduct(gomock.Any(), productID, "NewName", "", int64(0), gomock.Any()).Return(apperrors.ErrNotFound)
+				return m
+			},
+			wantCode: codes.NotFound,
+			wantErr:  true,
+		},
+		{
+			name: "internal_error",
+			ctx:  authCtxWithRole(middleware.RoleAdmin),
+			req:  tests.NewUpdateProductRequestBuilder().WithProductID(productID.String()).WithName("NewName").Build(),
+			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
+				m := mocks.NewMockCatalogUsecase(ctrl)
+				m.EXPECT().UpdateProduct(gomock.Any(), productID, "NewName", "", int64(0), gomock.Any()).Return(errors.New("boom"))
+				return m
+			},
+			wantCode: codes.Internal,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range testsCases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockUC := mocks.NewMockCatalogUsecase(ctrl)
+			if tt.setupMock != nil {
+				mockUC = tt.setupMock(ctrl)
+			}
+			h := grpcdelivery.NewCatalogHandler(mockUC)
+			_, err := h.UpdateProduct(tt.ctx, tt.req)
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.wantCode != codes.OK {
+					s, _ := status.FromError(err)
+					assert.Equal(t, tt.wantCode, s.Code())
+				}
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestCatalogHandler_DeleteProduct(t *testing.T) {
+	t.Parallel()
+
+	productID := uuid.New()
+
+	testsCases := []struct {
+		name      string
+		ctx       context.Context
+		req       *catalogv1.DeleteProductRequest
+		setupMock func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase
+		wantCode  codes.Code
+		wantErr   bool
+	}{
+		{
+			name: "success",
+			ctx:  authCtxWithRole(middleware.RoleAdmin),
+			req:  tests.NewDeleteProductRequestBuilder().WithProductID(productID.String()).Build(),
+			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
+				m := mocks.NewMockCatalogUsecase(ctrl)
+				m.EXPECT().DeleteProduct(gomock.Any(), productID).Return(nil)
+				return m
+			},
+			wantCode: codes.OK,
+			wantErr:  false,
+		},
+		{
+			name:     "missing_role",
+			ctx:      context.Background(),
+			req:      tests.NewDeleteProductRequestBuilder().WithProductID(productID.String()).Build(),
+			wantCode: codes.PermissionDenied,
+			wantErr:  true,
+		},
+		{
+			name:     "invalid_product_id",
+			ctx:      authCtxWithRole(middleware.RoleAdmin),
+			req:      tests.NewDeleteProductRequestBuilder().WithProductID("bad").Build(),
+			wantCode: codes.InvalidArgument,
+			wantErr:  true,
+		},
+		{
+			name: "not_found",
+			ctx:  authCtxWithRole(middleware.RoleAdmin),
+			req:  tests.NewDeleteProductRequestBuilder().WithProductID(productID.String()).Build(),
+			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
+				m := mocks.NewMockCatalogUsecase(ctrl)
+				m.EXPECT().DeleteProduct(gomock.Any(), productID).Return(apperrors.ErrNotFound)
+				return m
+			},
+			wantCode: codes.NotFound,
+			wantErr:  true,
+		},
+		{
+			name: "internal_error",
+			ctx:  authCtxWithRole(middleware.RoleAdmin),
+			req:  tests.NewDeleteProductRequestBuilder().WithProductID(productID.String()).Build(),
+			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
+				m := mocks.NewMockCatalogUsecase(ctrl)
+				m.EXPECT().DeleteProduct(gomock.Any(), productID).Return(errors.New("boom"))
+				return m
+			},
+			wantCode: codes.Internal,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range testsCases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockUC := mocks.NewMockCatalogUsecase(ctrl)
+			if tt.setupMock != nil {
+				mockUC = tt.setupMock(ctrl)
+			}
+			h := grpcdelivery.NewCatalogHandler(mockUC)
+			_, err := h.DeleteProduct(tt.ctx, tt.req)
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantCode != codes.OK {

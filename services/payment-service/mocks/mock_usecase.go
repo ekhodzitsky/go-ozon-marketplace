@@ -57,6 +57,36 @@ func (mr *MockPaymentUsecaseMockRecorder) GetByID(ctx, paymentID any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockPaymentUsecase)(nil).GetByID), ctx, paymentID)
 }
 
+// GetRefund mocks base method.
+func (m *MockPaymentUsecase) GetRefund(ctx context.Context, refundID uuid.UUID) (*domain.Refund, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRefund", ctx, refundID)
+	ret0, _ := ret[0].(*domain.Refund)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRefund indicates an expected call of GetRefund.
+func (mr *MockPaymentUsecaseMockRecorder) GetRefund(ctx, refundID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRefund", reflect.TypeOf((*MockPaymentUsecase)(nil).GetRefund), ctx, refundID)
+}
+
+// ListRefunds mocks base method.
+func (m *MockPaymentUsecase) ListRefunds(ctx context.Context, paymentID uuid.UUID) ([]*domain.Refund, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRefunds", ctx, paymentID)
+	ret0, _ := ret[0].([]*domain.Refund)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRefunds indicates an expected call of ListRefunds.
+func (mr *MockPaymentUsecaseMockRecorder) ListRefunds(ctx, paymentID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRefunds", reflect.TypeOf((*MockPaymentUsecase)(nil).ListRefunds), ctx, paymentID)
+}
+
 // ProcessPayment mocks base method.
 func (m *MockPaymentUsecase) ProcessPayment(ctx context.Context, orderID, userID uuid.UUID, amount int64) (*domain.Payment, error) {
 	m.ctrl.T.Helper()

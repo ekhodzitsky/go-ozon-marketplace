@@ -11,4 +11,5 @@ type InventoryRepository interface {
 	GetStock(ctx context.Context, productID uuid.UUID) (*domain.Stock, error)
 	Reserve(ctx context.Context, productID uuid.UUID, quantity int, orderID uuid.UUID) error
 	Release(ctx context.Context, productID uuid.UUID, quantity int, orderID uuid.UUID) error
+	GetLedger(ctx context.Context, productID uuid.UUID) ([]*domain.LedgerEntry, error)
 }

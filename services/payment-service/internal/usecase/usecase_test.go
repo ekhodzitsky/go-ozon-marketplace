@@ -92,6 +92,14 @@ func (m *mockPaymentRepository) UpdateStatusIf(ctx context.Context, id uuid.UUID
 	return true, nil
 }
 
+func (m *mockPaymentRepository) GetRefund(ctx context.Context, id uuid.UUID) (*domain.Refund, error) {
+	return nil, assert.AnError
+}
+
+func (m *mockPaymentRepository) ListRefunds(ctx context.Context, paymentID uuid.UUID) ([]*domain.Refund, error) {
+	return nil, assert.AnError
+}
+
 type mockTxManager struct {
 	repo repository.PaymentRepository
 	err  error

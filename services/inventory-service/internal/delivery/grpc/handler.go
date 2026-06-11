@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"errors"
+	"time"
 
 	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
@@ -77,6 +78,31 @@ func (h *InventoryHandler) GetStock(ctx context.Context, req *inventoryv1.GetSto
 		Available: int32(stock.Available),
 		Reserved:  int32(stock.Reserved),
 	}, nil
+}
+
+func (h *InventoryHandler) GetLedger(ctx context.Context, req *inventoryv1.GetLedgerRequest) (*inventoryv1.GetLedgerResponse, error) {
+	productID, err := uuid.Parse(req.ProductId)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid product_id")
+	}
+	entries, err := h.usecase.GetLedger(ctx, productID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "get ledger: %v", err)
+	}
+	protoEntries := make([]*inventoryv1.LedgerEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &inventoryv1.LedgerEntry{
+			Id:             e.ID.String(),
+			ProductId:      e.ProductID.String(),
+			QuantityChange: int32(e.QuantityChange),
+			OperationType:  e.OperationType,
+			CreatedAt:      e.CreatedAt.Format(time.RFC3339),
+		}
+		if e.OrderID != nil {
+			protoEntries[i].OrderId = e.OrderID.String()
+		}
+	}
+	return &inventoryv1.GetLedgerResponse{Entries: protoEntries}, nil
 }
 
 func mapError(err error) error {

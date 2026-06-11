@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"time"
 
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
@@ -61,7 +62,9 @@ func (h *PaymentHandler) ProcessPayment(ctx context.Context, req *paymentv1.Proc
 
 	payment, err := h.usecase.ProcessPayment(ctx, orderID, userID, int64(req.Amount*100))
 	if err != nil {
-		_ = h.dlq.SendToDLQ("ProcessPaymentFailed", req.String(), err.Error())
+		if h.dlq != nil {
+			_ = h.dlq.SendToDLQ("ProcessPaymentFailed", req.String(), err.Error())
+		}
 		return nil, apperrors.ToStatus(err)
 	}
 
@@ -100,4 +103,48 @@ func (h *PaymentHandler) Refund(ctx context.Context, req *paymentv1.RefundReques
 	return &paymentv1.RefundResponse{
 		Status: statusToProto(payment.Status),
 	}, nil
+}
+
+func (h *PaymentHandler) GetRefund(ctx context.Context, req *paymentv1.GetRefundRequest) (*paymentv1.GetRefundResponse, error) {
+	refundID, err := uuid.Parse(req.RefundId)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid refund_id")
+	}
+	refund, err := h.usecase.GetRefund(ctx, refundID)
+	if err != nil {
+		return nil, apperrors.ToStatus(err)
+	}
+	return &paymentv1.GetRefundResponse{
+		Refund: refundToProto(refund),
+	}, nil
+}
+
+func (h *PaymentHandler) ListRefunds(ctx context.Context, req *paymentv1.ListRefundsRequest) (*paymentv1.ListRefundsResponse, error) {
+	paymentID, err := uuid.Parse(req.PaymentId)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid payment_id")
+	}
+	refunds, err := h.usecase.ListRefunds(ctx, paymentID)
+	if err != nil {
+		return nil, apperrors.ToStatus(err)
+	}
+	protoRefunds := make([]*paymentv1.Refund, len(refunds))
+	for i, r := range refunds {
+		protoRefunds[i] = refundToProto(r)
+	}
+	return &paymentv1.ListRefundsResponse{Refunds: protoRefunds}, nil
+}
+
+func refundToProto(r *domain.Refund) *paymentv1.Refund {
+	if r == nil {
+		return nil
+	}
+	return &paymentv1.Refund{
+		Id:        r.ID.String(),
+		PaymentId: r.PaymentID.String(),
+		Amount:    r.Amount,
+		Reason:    r.Reason,
+		Status:    r.Status,
+		CreatedAt: r.CreatedAt.Format(time.RFC3339),
+	}
 }

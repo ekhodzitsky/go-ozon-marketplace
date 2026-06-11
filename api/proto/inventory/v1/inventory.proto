@@ -8,6 +8,7 @@ service InventoryService {
   rpc Reserve(ReserveRequest) returns (ReserveResponse);
   rpc Release(ReleaseRequest) returns (ReleaseResponse);
   rpc GetStock(GetStockRequest) returns (GetStockResponse);
+  rpc GetLedger(GetLedgerRequest) returns (GetLedgerResponse);
 }
 
 message ReserveRequest {
@@ -37,4 +38,21 @@ message GetStockRequest {
 message GetStockResponse {
   int32 available = 1;
   int32 reserved = 2;
+}
+
+message GetLedgerRequest {
+  string product_id = 1;
+}
+
+message LedgerEntry {
+  string id = 1;
+  string product_id = 2;
+  string order_id = 3;
+  int32 quantity_change = 4;
+  string operation_type = 5;
+  string created_at = 6;
+}
+
+message GetLedgerResponse {
+  repeated LedgerEntry entries = 1;
 }

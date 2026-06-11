@@ -35,6 +35,11 @@ func NewProducer(brokers []string, topic string) (*Producer, error) {
 	return &Producer{producer: p, topic: topic}, nil
 }
 
+// NewProducerWithClient creates a DLQ producer from an existing sync producer.
+func NewProducerWithClient(producer sarama.SyncProducer, topic string) *Producer {
+	return &Producer{producer: producer, topic: topic}
+}
+
 // SendToDLQ publishes an event to the DLQ topic.
 func (p *Producer) SendToDLQ(eventType, payload, reason string) error {
 	event := Event{

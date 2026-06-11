@@ -123,3 +123,15 @@ func (u *paymentUsecase) GetByID(ctx context.Context, paymentID uuid.UUID) (*dom
 	defer cancel()
 	return u.repo.GetByID(ctx, paymentID)
 }
+
+func (u *paymentUsecase) GetRefund(ctx context.Context, refundID uuid.UUID) (*domain.Refund, error) {
+	ctx, cancel := context.WithTimeout(ctx, u.queryTimeout)
+	defer cancel()
+	return u.repo.GetRefund(ctx, refundID)
+}
+
+func (u *paymentUsecase) ListRefunds(ctx context.Context, paymentID uuid.UUID) ([]*domain.Refund, error) {
+	ctx, cancel := context.WithTimeout(ctx, u.queryTimeout)
+	defer cancel()
+	return u.repo.ListRefunds(ctx, paymentID)
+}

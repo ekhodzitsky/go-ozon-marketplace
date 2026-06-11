@@ -53,6 +53,7 @@ input OrderItemInput {
 }
 
 type Query {
+  me: User
   user(id: ID!): User
   product(id: ID!): Product
   searchProducts(query: String!, page: Int, pageSize: Int): ProductConnection

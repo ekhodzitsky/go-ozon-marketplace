@@ -12,6 +12,7 @@ import (
 	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph/model"
 )
 
@@ -84,8 +85,37 @@ func (r *mutationResolver) CreateOrder(ctx context.Context, userID string, items
 
 // CancelOrder is the resolver for the cancelOrder field.
 func (r *mutationResolver) CancelOrder(ctx context.Context, orderID string) (bool, error) {
-	// TODO: implement CancelOrder when the proto method is available
-	return false, fmt.Errorf("cancelOrder not implemented: CancelOrder proto method does not exist yet")
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	_, err := r.OrderService.CancelOrder(ctx, &orderv1.CancelOrderRequest{
+		OrderId: orderID,
+	})
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// Me is the resolver for the me field.
+func (r *queryResolver) Me(ctx context.Context) (*model.User, error) {
+	userID, ok := middleware.GetUserID(ctx)
+	if !ok {
+		return nil, fmt.Errorf("unauthenticated")
+	}
+	ctx, cancel := r.withQueryTimeout(ctx)
+	defer cancel()
+	resp, err := r.UserService.GetUser(ctx, &userv1.GetUserRequest{
+		UserId: userID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &model.User{
+		ID:        resp.UserId,
+		Email:     resp.Email,
+		Name:      resp.Name,
+		CreatedAt: resp.CreatedAt,
+	}, nil
 }
 
 // User is the resolver for the user field.

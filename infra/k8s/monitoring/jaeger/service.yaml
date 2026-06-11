@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger
+  namespace: monitoring
+  labels:
+    app: jaeger
+spec:
+  selector:
+    app: jaeger
+  ports:
+    - port: 16686
+      targetPort: 16686
+      name: ui
+    - port: 14268
+      targetPort: 14268
+      name: collector-http
+    - port: 14250
+      targetPort: 14250
+      name: collector-grpc
+    - port: 9411
+      targetPort: 9411
+      name: zipkin
+  type: ClusterIP

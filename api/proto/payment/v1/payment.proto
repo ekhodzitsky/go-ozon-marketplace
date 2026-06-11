@@ -15,6 +15,8 @@ enum PaymentStatus {
 service PaymentService {
   rpc ProcessPayment(ProcessPaymentRequest) returns (ProcessPaymentResponse);
   rpc Refund(RefundRequest) returns (RefundResponse);
+  rpc GetRefund(GetRefundRequest) returns (GetRefundResponse);
+  rpc ListRefunds(ListRefundsRequest) returns (ListRefundsResponse);
 }
 
 message ProcessPaymentRequest {
@@ -34,4 +36,29 @@ message RefundRequest {
 
 message RefundResponse {
   PaymentStatus status = 1;
+}
+
+message Refund {
+  string id = 1;
+  string payment_id = 2;
+  int64 amount = 3;
+  string reason = 4;
+  string status = 5;
+  string created_at = 6;
+}
+
+message GetRefundRequest {
+  string refund_id = 1;
+}
+
+message GetRefundResponse {
+  Refund refund = 1;
+}
+
+message ListRefundsRequest {
+  string payment_id = 1;
+}
+
+message ListRefundsResponse {
+  repeated Refund refunds = 1;
 }

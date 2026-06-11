@@ -2,10 +2,13 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
@@ -29,6 +32,40 @@ func RequestID(next http.Handler) http.Handler {
 func GetRequestID(ctx context.Context) string {
 	v, _ := ctx.Value(contextKeyRequestID).(string)
 	return v
+}
+
+// AuthHTTP parses JWT from Authorization header and injects user_id/role into request context.
+func AuthHTTP(jwtSecret string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			auth := r.Header.Get("Authorization")
+			if auth != "" {
+				tokenStr := strings.TrimPrefix(auth, "Bearer ")
+				if tokenStr != auth {
+					token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+						if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+							return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+						}
+						return []byte(jwtSecret), nil
+					})
+					if err == nil && token.Valid {
+						if claims, ok := token.Claims.(jwt.MapClaims); ok {
+							if userID, ok := claims["user_id"].(string); ok && userID != "" {
+								ctx := context.WithValue(r.Context(), ContextKeyUserID, userID)
+								role, _ := claims["role"].(string)
+								if role == "" {
+									role = string(RoleUser)
+								}
+								ctx = context.WithValue(ctx, ContextKeyRole, role)
+								r = r.WithContext(ctx)
+							}
+						}
+					}
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 type responseWriter struct {

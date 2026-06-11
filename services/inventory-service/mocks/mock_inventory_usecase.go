@@ -42,6 +42,21 @@ func (m *MockInventoryUsecase) EXPECT() *MockInventoryUsecaseMockRecorder {
 	return m.recorder
 }
 
+// GetLedger mocks base method.
+func (m *MockInventoryUsecase) GetLedger(ctx context.Context, productID uuid.UUID) ([]*domain.LedgerEntry, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLedger", ctx, productID)
+	ret0, _ := ret[0].([]*domain.LedgerEntry)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLedger indicates an expected call of GetLedger.
+func (mr *MockInventoryUsecaseMockRecorder) GetLedger(ctx, productID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLedger", reflect.TypeOf((*MockInventoryUsecase)(nil).GetLedger), ctx, productID)
+}
+
 // GetStock mocks base method.
 func (m *MockInventoryUsecase) GetStock(ctx context.Context, productID uuid.UUID) (*domain.Stock, error) {
 	m.ctrl.T.Helper()

@@ -113,7 +113,7 @@ func TestPaymentHandler_ProcessPayment(t *testing.T) {
 			if tt.setupMock != nil {
 				tt.setupMock(mockUC)
 			}
-			h := grpcdelivery.NewPaymentHandler(mockUC)
+			h := grpcdelivery.NewPaymentHandler(mockUC, nil)
 			resp, err := h.ProcessPayment(tt.ctx, tt.req)
 			if tt.wantErr {
 				require.Error(t, err)
@@ -216,7 +216,7 @@ func TestPaymentHandler_Refund(t *testing.T) {
 			if tt.setupMock != nil {
 				tt.setupMock(mockUC)
 			}
-			h := grpcdelivery.NewPaymentHandler(mockUC)
+			h := grpcdelivery.NewPaymentHandler(mockUC, nil)
 			resp, err := h.Refund(tt.ctx, tt.req)
 			if tt.wantErr {
 				require.Error(t, err)
