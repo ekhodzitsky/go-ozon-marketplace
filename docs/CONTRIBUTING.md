@@ -37,6 +37,8 @@ make proto  # buf generate
 make up
 
 # Запустить сервис (в отдельном терминале)
+export POSTGRES_DSN="postgres://ozon:ozonpass@localhost:5432/marketplace?sslmode=disable"
+export JWT_SECRET="min-32-chars-secret-key-here!!!"
 cd services/<service> && go run ./cmd/...
 
 # Запустить тесты
@@ -53,15 +55,15 @@ make down
 
 ### Стиль
 
-- Следуйте [Effective Go](https://go.dev/doc/effective_go) и [Uber Go Style Guide](https://github.com/uber-go/guide/blob/master/style.md)
+- Следуйте [Effective Go](https://go.dev/doc/effective_go)
 - Используйте `gofmt` и `golangci-lint`
-- Все публичные функции и типы — с godoc комментариями
-- Ошибки — через `pkg/errors`, не `fmt.Errorf` напрямую
+- Все публичные функции и типы — с godoc комментариями (желательно)
+- Ошибки — через `pkg/errors` для sentinel-ошибок, `fmt.Errorf` допустим для обёртывания
 
 ### Именование
 
 - Файлы: `snake_case.go` для тестов, `camelCase.go` для обычных
-- Интерфейсы: заканчиваются на `er` (`Reader`, `Writer`) или описательные (`OrderRepository`)
+- Интерфейсы: описательные (`OrderRepository`, `PaymentUsecase`)
 - Моки: `mock_*.go` через gomock
 
 ### Логирование
@@ -71,15 +73,15 @@ logger.Info(ctx, "order created", zap.String("order_id", orderID))
 ```
 
 - Всегда передавайте `context.Context`
-- Используйте structured fields, не форматирование строк
-- Уровни: `debug` для деталей, `info` для бизнес-событий, `warn` для проблем, `error` для ошибок
+- Используйте structured fields
+- Уровни: `debug`, `info`, `warn`, `error`
 
 ### Работа с БД
 
-- Только `pgx`/`pgxpool`, не `database/sql` напрямую
+- Только `pgx`/`pgxpool`
 - Параметризованные запросы — обязательно
 - Миграции через `golang-migrate/migrate`
-- Деньги — `int64` (копейки), не `float64`
+- Деньги — `BIGINT` в БД (копейки), но в proto используется `double`
 
 ## Тесты
 
@@ -109,16 +111,15 @@ go test -tags=integration ./...
 ```
 
 - testcontainers-go для PostgreSQL, Redis, Kafka, ClickHouse, ES
-- Каждый тест — изолированная БД
+- **Примечание:** В CI integration тесты не запускаются (нет `-tags=integration`)
 
 ### E2E тесты
 
 ```bash
-go test -tags=e2e ./tests/e2e/...
+cd tests && go test -tags=e2e ./e2e/...
 ```
 
 - Требуется запущенный Docker Compose стек
-- Проверяют полный сценарий: регистрация → товар → заказ
 
 ## Коммиты
 
@@ -137,13 +138,12 @@ chore: update dependencies
 
 ```bash
 # После изменения .proto файлов
-cd api && buf generate
-
-# Проверить на breaking changes
 make proto
+
+# Проверить lint и breaking changes
+make proto-lint  # если добавлен в Makefile
 ```
 
-- Всегда запускайте `buf lint` и `buf breaking`
 - Не ломайте обратную совместимость без согласования
 
 ## Миграции
@@ -154,9 +154,12 @@ migrate create -ext sql -dir services/<service>/migrations <name>
 
 # Применить
 make migrate-<service> DB_URL=postgres://...
+
+# Для user-service (особая переменная)
+make migrate-user USER_DB_URL=postgres://...
 ```
 
-- Имена: `000001_create_orders.up.sql`, `000001_create_orders.down.sql`
+- Имена: `001_create_orders.up.sql`, `001_create_orders.down.sql`
 - Всегда пишите `down` миграции
 - Не меняйте уже применённые миграции
 

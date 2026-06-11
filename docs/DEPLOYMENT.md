@@ -7,18 +7,20 @@
 ### Через Docker Compose
 
 ```bash
-# Инфраструктура + все сервисы
+# Инфраструктура (базы, брокеры, мониторинг)
 make up
 
 # Проверить статус
 docker compose -f infra/docker/docker-compose.yml ps
 
-# Логи сервиса
-docker compose -f infra/docker/docker-compose.yml logs -f order-service
+# Логи инфраструктуры
+docker compose -f infra/docker/docker-compose.yml logs -f postgres
 
 # Остановить и удалить volumes
 make down
 ```
+
+> **Важно:** `docker-compose.yml` содержит только инфраструктуру (базы, брокеры, мониторинг). Сами сервисы запускаются отдельно через `go run` или Docker build.
 
 ### Вручную (Go)
 
@@ -26,7 +28,10 @@ make down
 # 1. Инфраструктура
 make up
 
-# 2. Каждый сервис в отдельном терминале
+# 2. Каждый сервис в отдельном терминале (обязательны env vars)
+export POSTGRES_DSN="postgres://ozon:ozonpass@localhost:5432/marketplace?sslmode=disable"
+export JWT_SECRET="min-32-chars-secret-key-here!!!"
+
 cd services/<service> && go run ./cmd/...
 ```
 
@@ -34,19 +39,25 @@ cd services/<service> && go run ./cmd/...
 
 | Переменная | Описание | Пример |
 |------------|----------|--------|
-| `SERVICE_NAME` | Имя сервиса | `order-service` |
 | `GRPC_PORT` | Порт gRPC сервера | `50055` |
-| `HTTP_PORT` | Порт HTTP сервера | `8080` |
-| `POSTGRES_URL` | Строка подключения к PostgreSQL | `postgres://user:pass@localhost:5432/db` |
-| `REDIS_URL` | Строка подключения к Redis | `redis://localhost:6379/0` |
-| `KAFKA_BROKERS` | Список брокеров Kafka | `localhost:19092` |
-| `CLICKHOUSE_URL` | Строка подключения к ClickHouse | `clickhouse://localhost:9000` |
-| `ELASTICSEARCH_URL` | URL Elasticsearch | `http://localhost:9200` |
+| `POSTGRES_DSN` | Строка подключения к PostgreSQL | `postgres://user:pass@localhost:5432/db` |
 | `JWT_SECRET` | Секрет для подписи JWT | `min-32-chars-secret-key-here!!!` |
-| `LOG_LEVEL` | Уровень логирования | `info` |
-| `LOG_FORMAT` | Формат логов | `json` или `console` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP endpoint для трассировки | `http://localhost:4318` |
-| `METRICS_PORT` | Порт для Prometheus metrics | `9090` |
+| `CERT_PATH` | Путь к TLS сертификатам (опционально) | `./certs` |
+| `REDIS_ADDR` | Адрес Redis | `localhost:6379` |
+| `ES_URL` | URL Elasticsearch | `http://localhost:9200` |
+| `CLICKHOUSE_DSN` | Адрес ClickHouse | `localhost:9000` |
+| `KAFKA_BROKERS` | Список брокеров Kafka | `localhost:9092` |
+| `USER_SERVICE_ADDR` | Адрес user-service (gateway) | `localhost:50051` |
+| `CATALOG_SERVICE_ADDR` | Адрес catalog-service (gateway) | `localhost:50052` |
+| `INVENTORY_ADDR` | Адрес inventory-service (order) | `localhost:50053` |
+| `PAYMENT_ADDR` | Адрес payment-service (order) | `localhost:50054` |
+| `RATE_LIMIT_RPS` | RPS для rate limiter (gateway) | `10` |
+| `PORT` | HTTP порт (gateway) | `8080` |
+| `TRUSTED_PROXIES` | Список доверенных прокси (gateway) | `127.0.0.1,10.0.0.0/8` |
+| `DEFAULT_CALL_TIMEOUT` | Таймаут gRPC вызовов | `5s` |
+| `DEFAULT_QUERY_TIMEOUT` | Таймаут gRPC запросов | `3s` |
+
+> **Примечание:** `LOG_LEVEL`, `LOG_FORMAT`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `METRICS_PORT` — заявлены в README сервисов, но **не реализованы** в `config.go`.
 
 ## Kubernetes
 
@@ -81,15 +92,15 @@ helm-charts/<service>/
 
 ### HPA и PDB
 
-- **HPA** — автомасштабирование по CPU/memory
-- **PDB** — гарантия доступности при обновлениях (`minAvailable: 1`)
+- **PDB** — гарантия доступности при обновлениях (`minAvailable: 1`, создаётся при `replicaCount > 1`)
+- **HPA** — упомянут в документации, но файлы `hpa.yaml` **отсутствуют** в Helm charts
 
 ### Security contexts
 
 ```yaml
 securityContext:
   runAsNonRoot: true
-  runAsUser: 65534
+  runAsUser: 65532
   readOnlyRootFilesystem: true
   allowPrivilegeEscalation: false
 ```
@@ -99,8 +110,6 @@ securityContext:
 ```bash
 # Получить адрес
 kubectl get ingress -n marketplace
-
-# Пример: https://marketplace.example.com/graphql
 ```
 
 ## CI/CD
@@ -109,7 +118,7 @@ GitHub Actions выполняет:
 1. **Lint** — `golangci-lint`
 2. **Proto** — `buf lint`, `buf breaking`
 3. **Security** — `govulncheck`
-4. **Test** — unit + integration с race detector
+4. **Test** — unit тесты с race detector (integration тесты **не запускаются** — отсутствует `-tags=integration`)
 5. **Build** — Docker images для всех сервисов
 6. **Helm** — lint + template validate
 
@@ -131,10 +140,12 @@ helm upgrade --install api-gateway infra/k8s/helm-charts/api-gateway \
 
 ## Мониторинг
 
-После деплоя:
+После деплоя через Docker Compose:
 
 | Инструмент | Доступ | Что смотреть |
 |------------|--------|--------------|
-| Prometheus | `kubectl port-forward svc/prometheus 9090` | `grpc_server_handled_total`, `orders_created_total` |
-| Grafana | `kubectl port-forward svc/grafana 3000` | Dashboards: RED, Business metrics |
-| Jaeger | `kubectl port-forward svc/jaeger 16686` | Distributed traces |
+| Prometheus | http://localhost:9090 | `grpc_server_handled_total` |
+| Grafana | http://localhost:3000 | Dashboards |
+| Jaeger | http://localhost:16686 | Distributed traces |
+
+> **Важно:** В `infra/k8s` нет манифестов для Prometheus/Grafana/Jaeger — только в `infra/docker/docker-compose.yml`.

@@ -1,29 +1,24 @@
 # payment-service
 
-Обработка платежей: проведение, возвраты, атомарные транзакции.
+Обработка платежей: проведение, возвраты.
 
 ## Что делает
 
 - Проведение платежей по заказам
 - Возвраты при отмене или компенсации Saga
-- Проверка статуса платежа
-- Атомарные транзакции (tx-manager)
-- DLQ (Dead Letter Queue) для необработанных платежей
 
 ## API (gRPC)
 
 | Метод | Описание | Auth |
 |-------|----------|------|
-| `ProcessPayment` | Провести платёж | service |
-| `RefundPayment` | Вернуть платёж | service |
-| `GetPaymentStatus` | Статус платежа | user (свой) / admin |
-| `GetPayment` | Детали платежа | admin |
+| `ProcessPayment` | Провести платёж | Проверяет `authUserID` |
+| `Refund` | Вернуть платёж | Проверяет `authUserID` |
 
 ## Запуск
 
 ```bash
 cd services/payment-service
-go run ./cmd/...
+POSTGRES_DSN="postgres://..." JWT_SECRET="..." go run ./cmd/...
 ```
 
 ## Переменные окружения
@@ -31,57 +26,21 @@ go run ./cmd/...
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
 | `GRPC_PORT` | gRPC сервер | `50054` |
-| `POSTGRES_URL` | PostgreSQL | — |
-| `KAFKA_BROKERS` | Kafka брокеры | `localhost:19092` |
-| `PAYMENT_TIMEOUT` | Таймаут операции | `10s` |
-| `LOG_LEVEL` | Уровень логов | `info` |
-| `LOG_FORMAT` | Формат логов | `json` |
+| `POSTGRES_DSN` | PostgreSQL | **Обязательно** |
+| `JWT_SECRET` | Секрет для валидации JWT | **Обязательно** |
+| `DEFAULT_CALL_TIMEOUT` | Таймаут gRPC вызовов | `5s` |
+| `DEFAULT_QUERY_TIMEOUT` | Таймаут gRPC запросов | `3s` |
+| `CERT_PATH` | Путь к TLS сертификатам (опционально) | — |
 
 ## Модель данных
 
-```sql
-CREATE TABLE payments (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    order_id UUID NOT NULL,
-    amount_minor INT64 NOT NULL,
-    currency VARCHAR(3) NOT NULL DEFAULT 'RUB',
-    status VARCHAR(50) NOT NULL DEFAULT 'pending',
-    provider VARCHAR(100),
-    transaction_id VARCHAR(255),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE payment_refunds (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    payment_id UUID REFERENCES payments(id),
-    amount_minor INT64 NOT NULL,
-    reason VARCHAR(500),
-    status VARCHAR(50) NOT NULL DEFAULT 'pending',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-## Статусы платежа
-
-- `pending` — ожидает проведения
-- `processing` — в процессе
-- `completed` — успешно проведён
-- `failed` — ошибка
-- `refunded` — возвращён
-
-## DLQ
-
-Необработанные платежи попадают в DLQ топик Kafka для ручного разбора:
-
-```
-payment-dlq
-  ├── event: PaymentFailed
-  ├── reason: timeout/error
-  └── retry_count: N
-```
+Таблица `payments`:
+- `id` (UUID, PK)
+- `order_id`
+- `amount` (BIGINT, копейки)
+- `status` (`pending`, `success`, `failed`, `refunded`)
+- `created_at`
 
 ## Зависимости
 
 - PostgreSQL
-- Kafka (DLQ)

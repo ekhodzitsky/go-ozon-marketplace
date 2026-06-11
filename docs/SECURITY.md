@@ -6,24 +6,23 @@
 
 ### JWT
 
-Все клиентские запросы проходят через `api-gateway`. Gateway проверяет JWT и передаёт роль дальше в gRPC metadata.
+Все клиентские запросы проходят через `api-gateway`. Gateway прокидывает `Authorization` в gRPC metadata, а downstream сервисы валидируют JWT через `AuthUnaryInterceptor`.
 
-Требования к JWT:
+**Реализовано:**
 - Алгоритм: **HS256**
-- Секрет: минимум **32 символа**
-- Обязательные поля: `iss`, `aud`, `sub`, `jti`, `nbf`, `exp`
-- `exp` — не более 24 часов
+- Поля: `user_id`, `exp`, `role` (если передан)
+- `exp` — 24 часа (захардкожено)
+
+**Не реализовано:**
+- `iss`, `aud`, `jti`, `nbf`, `sub` — отсутствуют в токене
+- Валидация минимальной длины секрета
 
 ### Пример токена
 
 ```json
 {
-  "sub": "user-123",
+  "user_id": "user-123",
   "role": "user",
-  "iss": "go-ozon-marketplace",
-  "aud": "api-gateway",
-  "jti": "uuid-v4",
-  "nbf": 1718000000,
   "exp": 1718086400
 }
 ```
@@ -35,8 +34,8 @@
 | Роль | Описание | Доступ |
 |------|----------|--------|
 | `user` | Обычный покупатель | Свои заказы, профиль, каталог |
-| `admin` | Администратор маркетплейса | CRUD товаров, все заказы, все пользователи |
-| `service` | Другой микросервис | Внутренние RPC (service-only) |
+| `admin` | Администратор | CRUD товаров, все заказы, все пользователи |
+| `service` | Другой микросервис | Внутренние RPC (`inventory-service`, `notification-service`) |
 
 ### Проверка ролей
 
@@ -49,14 +48,14 @@ if !ok || role != middleware.RoleAdmin {
 }
 ```
 
+> **Примечание:** GraphQL gateway **не проверяет роли** — проверка происходит только на уровне gRPC сервисов.
+
 ## mTLS между сервисами
 
-Все gRPC вызовы между сервисами — с взаимной TLS-аутентификацией:
+Все gRPC вызовы между сервисами могут использовать mTLS:
 
-- Каждый сервис имеет свой сертификат
-- При подключении клиент предъявляет сертификат
-- Сервер проверяет сертификат клиента
-- Поддержка TLS 1.3
+- Если задан `CERT_PATH` — используется `LoadClientMTLSCredentials` / `LoadServerMTLSCredentials`
+- Если `CERT_PATH` пуст — используется `insecure.NewCredentials()`
 
 Генерация сертификатов:
 
@@ -64,16 +63,15 @@ if !ok || role != middleware.RoleAdmin {
 ./scripts/generate-certs.sh
 ```
 
+> mTLS **опционален**, не обязателен для запуска.
+
 ## Rate Limiting
 
 Sliding window rate limiter в `api-gateway`:
 
 - Хранение счётчиков в **Redis**
-- Разные лимиты для разных ролей:
-  - `user`: 100 запросов / минуту
-  - `admin`: 1000 запросов / минуту
-  - `service`: без лимита (внутренние)
-- Учёт `X-Forwarded-For` для корректной работы за балансировщиком
+- Один лимит для всех: **10 RPS** по умолчанию (настраивается через `RATE_LIMIT_RPS`)
+- Учёт `X-Forwarded-For` при наличии доверенных прокси (`TRUSTED_PROXIES`)
 
 При превышении лимита:
 
@@ -81,34 +79,29 @@ Sliding window rate limiter в `api-gateway`:
 {
   "errors": [
     {
-      "message": "rate limit exceeded",
-      "extensions": { "code": "TOO_MANY_REQUESTS" }
+      "message": "rate limit exceeded"
     }
   ]
 }
 ```
 
+> **Не реализовано:** разделение лимитов по ролям (user/admin/service).
+
 ## Circuit Breaker
 
-В `api-gateway` — circuit breaker для вызовов downstream сервисов:
-
-- **Closed** — запросы идут нормально
-- **Open** — при > 50% ошибок в течение 30 секунд, запросы сразу отклоняются
-- **Half-Open** — пробный запрос каждые 10 секунд
-
-Предотвращает каскадные отказы.
+> **Не реализован.** Заявлен в дизайн-документе, но отсутствует в коде.
 
 ## Защита данных
 
 ### Пароли
 
-- Хеширование через **bcrypt** с cost ≥ 10
+- Хеширование через **bcrypt** с `DefaultCost = 10`
 - Никогда не хранятся в открытом виде
 
 ### Деньги
 
-- В БД и домене — **целые числа** (копейки / центы)
-- Точность: нет float для финансовых расчётов
+- В БД — `BIGINT` (копейки, `price * 100`)
+- В proto и GraphQL — `double` / `Float` (доллары)
 
 ### SQL-инъекции
 
@@ -117,17 +110,23 @@ Sliding window rate limiter в `api-gateway`:
 
 ### Чувствительные данные
 
-- JWT secret — в Kubernetes Secrets
-- Пароли БД — в Kubernetes Secrets
-- TLS ключи — в Kubernetes Secrets
+- JWT secret — `JWT_SECRET` env var
+- Пароли БД — `POSTGRES_DSN` env var
+- TLS ключи — `CERT_PATH` env var
 
 ## Аудит
 
 Логи содержат:
-- `trace_id` — для связывания запросов
+- `trace_id` — для связывания запросов (через OTel context propagation)
 - `user_id` — кто делал запрос
-- `role` — с какой ролью
 - `method` — какой метод вызван
 - `duration` — сколько заняло
 
 Все логи — structured JSON через Zap.
+
+## Что ещё не реализовано
+
+- Поля `iss`, `aud`, `jti`, `nbf` в JWT
+- Circuit breaker
+- Разделение rate limit по ролям
+- Валидация минимальной длины JWT секрета

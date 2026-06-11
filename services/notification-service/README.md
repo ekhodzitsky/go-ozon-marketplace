@@ -1,27 +1,23 @@
 # notification-service
 
-Уведомления: email, push-уведомления по событиям из Kafka.
+Уведомления: отправка email по gRPC.
 
 ## Что делает
 
-- Подписка на Kafka events
-- Отправка email-уведомлений
-- Push-уведомления
-- Шаблонизация сообщений
-- Повторные попытки при ошибках
+- Отправка email через gRPC (service-only)
+- Пока не подписан на Kafka events
 
 ## API (gRPC)
 
 | Метод | Описание | Auth |
 |-------|----------|------|
-| `SendNotification` | Отправить уведомление | service |
-| `GetNotificationStatus` | Статус отправки | admin |
+| `SendEmail` | Отправить email | `service` роль (через `RequireRole`) |
 
 ## Запуск
 
 ```bash
 cd services/notification-service
-go run ./cmd/...
+JWT_SECRET="..." go run ./cmd/...
 ```
 
 ## Переменные окружения
@@ -29,33 +25,17 @@ go run ./cmd/...
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
 | `GRPC_PORT` | gRPC сервер | `50056` |
-| `KAFKA_BROKERS` | Kafka брокеры | `localhost:19092` |
-| `SMTP_HOST` | SMTP сервер | — |
-| `SMTP_PORT` | SMTP порт | `587` |
-| `SMTP_USER` | SMTP пользователь | — |
-| `SMTP_PASSWORD` | SMTP пароль | — |
-| `FROM_EMAIL` | Отправитель | `noreply@marketplace.local` |
-| `LOG_LEVEL` | Уровень логов | `info` |
-| `LOG_FORMAT` | Формат логов | `json` |
+| `JWT_SECRET` | Секрет для валидации JWT | **Обязательно** |
+| `DEFAULT_CALL_TIMEOUT` | Таймаут gRPC вызовов | `5s` |
+| `DEFAULT_QUERY_TIMEOUT` | Таймаут gRPC запросов | `3s` |
+| `CERT_PATH` | Путь к TLS сертификатам (опционально) | — |
 
-## Подписанные события
+## Что ещё не реализовано
 
-| Событие | Действие |
-|---------|----------|
-| `UserRegistered` | Приветственное письмо |
-| `OrderConfirmed` | Подтверждение заказа |
-| `OrderCancelled` | Уведомление об отмене |
-| `PaymentFailed` | Уведомление об ошибке платежа |
-
-## Шаблоны
-
-Шаблоны писем хранятся в `internal/templates/`:
-- `welcome.html`
-- `order_confirmed.html`
-- `order_cancelled.html`
-- `payment_failed.html`
+- Подписка на Kafka events
+- SMTP интеграция
+- Шаблоны писем
 
 ## Зависимости
 
-- Kafka (consumer)
-- SMTP сервер (опционально)
+- Нет внешних зависимостей (только gRPC)

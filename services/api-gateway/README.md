@@ -5,65 +5,64 @@ GraphQL шлюз — единая точка входа для всех клие
 ## Что делает
 
 - Принимает HTTP/GraphQL запросы
-- Маршрутизирует на downstream gRPC сервисы
-- Проверяет JWT и роли
+- Маршрутизирует на downstream gRPC сервисы (`user-service`, `catalog-service`)
+- Прокидывает `Authorization` заголовок в gRPC metadata (валидация JWT — на уровне сервисов)
 - Rate limiting (Redis-backed sliding window)
 - Access-log и метрики Prometheus
-- Circuit breaker для защиты от каскадных отказов
 
 ## API
 
-- **GraphQL endpoint**: `http://localhost:8080/graphql`
+- **GraphQL endpoint**: `http://localhost:8080/query`
 - **Playground**: `http://localhost:8080` (в dev режиме)
 - **Metrics**: `http://localhost:8080/metrics`
 
-### GraphQL схема
+### GraphQL операции
 
-Основные типы:
-- `User`, `Product`, `Order`, `Inventory`
-- Мутации: `register`, `login`, `createProduct`, `createOrder`, `cancelOrder`
-- Запросы: `me`, `products`, `product`, `order`, `orders`, `searchProducts`
+| Тип | Название | Сигнатура | Куда маршрутизирует |
+|-----|----------|-----------|---------------------|
+| Mutation | `register` | `register(email, password, name): ID!` | user-service:Register |
+| Mutation | `login` | `login(email, password): String!` | user-service:Login |
+| Mutation | `createProduct` | `createProduct(name, description, price, categories): ID!` | catalog-service:CreateProduct |
+| Query | `user` | `user(id): User` | user-service:GetUser |
+| Query | `product` | `product(id): Product` | catalog-service:GetProduct |
+| Query | `searchProducts` | `searchProducts(query, page, pageSize): ProductConnection` | catalog-service:SearchProducts |
+
+> **Важно:** Gateway не подключён к `order-service`, `inventory-service`, `payment-service`. Для работы с ними используйте прямые gRPC вызовы.
 
 ## Запуск
 
 ```bash
 cd services/api-gateway
-go run ./cmd/...
+REDIS_ADDR=localhost:6379 go run ./cmd/...
 ```
 
 ## Переменные окружения
 
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
-| `HTTP_PORT` | HTTP сервер | `8080` |
-| `METRICS_PORT` | Prometheus metrics | `9090` |
+| `PORT` | HTTP сервер | `8080` |
 | `USER_SERVICE_ADDR` | Адрес user-service | `localhost:50051` |
 | `CATALOG_SERVICE_ADDR` | Адрес catalog-service | `localhost:50052` |
-| `ORDER_SERVICE_ADDR` | Адрес order-service | `localhost:50055` |
-| `INVENTORY_SERVICE_ADDR` | Адрес inventory-service | `localhost:50053` |
-| `PAYMENT_SERVICE_ADDR` | Адрес payment-service | `localhost:50054` |
-| `REDIS_URL` | Redis для rate limiter | `redis://localhost:6379/0` |
-| `JWT_SECRET` | Секрет для JWT проверки | — |
-| `RATE_LIMIT_RPS` | Запросов в секунду | `100` |
-| `LOG_LEVEL` | Уровень логов | `info` |
-| `LOG_FORMAT` | Формат логов | `json` |
+| `REDIS_ADDR` | Redis для rate limiter | `localhost:6379` |
+| `RATE_LIMIT_RPS` | Запросов в секунду | `10` |
+| `RATE_LIMIT_WINDOW` | Окно rate limiter | `1s` |
+| `TRUSTED_PROXIES` | Доверенные прокси (для `X-Forwarded-For`) | — |
+| `MAX_BODY_SIZE_BYTES` | Макс. размер тела запроса | `1MB` |
+| `DEFAULT_CALL_TIMEOUT` | Таймаут gRPC вызовов | `5s` |
+| `DEFAULT_QUERY_TIMEOUT` | Таймаут gRPC запросов | `3s` |
+| `CERT_PATH` | Путь к TLS сертификатам (опционально) | — |
 
 ## Архитектура
 
 ```
-┌─────────┐     ┌──────────────┐     ┌─────────────┐
-│ Client  │────▶│ api-gateway  │────▶│ gRPC clients│
-└─────────┘     └──────────────┘     └──────┬──────┘
-                                            │
-        ┌───────────────────────────────────┼───┐
-        ▼                                   ▼   ▼
-   ┌─────────┐  ┌──────────┐  ┌────────┐  ┌────┴──┐
-   │user-svc │  │catalog-svc│  │order-svc│  │ others │
-   └─────────┘  └──────────┘  └────────┘  └───────┘
+┌─────────┐     ┌──────────────┐     ┌─────────────────┐
+│ Client  │────▶│ api-gateway  │────▶│ user-service    │
+└─────────┘     └──────────────┘     │ catalog-service │
+                                     └─────────────────┘
 ```
 
 ## Зависимости
 
-- Все downstream сервисы
+- user-service
+- catalog-service
 - Redis (rate limiting)
-- Prometheus (метрики)

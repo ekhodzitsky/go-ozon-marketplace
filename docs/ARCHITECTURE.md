@@ -31,13 +31,12 @@ graph LR
         Kafka[Kafka / Redpanda]
     end
 
-    AG --> US & CS & OS
+    AG --> US & CS
     OS --> IS & PS
     US & CS & OS & IS & PS --> PG
     IS --> Redis
     CS --> ES
-    OS & IS & PS & CS & US --> Kafka
-    Kafka --> NS & AS
+    OS --> Kafka
     AS --> CH
 ```
 
@@ -45,14 +44,14 @@ graph LR
 |--------|------------|-----------|-----------------|
 | **api-gateway** | Принимает GraphQL, маршрутизирует на gRPC, rate limiting, access-log | — | API Gateway, Rate Limiter |
 | **user-service** | Регистрация, аутентификация, JWT с ролями | PostgreSQL | — |
-| **catalog-service** | CRUD товаров, категории, публикация событий | PostgreSQL + Elasticsearch | CQRS, Outbox |
-| **order-service** | Жизненный цикл заказа, оркестрация Saga | PostgreSQL | Saga Orchestrator, Outbox |
-| **inventory-service** | Остатки, резервирование, ledger | PostgreSQL + Redis | Optimistic locking, Cache-aside |
-| **payment-service** | Проведение платежей, возвраты | PostgreSQL | Saga Participant, DLQ |
-| **notification-service** | Email, push-уведомления по событиям | — | Event-driven consumer |
-| **analytics-service** | Агрегация событий, отчёты | ClickHouse | Materialized views, Batch insert |
+| **catalog-service** | CRUD товаров, поиск (ES), Outbox relay в Elasticsearch | PostgreSQL + Elasticsearch | CQRS, Outbox |
+| **order-service** | Жизненный цикл заказа, Saga Orchestrator | PostgreSQL | Saga Orchestrator, Outbox |
+| **inventory-service** | Остатки, резервирование | PostgreSQL + Redis | Pessimistic locking (FOR UPDATE), Cache-aside |
+| **payment-service** | Проведение платежей, возвраты | PostgreSQL | Saga Participant |
+| **notification-service** | Отправка email по gRPC (service-only) | — | — |
+| **analytics-service** | Запись событий, выручка за день | ClickHouse | Batch insert |
 
-## Поток данных: создание заказа
+## Поток данных: создание заказа (Saga)
 
 ```mermaid
 sequenceDiagram
@@ -64,9 +63,9 @@ sequenceDiagram
     participant K as Kafka
     participant IS as inventory-service
     participant PS as payment-service
-    participant NS as notification-service
 
-    C->>AG: GraphQL: createOrder
+    C->>AG: GraphQL: login → получить JWT
+    C->>AG: gRPC CreateOrder (через CLI или напрямую)
     AG->>OS: gRPC CreateOrder
     OS->>ODB: BEGIN TX
     OS->>ODB: INSERT order (status=pending)
@@ -75,58 +74,54 @@ sequenceDiagram
     OS-->>AG: order_id
     AG-->>C: order
 
-    loop Outbox Relay
-        OS->>OB: SELECT * WHERE processed=false
-        OS->>K: Publish OrderCreated
-        OS->>OB: UPDATE processed=true
+    OS->>IS: gRPC Reserve (sync)
+    IS->>IS: UPDATE inventory (FOR UPDATE)
+    IS-->>OS: success / fail
+
+    alt Reserve failed
+        OS->>ODB: UPDATE status=cancelled
+    else Reserve success
+        OS->>PS: gRPC ProcessPayment (sync)
+        PS->>PS: INSERT payment
+        PS-->>OS: success / fail
+
+        alt Payment failed
+            OS->>PS: gRPC Refund (compensation)
+            OS->>IS: gRPC Release (compensation)
+            OS->>ODB: UPDATE status=cancelled
+        else Payment success
+            OS->>ODB: UPDATE status=confirmed
+        end
     end
-
-    K->>IS: OrderCreated
-    IS->>IS: Reserve inventory
-    IS->>K: Publish InventoryReserved
-
-    K->>OS: InventoryReserved
-    OS->>ODB: UPDATE status=awaiting_payment
-
-    K->>PS: InventoryReserved
-    PS->>PS: Process payment
-    PS->>K: Publish PaymentProcessed
-
-    K->>OS: PaymentProcessed
-    OS->>ODB: UPDATE status=confirmed
-
-    K->>NS: OrderConfirmed
-    NS->>NS: Send email
 ```
+
+**Важно:** Saga работает через **прямые gRPC вызовы**, не через Kafka events. Kafka используется только для Outbox релея (публикация событий, пока без consumers).
 
 ## Saga: компенсация при ошибке
 
 ```mermaid
 flowchart TD
-    A[OrderCreated] --> B[InventoryReserve]
-    B -->|Успех| C[PaymentProcess]
+    A[CreateOrder] --> B[Reserve inventory]
+    B -->|Успех| C[Process payment]
     B -->|Ошибка| D[CancelOrder]
-    C -->|Успех| E[OrderConfirm]
+    C -->|Успех| E[ConfirmOrder]
     C -->|Ошибка| F[RefundPayment]
     F --> D
-    D --> G[ReleaseInventory]
+    D --> G[Release inventory]
 ```
-
-Если платёж не прошёл — деньги возвращаются, заказ отменяется, резерв снимается.
 
 ## CQRS: каталог
 
 ```mermaid
 graph LR
-    A[Admin Panel] -->|Write| PG[(PostgreSQL)]
-    PG -->|Events| Kafka
-    Kafka -->|Sync| ES[(Elasticsearch)]
+    A[Admin / API] -->|Write| PG[(PostgreSQL)]
+    PG -->|Outbox relay| ES[(Elasticsearch)]
     B[Search API] -->|Read| ES
 ```
 
 - **Записи** — нормализованная схема в PostgreSQL
 - **Чтение** — денормализованные документы в Elasticsearch
-- Синхронизация через Kafka events
+- Синхронизация через **Outbox relay напрямую в ES** (не через Kafka)
 
 ## Связи между сервисами
 
@@ -134,30 +129,36 @@ graph LR
 
 | Вызов | От | К | Зачем |
 |-------|----|---|-------|
-| CreateOrder | api-gateway | order-service | Создать заказ |
-| ReserveInventory | order-service | inventory-service | Зарезервировать товар |
-| ProcessPayment | order-service | payment-service | Провести платёж |
+| Register / Login | api-gateway | user-service | Аутентификация |
 | GetUser | api-gateway | user-service | Получить профиль |
-| SearchProducts | api-gateway | catalog-service | Поиск товаров |
+| CreateProduct / GetProduct / SearchProducts | api-gateway | catalog-service | Каталог |
+| CreateOrder / GetOrder / ListOrders | напрямую | order-service | Заказы |
+| Reserve / Release / GetStock | order-service | inventory-service | Резервирование |
+| ProcessPayment / Refund | order-service | payment-service | Платежи |
+| SendEmail | напрямую | notification-service | Email (service-only) |
+| TrackEvent / GetDailyRevenue | напрямую | analytics-service | Аналитика (service-only) |
 
 ### Асинхронные (Kafka)
 
+Пока используется только в **order-service** для Outbox релея. Consumers ещё не реализованы.
+
 | Событие | Продюсер | Консумеры |
 |---------|----------|-----------|
-| `UserRegistered` | user-service | notification-service, analytics-service |
-| `ProductCreated` | catalog-service | analytics-service |
-| `OrderCreated` | order-service | inventory-service, analytics-service |
-| `InventoryReserved` | inventory-service | order-service, payment-service |
-| `InventoryReservationFailed` | inventory-service | order-service (компенсация) |
-| `PaymentProcessed` | payment-service | order-service, notification-service, analytics-service |
-| `PaymentFailed` | payment-service | order-service (компенсация), notification-service |
-| `OrderConfirmed` | order-service | notification-service, analytics-service |
-| `OrderCancelled` | order-service | inventory-service (освобождение), notification-service, analytics-service |
+| `OrderCreated` | order-service | *(пока нет)* |
 
 ## Масштабирование
 
 - **api-gateway** — stateless, масштабируется горизонтально, rate limiter через Redis
 - **catalog-service** — read-heavy, кэш в Redis, поиск в Elasticsearch
-- **order-service** — Saga state machine в БД, можно шардировать по `user_id`
-- **inventory-service** — ledger + optimistic locking, шардирование по `product_id`
-- **analytics-service** — batch insert в ClickHouse, партиционирование по месяцам
+- **order-service** — Saga state machine в БД
+- **inventory-service** — `FOR UPDATE` + Redis cache
+- **analytics-service** — batch insert в ClickHouse
+
+## Что ещё не реализовано
+
+- Kafka consumers в notification-service и analytics-service
+- Circuit breaker
+- DLQ в payment-service (есть только в order-service outbox)
+- Optimistic locking (используется pessimistic)
+- Materialized views в ClickHouse
+- ZSTD сжатие и TTL в ClickHouse

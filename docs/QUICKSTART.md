@@ -1,13 +1,13 @@
 # Быстрый старт
 
-Пошаговый сценарий: поднять инфраструктуру, создать пользователя, добавить товар и оформить заказ.
+Пошаговый сценарий: поднять инфраструктуру, создать пользователя, добавить товар и поискать.
 
 ## Требования
 
 - Docker и Docker Compose
 - Go 1.26
 - make
-- grpcurl или GraphQL Playground (браузер)
+- grpcurl (опционально)
 
 ## 1. Поднять инфраструктуру
 
@@ -22,6 +22,7 @@ make up
 - ClickHouse (порт 8123)
 - Elasticsearch (порт 9200)
 - Prometheus (порт 9090)
+- Grafana (порт 3000)
 - Jaeger (порт 16686)
 
 Проверить:
@@ -31,35 +32,36 @@ docker compose -f infra/docker/docker-compose.yml ps
 
 ## 2. Запустить сервисы
 
-В отдельных терминалах:
+В отдельных терминалах (каждый сервис требует env vars):
 
 ```bash
+export POSTGRES_DSN="postgres://ozon:ozonpass@localhost:5432/marketplace?sslmode=disable"
+export JWT_SECRET="min-32-chars-secret-key-here!!!"
+
 # Terminal 1 — шлюз
-cd services/api-gateway && go run ./cmd/...
+cd services/api-gateway && REDIS_ADDR=localhost:6379 go run ./cmd/...
 
 # Terminal 2 — пользователи
 cd services/user-service && go run ./cmd/...
 
 # Terminal 3 — каталог
-cd services/catalog-service && go run ./cmd/...
+cd services/catalog-service && ES_URL=http://localhost:9200 go run ./cmd/...
 
 # Terminal 4 — остатки
-cd services/inventory-service && go run ./cmd/...
+cd services/inventory-service && REDIS_ADDR=localhost:6379 go run ./cmd/...
 
 # Terminal 5 — платежи
 cd services/payment-service && go run ./cmd/...
 
 # Terminal 6 — заказы
-cd services/order-service && go run ./cmd/...
+cd services/order-service && INVENTORY_ADDR=localhost:50053 PAYMENT_ADDR=localhost:50054 go run ./cmd/...
 
 # Terminal 7 — уведомления
 cd services/notification-service && go run ./cmd/...
 
 # Terminal 8 — аналитика
-cd services/analytics-service && go run ./cmd/...
+cd services/analytics-service && CLICKHOUSE_DSN=localhost:9000 go run ./cmd/...
 ```
-
-Или через Docker Compose для каждого сервиса (см. [DEPLOYMENT.md](DEPLOYMENT.md)).
 
 ## 3. Открыть GraphQL Playground
 
@@ -67,94 +69,111 @@ cd services/analytics-service && go run ./cmd/...
 open http://localhost:8080
 ```
 
-## 4. Сценарий: регистрация → товар → заказ
+## 4. Сценарий: регистрация → товар → поиск
 
 ### Шаг 1. Регистрация пользователя
 
 ```graphql
 mutation {
-  register(input: {
-    email: "user@example.com",
-    password: "password123",
-    name: "Иван"
-  }) {
-    id
-    email
-    token
-  }
+  register(email: "user@example.com", password: "password123", name: "Иван")
 }
 ```
 
-Сохраните `token` — он понадобится для авторизации.
-
-### Шаг 2. Создать товар (требуется роль admin)
+Вернёт ID пользователя. **Токен не возвращается** — получаем через `login`:
 
 ```graphql
 mutation {
-  createProduct(input: {
-    name: "Наушники",
-    description: "Беспроводные",
-    price: 4999.99,
-    categoryId: "1",
-    stock: 100
-  }) {
-    id
-    name
-    price
-  }
+  login(email: "user@example.com", password: "password123")
 }
 ```
 
-> Для теста можно временно убрать проверку роли в gateway или создать пользователя с ролью `admin` напрямую в БД.
+Вернёт JWT токен. Сохраните его для последующих запросов (передавайте в заголовке `Authorization: Bearer <token>`).
 
-### Шаг 3. Создать заказ
+### Шаг 2. Создать товар
 
 ```graphql
 mutation {
-  createOrder(input: {
-    items: [
-      { productId: "<product_id>", quantity: 2 }
-    ]
-  }) {
-    id
-    status
-    totalAmount
-  }
+  createProduct(
+    name: "Наушники"
+    description: "Беспроводные"
+    price: 4999.99
+    categories: ["Электроника"]
+  )
 }
 ```
 
-### Шаг 4. Проверить статус заказа
+Вернёт ID товара.
+
+### Шаг 3. Получить товар
 
 ```graphql
 query {
-  order(id: "<order_id>") {
+  product(id: "<product_id>") {
     id
-    status
-    items {
-      productId
-      quantity
-      price
-    }
+    name
+    price
+    categories
   }
 }
 ```
 
-### Шаг 5. Проверить аналитику
+### Шаг 4. Поиск товаров
 
-```bash
-# ClickHouse
-curl 'http://localhost:8123/?query=SELECT%20*%20FROM%20orders%20LIMIT%2010'
+```graphql
+query {
+  searchProducts(query: "наушники", page: 1, pageSize: 10) {
+    products {
+      id
+      name
+      price
+    }
+    total
+  }
+}
 ```
 
-## 5. Посмотреть метрики и трейсы
+### Шаг 5. Получить пользователя
+
+```graphql
+query {
+  user(id: "<user_id>") {
+    id
+    email
+    name
+  }
+}
+```
+
+## 5. Order-service (только gRPC)
+
+`order-service` не подключён к GraphQL gateway. Работайте напрямую через gRPC:
+
+```bash
+# Создать заказ
+grpcurl -plaintext -d '{
+  "user_id": "<user_id>",
+  "items": [
+    {"product_id": "<product_id>", "quantity": 2, "price": 4999.99}
+  ]
+}' localhost:50055 order.v1.OrderService/CreateOrder
+
+# Получить заказ
+grpcurl -plaintext -d '{"order_id": "<order_id>"}' localhost:50055 order.v1.OrderService/GetOrder
+
+# Список заказов
+grpcurl -plaintext -d '{"user_id": "<user_id>", "page": 1, "page_size": 10}' localhost:50055 order.v1.OrderService/ListOrders
+```
+
+## 6. Посмотреть метрики и трейсы
 
 | Инструмент | URL | Что смотреть |
 |------------|-----|--------------|
-| **Prometheus** | http://localhost:9090 | Метрики сервисов, RED method |
-| **Jaeger** | http://localhost:16686 | Distributed traces по trace_id |
+| **Prometheus** | http://localhost:9090 | Метрики сервисов |
+| **Grafana** | http://localhost:3000 | Dashboards |
+| **Jaeger** | http://localhost:16686 | Distributed traces |
 | **GraphQL Playground** | http://localhost:8080 | Интерактивные запросы |
 
-## 6. Остановить всё
+## 7. Остановить всё
 
 ```bash
 make down

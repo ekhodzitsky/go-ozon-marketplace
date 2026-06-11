@@ -4,30 +4,29 @@
 
 ## Что делает
 
-- Создание и управление заказами
-- **Saga Orchestrator** — управляет распределённой транзакцией:
-  1. Резерв товара (inventory-service)
-  2. Проведение платежа (payment-service)
-  3. Подтверждение заказа
-  4. При ошибке — компенсация (возврат, отмена резерва)
+- Создание и получение заказов
+- **Saga Orchestrator** — управляет распределённой транзакцией через прямые gRPC вызовы:
+  1. Резерв товара (`inventory-service:Reserve`)
+  2. Проведение платежа (`payment-service:ProcessPayment`)
+  3. При ошибке — компенсация (`Release`, `Refund`)
 - **Transactional Outbox** — гарантированная публикация событий в Kafka
-- Состояния: `pending` → `awaiting_payment` → `confirmed` | `cancelled`
+- Статусы: `pending` → `confirmed` | `cancelled`
 
 ## API (gRPC)
 
 | Метод | Описание | Auth |
 |-------|----------|------|
-| `CreateOrder` | Создать заказ | user |
-| `GetOrder` | Получить заказ | user (свой) / admin |
-| `CancelOrder` | Отменить заказ | user (свой) / admin |
-| `ListOrders` | Список заказов | user (свои) / admin |
-| `UpdateOrderStatus` | Обновить статус | service (Saga) |
+| `CreateOrder` | Создать заказ | Проверяет `user_id` в токене |
+| `GetOrder` | Получить заказ | Проверяет принадлежность `user_id` |
+| `ListOrders` | Список заказов | Проверяет принадлежность `user_id` |
 
 ## Запуск
 
 ```bash
 cd services/order-service
-go run ./cmd/...
+POSTGRES_DSN="postgres://..." JWT_SECRET="..." \
+  INVENTORY_ADDR=localhost:50053 PAYMENT_ADDR=localhost:50054 \
+  go run ./cmd/...
 ```
 
 ## Переменные окружения
@@ -35,65 +34,61 @@ go run ./cmd/...
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
 | `GRPC_PORT` | gRPC сервер | `50055` |
-| `POSTGRES_URL` | PostgreSQL | — |
-| `KAFKA_BROKERS` | Kafka брокеры | `localhost:19092` |
-| `INVENTORY_SERVICE_ADDR` | Адрес inventory-service | `localhost:50053` |
-| `PAYMENT_SERVICE_ADDR` | Адрес payment-service | `localhost:50054` |
-| `SAGA_TIMEOUT` | Таймаут Saga шага | `30s` |
-| `OUTBOX_POLL_INTERVAL` | Интервал опроса Outbox | `5s` |
-| `LOG_LEVEL` | Уровень логов | `info` |
-| `LOG_FORMAT` | Формат логов | `json` |
+| `POSTGRES_DSN` | PostgreSQL | **Обязательно** |
+| `JWT_SECRET` | Секрет для валидации JWT | **Обязательно** |
+| `INVENTORY_ADDR` | Адрес inventory-service | `localhost:50053` |
+| `PAYMENT_ADDR` | Адрес payment-service | `localhost:50054` |
+| `KAFKA_BROKERS` | Kafka брокеры | `["localhost:9092"]` |
+| `KAFKA_TOPIC` | Топик для Outbox | `order-events` |
+| `DEFAULT_CALL_TIMEOUT` | Таймаут gRPC вызовов | `5s` |
+| `DEFAULT_QUERY_TIMEOUT` | Таймаут gRPC запросов | `3s` |
+| `CERT_PATH` | Путь к TLS сертификатам (опционально) | — |
 
 ## Saga Flow
 
 ```mermaid
 flowchart TD
-    A[CreateOrder] --> B[ReserveInventory]
-    B -->|Успех| C[ProcessPayment]
+    A[CreateOrder] --> B[Reserve inventory]
+    B -->|Успех| C[Process payment]
     B -->|Ошибка| D[CancelOrder]
     C -->|Успех| E[ConfirmOrder]
     C -->|Ошибка| F[RefundPayment]
     F --> D
-    D --> G[ReleaseInventory]
+    D --> G[Release inventory]
 ```
 
 ## Модель данных
 
-```sql
-CREATE TABLE orders (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL,
-    status VARCHAR(50) NOT NULL DEFAULT 'pending',
-    total_minor INT64 NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+Таблица `orders`:
+- `id` (UUID, PK)
+- `user_id`
+- `status`
+- `total_amount` (BIGINT, копейки)
+- `created_at`
+- `updated_at`
 
-CREATE TABLE order_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    order_id UUID REFERENCES orders(id),
-    product_id UUID NOT NULL,
-    quantity INT NOT NULL,
-    price_minor INT64 NOT NULL
-);
+Таблица `order_items`:
+- `id` (UUID, PK)
+- `order_id`
+- `product_id`
+- `quantity`
+- `price` (BIGINT, копейки)
 
-CREATE TABLE outbox (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    aggregate_id UUID NOT NULL,
-    event_type VARCHAR(100) NOT NULL,
-    payload JSONB NOT NULL,
-    processed BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+Таблица `outbox`:
+- `id` (UUID, PK)
+- `aggregate_id`
+- `event_type`
+- `payload`
+- `processed_at`
+- `created_at`
 
-CREATE TABLE saga_state (
-    order_id UUID PRIMARY KEY REFERENCES orders(id),
-    current_step VARCHAR(100) NOT NULL,
-    status VARCHAR(50) NOT NULL,
-    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    completed_at TIMESTAMPTZ
-);
-```
+Таблица `sagas`:
+- `order_id` (UUID, PK)
+- `current_step`
+- `status`
+- `error_message`
+- `created_at`
+- `updated_at`
 
 ## Outbox Relay
 
@@ -102,7 +97,7 @@ CREATE TABLE saga_state (
 │  orders DB  │────▶│  outbox  │────▶│ Kafka  │
 └─────────────┘     └──────────┘     └────────┘
                            ▲
-                           │ poll every 5s
+                           │ poll every 500ms
                     ┌──────┴──────┐
                     │ outbox relay│
                     └─────────────┘
@@ -110,7 +105,7 @@ CREATE TABLE saga_state (
 
 ## Зависимости
 
-- PostgreSQL (orders + outbox + saga_state)
-- Kafka (события)
+- PostgreSQL (orders + outbox + sagas)
+- Kafka (Outbox relay)
 - inventory-service (gRPC)
 - payment-service (gRPC)
