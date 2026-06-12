@@ -3,19 +3,18 @@
 [![CI](https://github.com/ekhodzitsky/go-ozon-marketplace/actions/workflows/ci.yml/badge.svg)](https://github.com/ekhodzitsky/go-ozon-marketplace/actions)
 [![Go Version](https://img.shields.io/badge/go-1.26-blue)](https://golang.org)
 [![Release](https://img.shields.io/github/v/release/ekhodzitsky/go-ozon-marketplace)](https://github.com/ekhodzitsky/go-ozon-marketplace/releases)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-Микросервисный e-commerce backend на Go — pet-проект для портфолио.
+Production-grade микросервисный e-commerce backend на Go — pet-проект для портфолио.
 
-## Что это
+## Architecture Overview
 
-Маркетплейс из 8 микросервисов с Saga Orchestrator, Transactional Outbox, поиском через Elasticsearch и стеком observability.
-
-## Архитектура
+Маркетплейс из 8 микросервисов с распределёнными транзакциями (Saga Orchestrator), Transactional Outbox, CQRS через Elasticsearch, real-time WebSocket, feature flags, A/B тестированием, observability, security hardening, chaos engineering и GitOps деплоем в Kubernetes.
 
 ```mermaid
 graph TB
-    Client[Клиент<br/>Web / Mobile / GraphQL Playground]
-    AG[api-gateway<br/>GraphQL + Rate Limiter]
+    Client[Клиент<br/>Web / Mobile / WS]
+    AG[api-gateway<br/>GraphQL + WS + Rate Limiter]
     US[user-service]
     CS[catalog-service]
     OS[order-service<br/>Saga Orchestrator]
@@ -29,9 +28,12 @@ graph TB
     ES[(Elasticsearch)]
     CH[(ClickHouse)]
 
-    Client -->|HTTP / GraphQL| AG
+    Client -->|HTTP / GraphQL / WS| AG
     AG -->|gRPC| US
     AG -->|gRPC| CS
+    AG -->|gRPC| OS
+    AG -->|gRPC| IS
+    AG -->|gRPC| PS
     OS -->|gRPC| IS
     OS -->|gRPC| PS
     OS -->|Kafka| Kafka
@@ -39,111 +41,98 @@ graph TB
     IS --> Redis
     CS --> ES
     AS --> CH
-    Kafka -->|пока не используется| NS
-    Kafka -->|пока не используется| AS
+    Kafka --> NS
+    Kafka --> AS
 ```
 
-### Микросервисы
-
-| Сервис | Порт | Назначение |
-|--------|------|------------|
-| api-gateway | 8080 | GraphQL gateway, rate limiting, access-log, `/metrics` |
-| user-service | 50051 | Регистрация, аутентификация (JWT с ролями) |
-| catalog-service | 50052 | Каталог товаров, поиск (PG + ES), transactional outbox |
-| inventory-service | 50053 | Управление остатками, резервирование, Redis cache |
-| payment-service | 50054 | Обработка платежей, refunds |
-| order-service | 50055 | Заказы, Saga Orchestrator, Outbox, Kafka publisher |
-| notification-service | 50056 | Уведомления (service-only RPC) |
-| analytics-service | 50057 | Аналитика в ClickHouse |
-
-### Ключевые паттерны
-
-| Паттерн | Где | Зачем |
-|---------|-----|-------|
-| **Saga Orchestrator** | order-service | Управляет заказом: резерв → оплата → подтверждение. При ошибке — компенсация. |
-| **Transactional Outbox** | order-service | Гарантирует доставку событий в Kafka: сначала пишем в БД, потом релей отправляет. |
-| **CQRS** | catalog-service | Записи в PostgreSQL, поиск в Elasticsearch. Синхронизация через Outbox relay. |
-| **Rate Limiting** | api-gateway | Redis-backed sliding window, защита от перегрузки. |
-| **mTLS** | Все сервисы | Взаимная TLS-аутентификация (опционально, при наличии `CERT_PATH`). |
-
-## Технологии
-
-- **Go 1.26**, gRPC, GraphQL (gqlgen)
-- **PostgreSQL 16**, Redis 7, ClickHouse, Elasticsearch
-- **Kafka** (Redpanda), Transactional Outbox, Saga Orchestrator
-- **Prometheus**, Grafana, **OpenTelemetry** tracing и metrics
-- **mTLS** между сервисами (опционально)
-- **Kubernetes**, Helm, GitHub Actions CI/CD
-
-## Быстрый старт
+## 🚀 Быстрый старт
 
 ```bash
-# 1. Поднять инфраструктуру
-make up
+# 1. Поднять всё в Docker Compose
+make dev-up
 
-# 2. Собрать и запустить сервисы (в отдельных терминалах)
-cd services/api-gateway && go run ./cmd/...
-cd services/user-service && go run ./cmd/...
-cd services/catalog-service && go run ./cmd/...
-cd services/order-service && go run ./cmd/...
-cd services/inventory-service && go run ./cmd/...
-cd services/payment-service && go run ./cmd/...
-cd services/notification-service && go run ./cmd/...
-cd services/analytics-service && go run ./cmd/...
+# 2. Заполнить тестовыми данными
+make dev-seed
 
 # 3. Открыть GraphQL Playground
 open http://localhost:8080
 ```
 
-Подробнее — в [docs/QUICKSTART.md](docs/QUICKSTART.md).
+## 🛠️ Технологический стек
 
-## Тесты
+| Категория | Технологии |
+|-----------|-----------|
+| **Язык / Runtime** | Go 1.26 |
+| **API** | gRPC, GraphQL (gqlgen), WebSocket (gorilla/websocket) |
+| **Базы данных** | PostgreSQL 16, Redis 7, ClickHouse, Elasticsearch |
+| **Messaging** | Kafka (Redpanda), Transactional Outbox |
+| **Observability** | OpenTelemetry, Prometheus, Grafana, Jaeger |
+| **Security** | JWT RegisteredClaims, mTLS, Rate Limiting, Circuit Breaker, CORS |
+| **Паттерны** | Saga Orchestrator, CQRS, Feature Flags, A/B Testing |
+| **Инфраструктура** | Docker, Kubernetes, Helm, ArgoCD, Flagger, Chaos Mesh |
+| **CI/CD** | GitHub Actions, golangci-lint, buf, govulncheck |
+
+## ✅ Тесты
 
 ```bash
-# Unit + integration (testcontainers)
+# Unit + integration
 make test
 
-# E2E (требуется Docker)
+# Integration
+make test-integration
+
+# E2E
 cd tests && go test -tags=e2e ./e2e/...
+
+# Chaos
+make chaos-test
 
 # Линтер
 make lint
 ```
 
-## Структура
+## 📁 Структура
 
 ```
 ├── api/                # Protobuf + generated gRPC/GraphQL
-├── pkg/                # Shared packages (middleware, logger, metrics, tracing)
+├── pkg/                # Shared packages
 ├── services/           # 8 микросервисов
-├── infra/              # Docker Compose, Helm charts, monitoring
-├── tests/              # Integration и E2E тесты (testcontainers)
-└── docs/               # Документация, ADR, схемы
+├── infra/              # Docker Compose, Helm, monitoring, chaos, GitOps
+├── tests/              # Unit, integration, E2E, chaos тесты
+├── scripts/            # Seed scripts
+└── docs/               # Документация
 ```
 
-## Документация
+## 📚 Документация
 
-- [Архитектура](docs/ARCHITECTURE.md) — схемы, потоки данных, взаимодействие сервисов
-- [Быстрый старт](docs/QUICKSTART.md) — пошаговый сценарий: регистрация → товар → поиск
-- [API](docs/API.md) — GraphQL и gRPC контракты
-- [Развёртывание](docs/DEPLOYMENT.md) — Docker Compose, Kubernetes, Helm
-- [Безопасность](docs/SECURITY.md) — JWT, роли, mTLS, rate limiting
-- [Дизайн-документ](docs/design.md) — полный design doc с ADR
-- [Аудит](docs/AUDIT_REPORT.md) — актуальность документации
-- [CHANGELOG](CHANGELOG.md) — история изменений
+См. [docs/INDEX.md](docs/INDEX.md) для навигации по всей документации.
 
-## CI/CD
+Ключевые документы:
+- [Архитектура](docs/ARCHITECTURE.md)
+- [Быстрый старт](docs/QUICKSTART.md)
+- [API](docs/API.md)
+- [Безопасность](docs/SECURITY.md)
+- [Развёртывание](docs/DEPLOYMENT.md)
+- [Операции](docs/OPERATIONS.md)
+- [Производительность](docs/PERFORMANCE.md)
+- [SLO](docs/SLO.md)
+- [Журнал решений](docs/DECISION_LOG.md)
+- [CHANGELOG](CHANGELOG.md)
+
+## 🚦 CI/CD
 
 GitHub Actions:
 - **lint** (`golangci-lint`)
 - **proto** (`buf lint`, `buf breaking`)
 - **govulncheck**
-- **test** (race, coverage gate 60%, итерация по `go.work` модулям)
-- **build** (Docker images для всех сервисов)
-- **helm** (lint + template validate)
+- **test** (race, coverage gate 60%)
+- **integration**
+- **build** (Docker images)
+- **helm** (lint + template)
+- **chaos** (weekly)
 
 Все Actions запиннены по SHA.
 
-## Лицензия
+## 📄 Лицензия
 
 MIT

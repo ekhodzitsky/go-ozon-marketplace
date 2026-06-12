@@ -34,3 +34,4 @@ Thumbs.db
 # Data
 infra/docker/data/
 .omc/
+scripts/scripts
