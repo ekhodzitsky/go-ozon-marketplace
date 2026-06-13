@@ -51,7 +51,7 @@ jobs:
       - name: Install buf
         uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1
         with:
-          version: 1.35.0
+          version: 1.70.0
           github_token: ${{ secrets.GITHUB_TOKEN }}
           setup_only: true
 
