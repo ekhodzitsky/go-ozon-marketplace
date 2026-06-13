@@ -29,7 +29,7 @@ jobs:
           cache: true
 
       - name: Install golangci-lint
-        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.59.1
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
 
       - name: Run golangci-lint per module
         run: make lint
@@ -53,6 +53,7 @@ jobs:
         with:
           version: 1.35.0
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          setup_only: true
 
       - name: buf lint
         run: cd api && buf lint
