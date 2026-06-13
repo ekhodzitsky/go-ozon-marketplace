@@ -15,9 +15,11 @@ import (
 	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/validation"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph/model"
+	"github.com/google/uuid"
 )
 
 // Register is the resolver for the register field.
@@ -66,6 +68,12 @@ func (r *mutationResolver) Login(ctx context.Context, email string, password str
 
 // CreateProduct is the resolver for the createProduct field.
 func (r *mutationResolver) CreateProduct(ctx context.Context, name string, description string, price float64, categories []string) (string, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return "", err
+	}
+	if !isAdmin(ctx) {
+		return "", fmt.Errorf("forbidden")
+	}
 	if err := validation.ValidateName(name); err != nil {
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
@@ -75,10 +83,11 @@ func (r *mutationResolver) CreateProduct(ctx context.Context, name string, descr
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	resp, err := r.CatalogService.CreateProduct(ctx, &catalogv1.CreateProductRequest{
-		Name:        name,
-		Description: description,
-		Price:       price,
-		Categories:  categories,
+		Name:           name,
+		Description:    description,
+		PriceCents:     dollarsToCents(price),
+		Categories:     categories,
+		IdempotencyKey: uuid.NewString(),
 	})
 	if err != nil {
 		return "", err
@@ -87,7 +96,15 @@ func (r *mutationResolver) CreateProduct(ctx context.Context, name string, descr
 }
 
 // CreateOrder is the resolver for the createOrder field.
-func (r *mutationResolver) CreateOrder(ctx context.Context, userID string, items []*model.OrderItemInput) (string, error) {
+func (r *mutationResolver) CreateOrder(ctx context.Context, items []*model.OrderItemInput) (string, error) {
+	callerID, err := requireAuth(ctx)
+	if err != nil {
+		return "", err
+	}
+	if len(items) == 0 {
+		return "", fmt.Errorf("%w: order must contain at least one item", apperrors.ErrInvalidArgument)
+	}
+
 	protoItems := make([]*orderv1.OrderItem, len(items))
 	for i, item := range items {
 		if err := validation.ValidateQuantity(item.Quantity); err != nil {
@@ -97,16 +114,33 @@ func (r *mutationResolver) CreateOrder(ctx context.Context, userID string, items
 			return "", fmt.Errorf("invalid input: %w", err)
 		}
 		protoItems[i] = &orderv1.OrderItem{
-			ProductId: item.ProductID,
-			Quantity:  item.Quantity,
-			Price:     item.Price,
+			ProductId:  item.ProductID,
+			Quantity:   item.Quantity,
+			PriceCents: dollarsToCents(item.Price),
 		}
 	}
+
+	// Verify item prices against the catalog to prevent tampering.
+	priceCtx, priceCancel := r.withQueryTimeout(ctx)
+	defer priceCancel()
+	for _, item := range protoItems {
+		prodResp, err := r.CatalogService.GetProduct(priceCtx, &catalogv1.GetProductRequest{ProductId: item.ProductId})
+		if err != nil {
+			return "", fmt.Errorf("catalog lookup: %w", err)
+		}
+		if prodResp.Product == nil {
+			return "", fmt.Errorf("%w: product %s not found", apperrors.ErrInvalidArgument, item.ProductId)
+		}
+		if item.PriceCents != prodResp.Product.PriceCents {
+			return "", fmt.Errorf("%w: price mismatch for product %s: requested %d, catalog %d", apperrors.ErrInvalidArgument, item.ProductId, item.PriceCents, prodResp.Product.PriceCents)
+		}
+	}
+
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	resp, err := r.OrderService.CreateOrder(ctx, &orderv1.CreateOrderRequest{
-		UserId: userID,
-		Items:  protoItems,
+		Items:          protoItems,
+		IdempotencyKey: uuid.NewString(),
 	})
 	if err != nil {
 		return "", err
@@ -122,10 +156,10 @@ func (r *mutationResolver) CreateOrder(ctx context.Context, userID string, items
 					_, _ = r.AnalyticsService.TrackABTestEvent(trackCtx, &analyticsv1.TrackABTestEventRequest{
 						Experiment: experiment,
 						Variation:  variation,
-						UserId:     userID,
+						UserId:     callerID,
 						Conversion: true,
 					})
-				}(exp.Name, exp.Assign(userID))
+				}(exp.Name, exp.Assign(callerID))
 				break
 			}
 		}
@@ -136,9 +170,28 @@ func (r *mutationResolver) CreateOrder(ctx context.Context, userID string, items
 
 // CancelOrder is the resolver for the cancelOrder field.
 func (r *mutationResolver) CancelOrder(ctx context.Context, orderID string) (bool, error) {
-	ctx, cancel := r.withTimeout(ctx)
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
+	// Fetch order to enforce owner-or-admin before cancelling.
+	getCtx, getCancel := r.withQueryTimeout(ctx)
+	defer getCancel()
+	getResp, err := r.OrderService.GetOrder(getCtx, &orderv1.GetOrderRequest{
+		OrderId: orderID,
+	})
+	if err != nil {
+		return false, err
+	}
+	if getResp.Order == nil {
+		return false, fmt.Errorf("order not found")
+	}
+	if err := requireOwnerOrAdmin(ctx, getResp.Order.UserId); err != nil {
+		return false, err
+	}
+
+	cancelCtx, cancel := r.withTimeout(ctx)
 	defer cancel()
-	_, err := r.OrderService.CancelOrder(ctx, &orderv1.CancelOrderRequest{
+	_, err = r.OrderService.CancelOrder(cancelCtx, &orderv1.CancelOrderRequest{
 		OrderId: orderID,
 	})
 	if err != nil {
@@ -149,15 +202,12 @@ func (r *mutationResolver) CancelOrder(ctx context.Context, orderID string) (boo
 
 // Me is the resolver for the me field.
 func (r *queryResolver) Me(ctx context.Context) (*model.User, error) {
-	userID, ok := middleware.GetUserID(ctx)
-	if !ok {
-		return nil, fmt.Errorf("unauthenticated")
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
 	}
 	ctx, cancel := r.withQueryTimeout(ctx)
 	defer cancel()
-	resp, err := r.UserService.GetUser(ctx, &userv1.GetUserRequest{
-		UserId: userID,
-	})
+	resp, err := r.UserService.GetUser(ctx, &userv1.GetUserRequest{})
 	if err != nil {
 		return nil, err
 	}
@@ -171,11 +221,12 @@ func (r *queryResolver) Me(ctx context.Context) (*model.User, error) {
 
 // User is the resolver for the user field.
 func (r *queryResolver) User(ctx context.Context, id string) (*model.User, error) {
+	if err := requireOwnerOrAdmin(ctx, id); err != nil {
+		return nil, err
+	}
 	ctx, cancel := r.withQueryTimeout(ctx)
 	defer cancel()
-	resp, err := r.UserService.GetUser(ctx, &userv1.GetUserRequest{
-		UserId: id,
-	})
+	resp, err := r.UserService.GetUser(ctx, &userv1.GetUserRequest{})
 	if err != nil {
 		return nil, err
 	}
@@ -232,6 +283,9 @@ func (r *queryResolver) SearchProducts(ctx context.Context, query string, page *
 
 // Order is the resolver for the order field.
 func (r *queryResolver) Order(ctx context.Context, id string) (*model.Order, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	ctx, cancel := r.withQueryTimeout(ctx)
 	defer cancel()
 	resp, err := r.OrderService.GetOrder(ctx, &orderv1.GetOrderRequest{
@@ -240,16 +294,23 @@ func (r *queryResolver) Order(ctx context.Context, id string) (*model.Order, err
 	if err != nil {
 		return nil, err
 	}
+	if resp.Order == nil {
+		return nil, fmt.Errorf("order not found")
+	}
+	if err := requireOwnerOrAdmin(ctx, resp.Order.UserId); err != nil {
+		return nil, err
+	}
 	return protoOrderToModel(resp.Order), nil
 }
 
 // Orders is the resolver for the orders field.
 func (r *queryResolver) Orders(ctx context.Context, userID string, page *int32, pageSize *int32) (*model.OrderConnection, error) {
+	if err := requireOwnerOrAdmin(ctx, userID); err != nil {
+		return nil, err
+	}
 	ctx, cancel := r.withQueryTimeout(ctx)
 	defer cancel()
-	req := &orderv1.ListOrdersRequest{
-		UserId: userID,
-	}
+	req := &orderv1.ListOrdersRequest{}
 	if page != nil {
 		req.Page = *page
 	}
@@ -292,11 +353,12 @@ func (r *queryResolver) Inventory(ctx context.Context, productID string) (*model
 
 // FeatureFlags is the resolver for the featureFlags field.
 func (r *queryResolver) FeatureFlags(ctx context.Context) (*model.FeatureFlags, error) {
+	userID, _ := middleware.GetUserID(ctx)
 	return &model.FeatureFlags{
-		NewCheckoutFlow: r.FeatureFlagsEngine.IsEnabled("new-checkout-flow", ""),
-		FastSearch:      r.FeatureFlagsEngine.IsEnabled("fast-search", ""),
-		DiscountSystem:  r.FeatureFlagsEngine.IsEnabled("discount-system", ""),
-		RealTimeUpdates: r.FeatureFlagsEngine.IsEnabled("real-time-updates", ""),
+		NewCheckoutFlow: r.FeatureFlagsEngine.IsEnabled("new-checkout-flow", userID),
+		FastSearch:      r.FeatureFlagsEngine.IsEnabled("fast-search", userID),
+		DiscountSystem:  r.FeatureFlagsEngine.IsEnabled("discount-system", userID),
+		RealTimeUpdates: r.FeatureFlagsEngine.IsEnabled("real-time-updates", userID),
 	}, nil
 }
 
@@ -314,11 +376,14 @@ func (r *queryResolver) AbTestAssignments(ctx context.Context, userID string) ([
 
 // OrderStatusChanged is the resolver for the orderStatusChanged field.
 func (r *subscriptionResolver) OrderStatusChanged(ctx context.Context, userID string) (<-chan *model.Order, error) {
+	if err := requireOwnerOrAdmin(ctx, userID); err != nil {
+		return nil, err
+	}
 	ch := make(chan *model.Order, 1)
 	pubsub := r.Redis.PSubscribe(ctx, "order-events")
 	go func() {
 		defer close(ch)
-		defer pubsub.Close()
+		defer func() { _ = pubsub.Close() }()
 		msgCh := pubsub.Channel()
 		for {
 			select {
@@ -360,7 +425,7 @@ func (r *subscriptionResolver) InventoryChanged(ctx context.Context, productID s
 	pubsub := r.Redis.PSubscribe(ctx, "inventory-events")
 	go func() {
 		defer close(ch)
-		defer pubsub.Close()
+		defer func() { _ = pubsub.Close() }()
 		msgCh := pubsub.Channel()
 		for {
 			select {

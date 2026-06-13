@@ -41,31 +41,31 @@ func (m *MockInventoryClient) EXPECT() *MockInventoryClientMockRecorder {
 }
 
 // Release mocks base method.
-func (m *MockInventoryClient) Release(ctx context.Context, productID string, quantity int32, orderID string) error {
+func (m *MockInventoryClient) Release(ctx context.Context, productID string, quantity int32, orderID, idempotencyKey string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Release", ctx, productID, quantity, orderID)
+	ret := m.ctrl.Call(m, "Release", ctx, productID, quantity, orderID, idempotencyKey)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Release indicates an expected call of Release.
-func (mr *MockInventoryClientMockRecorder) Release(ctx, productID, quantity, orderID any) *gomock.Call {
+func (mr *MockInventoryClientMockRecorder) Release(ctx, productID, quantity, orderID, idempotencyKey any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Release", reflect.TypeOf((*MockInventoryClient)(nil).Release), ctx, productID, quantity, orderID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Release", reflect.TypeOf((*MockInventoryClient)(nil).Release), ctx, productID, quantity, orderID, idempotencyKey)
 }
 
 // Reserve mocks base method.
-func (m *MockInventoryClient) Reserve(ctx context.Context, productID string, quantity int32, orderID string) error {
+func (m *MockInventoryClient) Reserve(ctx context.Context, productID string, quantity int32, orderID, idempotencyKey string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Reserve", ctx, productID, quantity, orderID)
+	ret := m.ctrl.Call(m, "Reserve", ctx, productID, quantity, orderID, idempotencyKey)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Reserve indicates an expected call of Reserve.
-func (mr *MockInventoryClientMockRecorder) Reserve(ctx, productID, quantity, orderID any) *gomock.Call {
+func (mr *MockInventoryClientMockRecorder) Reserve(ctx, productID, quantity, orderID, idempotencyKey any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Reserve", reflect.TypeOf((*MockInventoryClient)(nil).Reserve), ctx, productID, quantity, orderID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Reserve", reflect.TypeOf((*MockInventoryClient)(nil).Reserve), ctx, productID, quantity, orderID, idempotencyKey)
 }
 
 // MockPaymentClient is a mock of PaymentClient interface.
@@ -93,30 +93,30 @@ func (m *MockPaymentClient) EXPECT() *MockPaymentClientMockRecorder {
 }
 
 // ProcessPayment mocks base method.
-func (m *MockPaymentClient) ProcessPayment(ctx context.Context, orderID, userID string, amount int64) (string, error) {
+func (m *MockPaymentClient) ProcessPayment(ctx context.Context, orderID string, amountCents int64, idempotencyKey string) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ProcessPayment", ctx, orderID, userID, amount)
+	ret := m.ctrl.Call(m, "ProcessPayment", ctx, orderID, amountCents, idempotencyKey)
 	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ProcessPayment indicates an expected call of ProcessPayment.
-func (mr *MockPaymentClientMockRecorder) ProcessPayment(ctx, orderID, userID, amount any) *gomock.Call {
+func (mr *MockPaymentClientMockRecorder) ProcessPayment(ctx, orderID, amountCents, idempotencyKey any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessPayment", reflect.TypeOf((*MockPaymentClient)(nil).ProcessPayment), ctx, orderID, userID, amount)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProcessPayment", reflect.TypeOf((*MockPaymentClient)(nil).ProcessPayment), ctx, orderID, amountCents, idempotencyKey)
 }
 
 // Refund mocks base method.
-func (m *MockPaymentClient) Refund(ctx context.Context, paymentID string) error {
+func (m *MockPaymentClient) Refund(ctx context.Context, paymentID, idempotencyKey string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Refund", ctx, paymentID)
+	ret := m.ctrl.Call(m, "Refund", ctx, paymentID, idempotencyKey)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Refund indicates an expected call of Refund.
-func (mr *MockPaymentClientMockRecorder) Refund(ctx, paymentID any) *gomock.Call {
+func (mr *MockPaymentClientMockRecorder) Refund(ctx, paymentID, idempotencyKey any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Refund", reflect.TypeOf((*MockPaymentClient)(nil).Refund), ctx, paymentID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Refund", reflect.TypeOf((*MockPaymentClient)(nil).Refund), ctx, paymentID, idempotencyKey)
 }

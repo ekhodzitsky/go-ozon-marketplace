@@ -12,7 +12,6 @@ import (
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/mocks"
-	"github.com/ekhodzitsky/go-ozon-marketplace/tests"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,6 +29,21 @@ func authCtxWithRole(userID string, role middleware.Role) context.Context {
 	return context.WithValue(ctx, middleware.ContextKeyRole, string(role))
 }
 
+func newOrderItem(productID string, quantity int32, priceCents int64) *orderv1.OrderItem {
+	return &orderv1.OrderItem{
+		ProductId:  productID,
+		Quantity:   quantity,
+		PriceCents: priceCents,
+	}
+}
+
+func newCreateOrderRequest(items ...*orderv1.OrderItem) *orderv1.CreateOrderRequest {
+	return &orderv1.CreateOrderRequest{
+		Items:          items,
+		IdempotencyKey: uuid.New().String(),
+	}
+}
+
 func TestOrderHandler_CreateOrder(t *testing.T) {
 	t.Parallel()
 
@@ -45,54 +59,71 @@ func TestOrderHandler_CreateOrder(t *testing.T) {
 		wantErr   bool
 	}{
 		{
-			name: "success_without_user_id",
+			name: "success_matching_price",
 			ctx:  authCtx(validUser),
-			req:  tests.NewOrderRequestBuilder().AddItem(validProduct, 1, 10.0).Build(),
+			req:  newCreateOrderRequest(newOrderItem(validProduct, 1, 1000)),
 			setupMock: func(m *mocks.MockOrderUsecase) {
-				m.EXPECT().CreateOrder(gomock.Any(), gomock.Any(), gomock.Any()).Return(uuid.New(), nil)
+				m.EXPECT().CreateOrder(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(uuid.New(), nil)
 			},
 			wantCode: codes.OK,
 			wantErr:  false,
 		},
 		{
-			name: "success_with_matching_user_id",
+			name: "tampered_lower_price",
 			ctx:  authCtx(validUser),
-			req:  tests.NewOrderRequestBuilder().WithUserID(validUser).AddItem(validProduct, 2, 5.0).Build(),
+			req:  newCreateOrderRequest(newOrderItem(validProduct, 1, 1)),
 			setupMock: func(m *mocks.MockOrderUsecase) {
-				m.EXPECT().CreateOrder(gomock.Any(), gomock.Any(), gomock.Any()).Return(uuid.New(), nil)
+				m.EXPECT().CreateOrder(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(uuid.Nil, apperrors.ErrInvalidArgument)
 			},
-			wantCode: codes.OK,
-			wantErr:  false,
+			wantCode: codes.InvalidArgument,
+			wantErr:  true,
+		},
+		{
+			name: "tampered_higher_price",
+			ctx:  authCtx(validUser),
+			req:  newCreateOrderRequest(newOrderItem(validProduct, 1, 999999)),
+			setupMock: func(m *mocks.MockOrderUsecase) {
+				m.EXPECT().CreateOrder(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(uuid.Nil, apperrors.ErrInvalidArgument)
+			},
+			wantCode: codes.InvalidArgument,
+			wantErr:  true,
 		},
 		{
 			name:     "unauthenticated",
 			ctx:      context.Background(),
-			req:      tests.NewOrderRequestBuilder().AddItem(validProduct, 1, 10.0).Build(),
+			req:      newCreateOrderRequest(newOrderItem(validProduct, 1, 1000)),
 			wantCode: codes.Unauthenticated,
 			wantErr:  true,
 		},
 		{
-			name:     "permission_denied_spoof_user_id",
+			name:     "missing_idempotency_key",
 			ctx:      authCtx(validUser),
-			req:      tests.NewOrderRequestBuilder().WithUserID(uuid.New().String()).AddItem(validProduct, 1, 10.0).Build(),
-			wantCode: codes.PermissionDenied,
+			req:      &orderv1.CreateOrderRequest{Items: []*orderv1.OrderItem{newOrderItem(validProduct, 1, 1000)}},
+			wantCode: codes.InvalidArgument,
 			wantErr:  true,
 		},
 		{
 			name:     "invalid_product_id",
 			ctx:      authCtx(validUser),
-			req:      tests.NewOrderRequestBuilder().AddItem("not-a-uuid", 1, 10.0).Build(),
-			wantCode: codes.Unknown,
+			req:      newCreateOrderRequest(newOrderItem("not-a-uuid", 1, 1000)),
+			wantCode: codes.InvalidArgument,
+			wantErr:  true,
+		},
+		{
+			name:     "invalid_price",
+			ctx:      authCtx(validUser),
+			req:      newCreateOrderRequest(newOrderItem(validProduct, 1, 0)),
+			wantCode: codes.InvalidArgument,
 			wantErr:  true,
 		},
 		{
 			name: "usecase_error",
 			ctx:  authCtx(validUser),
-			req:  tests.NewOrderRequestBuilder().AddItem(validProduct, 1, 10.0).Build(),
+			req:  newCreateOrderRequest(newOrderItem(validProduct, 1, 1000)),
 			setupMock: func(m *mocks.MockOrderUsecase) {
-				m.EXPECT().CreateOrder(gomock.Any(), gomock.Any(), gomock.Any()).Return(uuid.Nil, assert.AnError)
+				m.EXPECT().CreateOrder(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(uuid.Nil, assert.AnError)
 			},
-			wantCode: codes.Unknown,
+			wantCode: codes.Internal,
 			wantErr:  true,
 		},
 	}
@@ -137,13 +168,30 @@ func TestOrderHandler_GetOrder(t *testing.T) {
 		{
 			name: "success",
 			ctx:  authCtx(validUser),
-			req:  tests.NewGetOrderRequestBuilder().WithOrderID(orderID.String()).Build(),
+			req:  &orderv1.GetOrderRequest{OrderId: orderID.String()},
 			setupMock: func(m *mocks.MockOrderUsecase) {
 				m.EXPECT().GetOrder(gomock.Any(), gomock.Any()).Return(&domain.Order{
 					ID:        orderID,
 					UserID:    uuid.MustParse(validUser),
 					Items:     nil,
-					Status:    "pending",
+					Status:    domain.OrderStatusPending,
+					CreatedAt: time.Now().UTC(),
+					UpdatedAt: time.Now().UTC(),
+				}, nil)
+			},
+			wantCode: codes.OK,
+			wantErr:  false,
+		},
+		{
+			name: "success_admin",
+			ctx:  authCtxWithRole(uuid.New().String(), middleware.RoleAdmin),
+			req:  &orderv1.GetOrderRequest{OrderId: orderID.String()},
+			setupMock: func(m *mocks.MockOrderUsecase) {
+				m.EXPECT().GetOrder(gomock.Any(), gomock.Any()).Return(&domain.Order{
+					ID:        orderID,
+					UserID:    uuid.MustParse(validUser),
+					Items:     nil,
+					Status:    domain.OrderStatusPending,
 					CreatedAt: time.Now().UTC(),
 					UpdatedAt: time.Now().UTC(),
 				}, nil)
@@ -154,14 +202,14 @@ func TestOrderHandler_GetOrder(t *testing.T) {
 		{
 			name:     "unauthenticated",
 			ctx:      context.Background(),
-			req:      tests.NewGetOrderRequestBuilder().WithOrderID(orderID.String()).Build(),
+			req:      &orderv1.GetOrderRequest{OrderId: orderID.String()},
 			wantCode: codes.Unauthenticated,
 			wantErr:  true,
 		},
 		{
 			name: "not_found",
 			ctx:  authCtx(validUser),
-			req:  tests.NewGetOrderRequestBuilder().WithOrderID(orderID.String()).Build(),
+			req:  &orderv1.GetOrderRequest{OrderId: orderID.String()},
 			setupMock: func(m *mocks.MockOrderUsecase) {
 				m.EXPECT().GetOrder(gomock.Any(), gomock.Any()).Return(nil, apperrors.ErrNotFound)
 			},
@@ -170,8 +218,8 @@ func TestOrderHandler_GetOrder(t *testing.T) {
 		},
 		{
 			name: "permission_denied_other_user",
-			ctx:  authCtx(validUser),
-			req:  tests.NewGetOrderRequestBuilder().WithOrderID(orderID.String()).Build(),
+			ctx:  authCtx(uuid.New().String()),
+			req:  &orderv1.GetOrderRequest{OrderId: orderID.String()},
 			setupMock: func(m *mocks.MockOrderUsecase) {
 				m.EXPECT().GetOrder(gomock.Any(), gomock.Any()).Return(&domain.Order{
 					ID:     orderID,
@@ -222,7 +270,7 @@ func TestOrderHandler_ListOrders(t *testing.T) {
 		{
 			name: "success",
 			ctx:  authCtx(validUser),
-			req:  tests.NewListOrdersRequestBuilder().Build(),
+			req:  &orderv1.ListOrdersRequest{Page: 1, PageSize: 10},
 			setupMock: func(m *mocks.MockOrderUsecase) {
 				m.EXPECT().ListOrders(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return([]domain.Order{}, 0, nil)
 			},
@@ -232,15 +280,8 @@ func TestOrderHandler_ListOrders(t *testing.T) {
 		{
 			name:     "unauthenticated",
 			ctx:      context.Background(),
-			req:      tests.NewListOrdersRequestBuilder().Build(),
+			req:      &orderv1.ListOrdersRequest{Page: 1, PageSize: 10},
 			wantCode: codes.Unauthenticated,
-			wantErr:  true,
-		},
-		{
-			name:     "permission_denied_spoof",
-			ctx:      authCtx(validUser),
-			req:      tests.NewListOrdersRequestBuilder().WithUserID(uuid.New().String()).Build(),
-			wantCode: codes.PermissionDenied,
 			wantErr:  true,
 		},
 	}
@@ -362,6 +403,20 @@ func TestOrderHandler_CancelOrder(t *testing.T) {
 			wantErr:  true,
 		},
 		{
+			name: "failed_precondition_from_usecase",
+			ctx:  authCtx(validUser),
+			req:  &orderv1.CancelOrderRequest{OrderId: orderID.String()},
+			setupMock: func(m *mocks.MockOrderUsecase) {
+				m.EXPECT().GetOrder(gomock.Any(), orderID).Return(&domain.Order{
+					ID:     orderID,
+					UserID: uuid.MustParse(validUser),
+				}, nil)
+				m.EXPECT().CancelOrder(gomock.Any(), orderID).Return(apperrors.ErrFailedPrecondition)
+			},
+			wantCode: codes.FailedPrecondition,
+			wantErr:  true,
+		},
+		{
 			name: "internal_error",
 			ctx:  authCtx(validUser),
 			req:  &orderv1.CancelOrderRequest{OrderId: orderID.String()},
@@ -415,29 +470,21 @@ func TestOrderHandler_UpdateOrderStatus(t *testing.T) {
 		wantErr   bool
 	}{
 		{
-			name: "success_owner",
-			ctx:  authCtx(validUser),
-			req:  &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: "shipped"},
+			name: "success_admin",
+			ctx:  authCtxWithRole(validUser, middleware.RoleAdmin),
+			req:  &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: orderv1.OrderStatus_ORDER_STATUS_SHIPPED},
 			setupMock: func(m *mocks.MockOrderUsecase) {
-				m.EXPECT().GetOrder(gomock.Any(), orderID).Return(&domain.Order{
-					ID:     orderID,
-					UserID: uuid.MustParse(validUser),
-				}, nil)
-				m.EXPECT().UpdateOrderStatus(gomock.Any(), orderID, "shipped").Return(nil)
+				m.EXPECT().UpdateOrderStatus(gomock.Any(), orderID, domain.OrderStatusShipped).Return(nil)
 			},
 			wantCode: codes.OK,
 			wantErr:  false,
 		},
 		{
-			name: "success_admin",
-			ctx:  authCtxWithRole(uuid.New().String(), middleware.RoleAdmin),
-			req:  &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: "shipped"},
+			name: "success_service",
+			ctx:  authCtxWithRole(validUser, middleware.RoleService),
+			req:  &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: orderv1.OrderStatus_ORDER_STATUS_SHIPPED},
 			setupMock: func(m *mocks.MockOrderUsecase) {
-				m.EXPECT().GetOrder(gomock.Any(), orderID).Return(&domain.Order{
-					ID:     orderID,
-					UserID: uuid.MustParse(validUser),
-				}, nil)
-				m.EXPECT().UpdateOrderStatus(gomock.Any(), orderID, "shipped").Return(nil)
+				m.EXPECT().UpdateOrderStatus(gomock.Any(), orderID, domain.OrderStatusShipped).Return(nil)
 			},
 			wantCode: codes.OK,
 			wantErr:  false,
@@ -445,50 +492,47 @@ func TestOrderHandler_UpdateOrderStatus(t *testing.T) {
 		{
 			name:     "unauthenticated",
 			ctx:      context.Background(),
-			req:      &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: "shipped"},
+			req:      &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: orderv1.OrderStatus_ORDER_STATUS_SHIPPED},
 			wantCode: codes.Unauthenticated,
 			wantErr:  true,
 		},
 		{
-			name:     "invalid_order_id",
+			name:     "permission_denied_user",
 			ctx:      authCtx(validUser),
-			req:      &orderv1.UpdateOrderStatusRequest{OrderId: "bad", Status: "shipped"},
-			wantCode: codes.InvalidArgument,
-			wantErr:  true,
-		},
-		{
-			name: "not_found",
-			ctx:  authCtx(validUser),
-			req:  &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: "shipped"},
-			setupMock: func(m *mocks.MockOrderUsecase) {
-				m.EXPECT().GetOrder(gomock.Any(), orderID).Return(nil, apperrors.ErrNotFound)
-			},
-			wantCode: codes.NotFound,
-			wantErr:  true,
-		},
-		{
-			name: "permission_denied",
-			ctx:  authCtx(uuid.New().String()),
-			req:  &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: "shipped"},
-			setupMock: func(m *mocks.MockOrderUsecase) {
-				m.EXPECT().GetOrder(gomock.Any(), orderID).Return(&domain.Order{
-					ID:     orderID,
-					UserID: uuid.MustParse(validUser),
-				}, nil)
-			},
+			req:      &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: orderv1.OrderStatus_ORDER_STATUS_SHIPPED},
 			wantCode: codes.PermissionDenied,
 			wantErr:  true,
 		},
 		{
-			name: "internal_error",
-			ctx:  authCtx(validUser),
-			req:  &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: "shipped"},
+			name:     "invalid_order_id",
+			ctx:      authCtxWithRole(validUser, middleware.RoleAdmin),
+			req:      &orderv1.UpdateOrderStatusRequest{OrderId: "bad", Status: orderv1.OrderStatus_ORDER_STATUS_SHIPPED},
+			wantCode: codes.InvalidArgument,
+			wantErr:  true,
+		},
+		{
+			name:     "unspecified_status",
+			ctx:      authCtxWithRole(validUser, middleware.RoleAdmin),
+			req:      &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: orderv1.OrderStatus_ORDER_STATUS_UNSPECIFIED},
+			wantCode: codes.InvalidArgument,
+			wantErr:  true,
+		},
+		{
+			name: "invalid_argument_from_usecase",
+			ctx:  authCtxWithRole(validUser, middleware.RoleAdmin),
+			req:  &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: orderv1.OrderStatus_ORDER_STATUS_SHIPPED},
 			setupMock: func(m *mocks.MockOrderUsecase) {
-				m.EXPECT().GetOrder(gomock.Any(), orderID).Return(&domain.Order{
-					ID:     orderID,
-					UserID: uuid.MustParse(validUser),
-				}, nil)
-				m.EXPECT().UpdateOrderStatus(gomock.Any(), orderID, "shipped").Return(errors.New("boom"))
+				m.EXPECT().UpdateOrderStatus(gomock.Any(), orderID, domain.OrderStatusShipped).Return(apperrors.ErrInvalidArgument)
+			},
+			wantCode: codes.InvalidArgument,
+			wantErr:  true,
+		},
+		{
+			name: "internal_error",
+			ctx:  authCtxWithRole(validUser, middleware.RoleAdmin),
+			req:  &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: orderv1.OrderStatus_ORDER_STATUS_SHIPPED},
+			setupMock: func(m *mocks.MockOrderUsecase) {
+				m.EXPECT().UpdateOrderStatus(gomock.Any(), orderID, domain.OrderStatusShipped).Return(errors.New("boom"))
 			},
 			wantCode: codes.Internal,
 			wantErr:  true,

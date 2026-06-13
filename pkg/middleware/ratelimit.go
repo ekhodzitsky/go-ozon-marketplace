@@ -36,11 +36,12 @@ func NewRedisRateLimiter(client *redis.Client, limit int, window time.Duration) 
 		local window = tonumber(ARGV[1])
 		local now = tonumber(ARGV[2])
 		local limit = tonumber(ARGV[3])
+		local expire = tonumber(ARGV[4])
 		redis.call('ZREMRANGEBYSCORE', key, 0, now - window)
 		local count = redis.call('ZCARD', key)
 		if count < limit then
 			redis.call('ZADD', key, now, now)
-			redis.call('EXPIRE', key, window)
+			redis.call('EXPIRE', key, expire)
 			return 1
 		end
 		return 0
@@ -54,12 +55,17 @@ func NewRedisRateLimiter(client *redis.Client, limit int, window time.Duration) 
 }
 
 // Allow reports whether one request from key is allowed.
+// Redis errors are treated as fail-closed to prevent abuse when the rate-limiting backend is unavailable.
 func (rl *RedisRateLimiter) Allow(ctx context.Context, key string) bool {
 	now := time.Now().UnixMilli()
-	res, err := rl.script.Run(ctx, rl.client, []string{key}, int(rl.window.Seconds()), now, rl.limit).Int()
+	windowMs := rl.window.Milliseconds()
+	expireSec := int64(rl.window.Seconds())
+	if expireSec < 1 {
+		expireSec = 1
+	}
+	res, err := rl.script.Run(ctx, rl.client, []string{key}, windowMs, now, rl.limit, expireSec).Int()
 	if err != nil {
-		// fail open: if Redis is down, allow request
-		return true
+		return false
 	}
 	return res == 1
 }
@@ -101,8 +107,8 @@ func ClientIP(r *http.Request, trusted []string) string {
 		return host
 	}
 	parts := strings.Split(xff, ",")
-	for _, p := range parts {
-		ip := strings.TrimSpace(p)
+	for i := len(parts) - 1; i >= 0; i-- {
+		ip := strings.TrimSpace(parts[i])
 		if ip != "" {
 			return ip
 		}

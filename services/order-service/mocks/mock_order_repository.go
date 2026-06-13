@@ -89,7 +89,7 @@ func (mr *MockOrderRepositoryMockRecorder) ListByUser(ctx, userID, page, pageSiz
 }
 
 // UpdateStatus mocks base method.
-func (m *MockOrderRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
+func (m *MockOrderRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.OrderStatus) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateStatus", ctx, id, status)
 	ret0, _ := ret[0].(error)
@@ -138,6 +138,34 @@ func (m *MockOutboxRepository) BatchMarkProcessed(ctx context.Context, ids []uui
 func (mr *MockOutboxRepositoryMockRecorder) BatchMarkProcessed(ctx, ids any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchMarkProcessed", reflect.TypeOf((*MockOutboxRepository)(nil).BatchMarkProcessed), ctx, ids)
+}
+
+// Begin mocks base method.
+func (m *MockOutboxRepository) Begin(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Begin", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Begin indicates an expected call of Begin.
+func (mr *MockOutboxRepositoryMockRecorder) Begin(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Begin", reflect.TypeOf((*MockOutboxRepository)(nil).Begin), ctx)
+}
+
+// Commit mocks base method.
+func (m *MockOutboxRepository) Commit(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Commit", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Commit indicates an expected call of Commit.
+func (mr *MockOutboxRepositoryMockRecorder) Commit(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Commit", reflect.TypeOf((*MockOutboxRepository)(nil).Commit), ctx)
 }
 
 // Create mocks base method.
@@ -209,6 +237,20 @@ func (m *MockOutboxRepository) MoveToDLQ(ctx context.Context, event *domain.Outb
 func (mr *MockOutboxRepositoryMockRecorder) MoveToDLQ(ctx, event, failedAt, lastError any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MoveToDLQ", reflect.TypeOf((*MockOutboxRepository)(nil).MoveToDLQ), ctx, event, failedAt, lastError)
+}
+
+// Rollback mocks base method.
+func (m *MockOutboxRepository) Rollback(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Rollback", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Rollback indicates an expected call of Rollback.
+func (mr *MockOutboxRepositoryMockRecorder) Rollback(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rollback", reflect.TypeOf((*MockOutboxRepository)(nil).Rollback), ctx)
 }
 
 // MockSagaRepository is a mock of SagaRepository interface.

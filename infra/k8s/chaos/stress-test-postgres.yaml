@@ -7,7 +7,7 @@ spec:
   mode: one
   selector:
     namespaces:
-      - default
+      - marketplace-staging
     labelSelectors:
       app: postgres
   stressors:

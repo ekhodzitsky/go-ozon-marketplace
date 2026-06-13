@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"time"
 
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
@@ -23,6 +24,8 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 func New() *fx.App {
@@ -39,7 +42,9 @@ func New() *fx.App {
 			},
 			postgres.NewUserPostgres,
 			func(repo repository.UserRepository, cfg *config.Config) usecase.UserUsecase {
-				return usecase.NewUserUsecase(repo, cfg.JWTSecret, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
+				// In-memory rate limiter: 5 requests per minute per email for auth endpoints.
+				rl := usecase.NewMemoryRateLimiter(5, time.Minute)
+				return usecase.NewUserUsecase(repo, cfg.JWTSecret, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout, rl)
 			},
 			grpcdelivery.NewUserHandler,
 		),
@@ -62,6 +67,7 @@ func New() *fx.App {
 			}
 
 			grpcServer := server.NewGRPC(cfg.GRPCPort, opts...)
+			healthServer := health.NewServer()
 
 			mux := http.NewServeMux()
 			mux.Handle("/metrics", promhttp.Handler())
@@ -70,9 +76,11 @@ func New() *fx.App {
 				Handler: mux,
 			}
 			userv1.RegisterUserServiceServer(grpcServer.Server, handler)
+			healthpb.RegisterHealthServer(grpcServer.Server, healthServer)
 
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
+					healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 					go func() {
 						if err := metricsServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 							log.Fatal("metrics server error", zap.Error(err))

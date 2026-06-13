@@ -11,7 +11,10 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		panic(err)
+	}
 	log, err := logger.New(cfg.LogLevel, cfg.LogFormat)
 	if err != nil {
 		panic(err)

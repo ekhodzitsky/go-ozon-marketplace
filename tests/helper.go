@@ -1,30 +1,64 @@
 package tests
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 var portMu sync.Mutex
+
+// AuthContext returns a gRPC outgoing context with a signed JWT bearer token.
+// The claims mirror the ones validated by the service auth middleware.
+func AuthContext(ctx context.Context, userID, secret string) context.Context {
+	now := time.Now().UTC()
+	claims := middleware.CustomClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   userID,
+			Issuer:    "go-ozon-marketplace",
+			Audience:  jwt.ClaimStrings{"api-gateway"},
+			ID:        uuid.NewString(),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
+		},
+		Role: string(middleware.RoleUser),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenStr, err := token.SignedString([]byte(secret))
+	if err != nil {
+		panic(fmt.Sprintf("failed to sign token: %v", err))
+	}
+	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+tokenStr)
+}
 
 func StartPostgres(ctx context.Context, t *testing.T) string {
 	t.Helper()
@@ -50,6 +84,31 @@ func StartPostgres(ctx context.Context, t *testing.T) string {
 		t.Fatalf("failed to get connection string: %v", err)
 	}
 	return connStr
+}
+
+// CreateDatabase creates a new database on the Postgres server identified by adminDSN
+// and returns a DSN for the new database. It drops the database if it already exists.
+func CreateDatabase(ctx context.Context, t *testing.T, adminDSN, dbName string) string {
+	t.Helper()
+
+	pool, err := pgxpool.New(ctx, adminDSN)
+	if err != nil {
+		t.Fatalf("failed to connect to admin database: %v", err)
+	}
+	defer pool.Close()
+
+	_, _ = pool.Exec(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %q", dbName))
+	_, err = pool.Exec(ctx, fmt.Sprintf("CREATE DATABASE %q", dbName))
+	if err != nil {
+		t.Fatalf("failed to create database %s: %v", dbName, err)
+	}
+
+	u, err := url.Parse(adminDSN)
+	if err != nil {
+		t.Fatalf("failed to parse admin dsn: %v", err)
+	}
+	u.Path = "/" + dbName
+	return u.String()
 }
 
 func RunMigrations(ctx context.Context, t *testing.T, dsn string, migrationDirs ...string) {
@@ -81,9 +140,17 @@ func RunMigrations(ctx context.Context, t *testing.T, dsn string, migrationDirs 
 				t.Fatalf("failed to read migration %s: %v", file, err)
 			}
 
-			_, err = pool.Exec(ctx, string(content))
+			tx, err := pool.Begin(ctx)
 			if err != nil {
+				t.Fatalf("failed to begin transaction for %s: %v", file, err)
+			}
+			_, err = tx.Exec(ctx, string(content))
+			if err != nil {
+				_ = tx.Rollback(ctx)
 				t.Fatalf("failed to execute migration %s: %v", file, err)
+			}
+			if err := tx.Commit(ctx); err != nil {
+				t.Fatalf("failed to commit migration %s: %v", file, err)
 			}
 		}
 	}
@@ -102,8 +169,19 @@ func GetFreePort(t *testing.T) int {
 	if err != nil {
 		t.Fatalf("failed to get free port: %v", err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	return l.Addr().(*net.TCPAddr).Port
+}
+
+func streamToLog(t *testing.T, wg *sync.WaitGroup, r io.ReadCloser) {
+	defer wg.Done()
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		t.Log(scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		t.Logf("service log scanner error: %v", err)
+	}
 }
 
 func StartService(t *testing.T, serviceDir string, env []string) *exec.Cmd {
@@ -119,36 +197,56 @@ func StartService(t *testing.T, serviceDir string, env []string) *exec.Cmd {
 	cmd := exec.Command(bin)
 	cmd.Dir = serviceDir
 	cmd.Env = append(os.Environ(), env...)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("failed to create stdout pipe for %s: %v", serviceDir, err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatalf("failed to create stderr pipe for %s: %v", serviceDir, err)
+	}
+
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("failed to start service %s: %v", serviceDir, err)
 	}
-	t.Cleanup(func() { _ = cmd.Process.Kill() })
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go streamToLog(t, &wg, stdout)
+	go streamToLog(t, &wg, stderr)
+
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Signal(syscall.SIGTERM)
+			done := make(chan struct{})
+			go func() {
+				_ = cmd.Wait()
+				close(done)
+			}()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				_ = cmd.Process.Kill()
+				<-done
+			}
+		}
+		wg.Wait()
+	})
 	return cmd
 }
 
-// WaitForGRPC waits for a raw TCP connection with exponential backoff.
-// Prefer WaitForGRPCHealth for real readiness checks.
+// WaitForGRPC waits for a gRPC server to become ready.
+// It prefers a health check and falls back to a raw TCP connection for
+// servers that do not implement the gRPC health protocol.
 func WaitForGRPC(t *testing.T, addr string) {
 	t.Helper()
-	b := backoff.NewExponentialBackOff()
-	b.InitialInterval = 50 * time.Millisecond
-	b.MaxInterval = 500 * time.Millisecond
-	b.MaxElapsedTime = 10 * time.Second
-
-	err := backoff.Retry(func() error {
-		conn, err := net.Dial("tcp", addr)
-		if err != nil {
-			return err
-		}
-		_ = conn.Close()
-		return nil
-	}, b)
-	if err != nil {
-		t.Fatalf("gRPC server did not start at %s", addr)
-	}
+	WaitForGRPCHealth(t, addr)
 }
 
 // WaitForGRPCHealth performs a gRPC health check with exponential backoff.
+// If the server does not implement health checks, it falls back to a raw
+// TCP connection so that mocks and minimal servers still work.
 func WaitForGRPCHealth(t *testing.T, addr string) {
 	t.Helper()
 	b := backoff.NewExponentialBackOff()
@@ -163,10 +261,19 @@ func WaitForGRPCHealth(t *testing.T, addr string) {
 		if err != nil {
 			return err
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		client := healthpb.NewHealthClient(conn)
 		resp, err := client.Check(ctx, &healthpb.HealthCheckRequest{})
 		if err != nil {
+			st, ok := status.FromError(err)
+			if ok && st.Code() == codes.Unimplemented {
+				tcpConn, err := net.Dial("tcp", addr)
+				if err != nil {
+					return err
+				}
+				_ = tcpConn.Close()
+				return nil
+			}
 			return err
 		}
 		if resp.Status != healthpb.HealthCheckResponse_SERVING {
@@ -191,11 +298,14 @@ func WaitForHTTP(t *testing.T, url string) {
 		if err != nil {
 			return err
 		}
-		_ = resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode >= 500 {
+			return fmt.Errorf("HTTP status %d", resp.StatusCode)
+		}
 		return nil
 	}, b)
 	if err != nil {
-		t.Fatalf("HTTP server did not start at %s", url)
+		t.Fatalf("HTTP server did not start at %s: %v", url, err)
 	}
 }
 

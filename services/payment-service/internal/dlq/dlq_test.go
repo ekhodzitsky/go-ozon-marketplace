@@ -4,20 +4,30 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/IBM/sarama"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/dlq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 type mockSyncProducer struct {
 	msgs []*sarama.ProducerMessage
 	err  error
+	sent chan struct{}
+}
+
+func newMockSyncProducer() *mockSyncProducer {
+	return &mockSyncProducer{sent: make(chan struct{}, 1)}
 }
 
 func (m *mockSyncProducer) SendMessage(msg *sarama.ProducerMessage) (int32, int64, error) {
 	m.msgs = append(m.msgs, msg)
+	if m.sent != nil {
+		m.sent <- struct{}{}
+	}
 	return 0, 0, m.err
 }
 
@@ -54,11 +64,15 @@ func TestProducer_SendToDLQ(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		t.Parallel()
-		mock := &mockSyncProducer{}
-		p := dlq.NewProducerWithClient(mock, "dlq-topic")
+		mock := newMockSyncProducer()
+		p := dlq.NewProducerWithClient(mock, "dlq-topic", zap.NewNop())
 
-		err := p.SendToDLQ("PaymentFailed", `{"id":"123"}`, "timeout")
-		require.NoError(t, err)
+		p.SendToDLQ("PaymentFailed", `{"id":"123"}`, "timeout")
+		select {
+		case <-mock.sent:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for dlq send")
+		}
 		require.Len(t, mock.msgs, 1)
 
 		msg := mock.msgs[0]
@@ -66,7 +80,7 @@ func TestProducer_SendToDLQ(t *testing.T) {
 		assert.Equal(t, sarama.ByteEncoder([]byte("PaymentFailed")), msg.Key)
 
 		var event dlq.Event
-		err = json.Unmarshal(msg.Value.(sarama.ByteEncoder), &event)
+		err := json.Unmarshal(msg.Value.(sarama.ByteEncoder), &event)
 		require.NoError(t, err)
 		assert.Equal(t, "PaymentFailed", event.EventType)
 		assert.Equal(t, `{"id":"123"}`, event.Payload)
@@ -76,18 +90,37 @@ func TestProducer_SendToDLQ(t *testing.T) {
 
 	t.Run("send_error", func(t *testing.T) {
 		t.Parallel()
-		mock := &mockSyncProducer{err: errors.New("kafka down")}
-		p := dlq.NewProducerWithClient(mock, "dlq-topic")
+		mock := newMockSyncProducer()
+		mock.err = errors.New("kafka down")
+		p := dlq.NewProducerWithClient(mock, "dlq-topic", zap.NewNop())
 
-		err := p.SendToDLQ("PaymentFailed", "", "error")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "kafka down")
+		p.SendToDLQ("PaymentFailed", "", "error")
+		select {
+		case <-mock.sent:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for dlq send")
+		}
+	})
+
+	t.Run("no_op_when_producer_nil", func(t *testing.T) {
+		t.Parallel()
+		p := dlq.NewProducerWithClient(nil, "dlq-topic", zap.NewNop())
+		p.SendToDLQ("PaymentFailed", "", "error")
+		// should return without blocking or panicking
 	})
 }
 
 func TestProducer_Close(t *testing.T) {
 	t.Parallel()
-	mock := &mockSyncProducer{}
-	p := dlq.NewProducerWithClient(mock, "dlq-topic")
+	mock := newMockSyncProducer()
+	p := dlq.NewProducerWithClient(mock, "dlq-topic", zap.NewNop())
+	require.NoError(t, p.Close())
+}
+
+func TestProducer_NewProducer_DoesNotFailOnUnavailableKafka(t *testing.T) {
+	t.Parallel()
+	p, err := dlq.NewProducer([]string{"127.0.0.1:1"}, "dlq-topic", zap.NewNop())
+	require.NoError(t, err)
+	require.NotNil(t, p)
 	require.NoError(t, p.Close())
 }

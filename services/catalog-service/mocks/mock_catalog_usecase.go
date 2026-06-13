@@ -43,18 +43,18 @@ func (m *MockCatalogUsecase) EXPECT() *MockCatalogUsecaseMockRecorder {
 }
 
 // CreateProduct mocks base method.
-func (m *MockCatalogUsecase) CreateProduct(ctx context.Context, name, description string, price int64, categories []string) (uuid.UUID, error) {
+func (m *MockCatalogUsecase) CreateProduct(ctx context.Context, name, description string, price int64, categories []string, idempotencyKey string) (uuid.UUID, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateProduct", ctx, name, description, price, categories)
+	ret := m.ctrl.Call(m, "CreateProduct", ctx, name, description, price, categories, idempotencyKey)
 	ret0, _ := ret[0].(uuid.UUID)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CreateProduct indicates an expected call of CreateProduct.
-func (mr *MockCatalogUsecaseMockRecorder) CreateProduct(ctx, name, description, price, categories any) *gomock.Call {
+func (mr *MockCatalogUsecaseMockRecorder) CreateProduct(ctx, name, description, price, categories, idempotencyKey any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateProduct", reflect.TypeOf((*MockCatalogUsecase)(nil).CreateProduct), ctx, name, description, price, categories)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateProduct", reflect.TypeOf((*MockCatalogUsecase)(nil).CreateProduct), ctx, name, description, price, categories, idempotencyKey)
 }
 
 // DeleteProduct mocks base method.

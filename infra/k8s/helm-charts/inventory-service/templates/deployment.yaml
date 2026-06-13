@@ -48,6 +48,10 @@ spec:
               value: {{ .Values.env.GRPC_PORT | quote }}
             - name: REDIS_ADDR
               value: {{ .Values.env.REDIS_ADDR | quote }}
+            - name: METRICS_PORT
+              value: {{ .Values.service.metricsPort | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.env.OTEL_EXPORTER_OTLP_ENDPOINT | default "http://jaeger.monitoring.svc.cluster.local:4318" | quote }}
           envFrom:
             - secretRef:
                 name: {{ include "inventory-service.fullname" . }}-secrets

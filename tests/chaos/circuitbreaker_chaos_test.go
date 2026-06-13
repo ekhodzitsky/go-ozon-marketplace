@@ -42,17 +42,17 @@ func TestCircuitBreakerOpens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	client := inventoryv1.NewInventoryServiceClient(conn)
 
 	productID := uuid.New().String()
 
 	// Kill inventory-service
-	dockerKill(t, "go-ozon-marketplace-inventory-service-1")
+	dockerKill(t, containerName("inventory-service"))
 
 	openSeen := false
 	for i := 0; i < 10; i++ {
-		_, err := client.GetStock(ctx, &inventoryv1.GetStockRequest{ProductId: productID})
+		_, err := client.GetStock(ctx, tests.NewGetStockRequestBuilder().WithProductID(productID).Build())
 		if err != nil {
 			if cb.State() == circuitbreaker.StateOpen {
 				openSeen = true
@@ -64,8 +64,9 @@ func TestCircuitBreakerOpens(t *testing.T) {
 		t.Fatalf("expected circuit breaker to open after failures, state=%v", cb.State())
 	}
 
-	// Restart inventory-service
-	dockerStart(t, "go-ozon-marketplace-inventory-service-1")
+	// Restart inventory-service and wait for it to be running
+	dockerStart(t, containerName("inventory-service"))
+	waitForContainer(t, containerName("inventory-service"), 30*time.Second)
 	tests.WaitForGRPC(t, addr)
 
 	// Wait for CB timeout to transition to half-open
@@ -73,7 +74,7 @@ func TestCircuitBreakerOpens(t *testing.T) {
 	time.Sleep(31 * time.Second)
 
 	// First request after timeout should transition to half-open
-	_, err = client.GetStock(ctx, &inventoryv1.GetStockRequest{ProductId: productID})
+	_, err = client.GetStock(ctx, tests.NewGetStockRequestBuilder().WithProductID(productID).Build())
 	if err != nil {
 		t.Fatalf("expected half-open request to succeed after service restart: %v", err)
 	}
@@ -83,7 +84,7 @@ func TestCircuitBreakerOpens(t *testing.T) {
 	}
 
 	// Send one more successful request to close the circuit
-	_, err = client.GetStock(ctx, &inventoryv1.GetStockRequest{ProductId: productID})
+	_, err = client.GetStock(ctx, tests.NewGetStockRequestBuilder().WithProductID(productID).Build())
 	if err != nil {
 		t.Fatalf("expected second request to succeed: %v", err)
 	}

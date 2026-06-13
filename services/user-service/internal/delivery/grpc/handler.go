@@ -2,16 +2,14 @@ package grpc
 
 import (
 	"context"
-	"errors"
+	"fmt"
 
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/validation"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/usecase"
 	"github.com/google/uuid"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
-	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 )
 
 type UserHandler struct {
@@ -25,46 +23,49 @@ func NewUserHandler(uc usecase.UserUsecase) *UserHandler {
 
 func (h *UserHandler) Register(ctx context.Context, req *userv1.RegisterRequest) (*userv1.RegisterResponse, error) {
 	if err := validation.ValidateEmail(req.Email); err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, apperrors.ToStatus(apperrors.Wrap(apperrors.ErrInvalidArgument, "invalid_argument", err.Error()))
 	}
 	if err := validation.ValidatePassword(req.Password); err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, apperrors.ToStatus(apperrors.Wrap(apperrors.ErrInvalidArgument, "invalid_argument", err.Error()))
 	}
 	if err := validation.ValidateName(req.Name); err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, apperrors.ToStatus(apperrors.Wrap(apperrors.ErrInvalidArgument, "invalid_argument", err.Error()))
 	}
 	id, err := h.usecase.Register(ctx, req.Email, req.Password, req.Name)
 	if err != nil {
-		return nil, err
+		return nil, apperrors.ToStatus(err)
 	}
 	return &userv1.RegisterResponse{UserId: id.String()}, nil
 }
 
 func (h *UserHandler) Login(ctx context.Context, req *userv1.LoginRequest) (*userv1.LoginResponse, error) {
 	if err := validation.ValidateEmail(req.Email); err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, apperrors.ToStatus(apperrors.Wrap(apperrors.ErrInvalidArgument, "invalid_argument", err.Error()))
 	}
 	if err := validation.ValidatePassword(req.Password); err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, apperrors.ToStatus(apperrors.Wrap(apperrors.ErrInvalidArgument, "invalid_argument", err.Error()))
 	}
 	token, err := h.usecase.Login(ctx, req.Email, req.Password)
 	if err != nil {
-		return nil, err
+		return nil, apperrors.ToStatus(err)
 	}
 	return &userv1.LoginResponse{Token: token}, nil
 }
 
 func (h *UserHandler) GetUser(ctx context.Context, req *userv1.GetUserRequest) (*userv1.GetUserResponse, error) {
-	id, err := uuid.Parse(req.UserId)
-	if err != nil {
-		return nil, err
+	userIDStr, ok := middleware.GetUserID(ctx)
+	if !ok || userIDStr == "" {
+		return nil, apperrors.ToStatus(apperrors.Wrap(apperrors.ErrInvalidCredentials, "unauthenticated", "missing user identity"))
 	}
+
+	id, err := uuid.Parse(userIDStr)
+	if err != nil {
+		return nil, apperrors.ToStatus(apperrors.Wrap(apperrors.ErrInvalidArgument, "invalid_argument", fmt.Sprintf("invalid user id: %v", err)))
+	}
+
 	user, err := h.usecase.GetUser(ctx, id)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, err.Error())
-		}
-		return nil, status.Errorf(codes.Internal, "get user: %v", err)
+		return nil, apperrors.ToStatus(err)
 	}
 	return &userv1.GetUserResponse{
 		UserId:    user.ID.String(),

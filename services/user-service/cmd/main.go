@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/tracing"
@@ -11,19 +12,23 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
-	log, err := logger.New(cfg.LogLevel, cfg.LogFormat)
+	cfg, err := config.Load()
 	if err != nil {
-		panic(err)
+		log.Fatalf("load config: %v", err)
+	}
+
+	logStd, err := logger.New(cfg.LogLevel, cfg.LogFormat)
+	if err != nil {
+		log.Fatalf("init logger: %v", err)
 	}
 
 	tp, err := tracing.InitTracer("user-service", cfg.OTELExporterOTLPEndpoint)
 	if err != nil {
-		log.Fatal("init tracer", zap.Error(err))
+		logStd.Fatal("init tracer", zap.Error(err))
 	}
 	defer func() {
 		if err := tracing.ShutdownTracer(tp, context.Background()); err != nil {
-			log.Error("shutdown tracer", zap.Error(err))
+			logStd.Error("shutdown tracer", zap.Error(err))
 		}
 	}()
 

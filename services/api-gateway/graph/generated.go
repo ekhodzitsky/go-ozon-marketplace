@@ -69,7 +69,7 @@ type ComplexityRoot struct {
 
 	Mutation struct {
 		CancelOrder   func(childComplexity int, orderID string) int
-		CreateOrder   func(childComplexity int, userID string, items []*model.OrderItemInput) int
+		CreateOrder   func(childComplexity int, items []*model.OrderItemInput) int
 		CreateProduct func(childComplexity int, name string, description string, price float64, categories []string) int
 		Login         func(childComplexity int, email string, password string) int
 		Register      func(childComplexity int, email string, password string, name string) int
@@ -139,7 +139,7 @@ type MutationResolver interface {
 	Register(ctx context.Context, email string, password string, name string) (string, error)
 	Login(ctx context.Context, email string, password string) (string, error)
 	CreateProduct(ctx context.Context, name string, description string, price float64, categories []string) (string, error)
-	CreateOrder(ctx context.Context, userID string, items []*model.OrderItemInput) (string, error)
+	CreateOrder(ctx context.Context, items []*model.OrderItemInput) (string, error)
 	CancelOrder(ctx context.Context, orderID string) (bool, error)
 }
 type QueryResolver interface {
@@ -262,7 +262,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.CreateOrder(childComplexity, args["userId"].(string), args["items"].([]*model.OrderItemInput)), true
+		return e.complexity.Mutation.CreateOrder(childComplexity, args["items"].([]*model.OrderItemInput)), true
 
 	case "Mutation.createProduct":
 		if e.complexity.Mutation.CreateProduct == nil {
@@ -758,31 +758,13 @@ func (ec *executionContext) field_Mutation_cancelOrder_argsOrderID(
 func (ec *executionContext) field_Mutation_createOrder_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
-	arg0, err := ec.field_Mutation_createOrder_argsUserID(ctx, rawArgs)
+	arg0, err := ec.field_Mutation_createOrder_argsItems(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["userId"] = arg0
-	arg1, err := ec.field_Mutation_createOrder_argsItems(ctx, rawArgs)
-	if err != nil {
-		return nil, err
-	}
-	args["items"] = arg1
+	args["items"] = arg0
 	return args, nil
 }
-func (ec *executionContext) field_Mutation_createOrder_argsUserID(
-	ctx context.Context,
-	rawArgs map[string]any,
-) (string, error) {
-	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("userId"))
-	if tmp, ok := rawArgs["userId"]; ok {
-		return ec.unmarshalNID2string(ctx, tmp)
-	}
-
-	var zeroVal string
-	return zeroVal, nil
-}
-
 func (ec *executionContext) field_Mutation_createOrder_argsItems(
 	ctx context.Context,
 	rawArgs map[string]any,
@@ -1950,7 +1932,7 @@ func (ec *executionContext) _Mutation_createOrder(ctx context.Context, field gra
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Mutation().CreateOrder(rctx, fc.Args["userId"].(string), fc.Args["items"].([]*model.OrderItemInput))
+		return ec.resolvers.Mutation().CreateOrder(rctx, fc.Args["items"].([]*model.OrderItemInput))
 	})
 	if err != nil {
 		ec.Error(ctx, err)

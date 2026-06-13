@@ -6,6 +6,7 @@ import (
 	"time"
 
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/validation"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
@@ -13,8 +14,6 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-
-	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 )
 
 type OrderHandler struct {
@@ -31,9 +30,10 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *orderv1.CreateOrder
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "missing user_id in context")
 	}
-	if req.UserId != "" && req.UserId != authUserID {
-		return nil, status.Error(codes.PermissionDenied, "user_id mismatch")
+	if req.IdempotencyKey == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing idempotency_key")
 	}
+
 	userID, err := uuid.Parse(authUserID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "invalid user_id in token: %v", err)
@@ -44,28 +44,31 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *orderv1.CreateOrder
 		if err := validation.ValidateQuantity(item.Quantity); err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
-		if err := validation.ValidatePrice(item.Price); err != nil {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
+		if item.PriceCents <= 0 {
+			return nil, status.Error(codes.InvalidArgument, "price must be greater than 0")
 		}
 		productID, err := uuid.Parse(item.ProductId)
 		if err != nil {
-			return nil, err
+			return nil, status.Error(codes.InvalidArgument, "invalid product_id")
 		}
 		items = append(items, domain.OrderItem{
 			ProductID: productID,
 			Quantity:  int(item.Quantity),
-			Price:     int64(item.Price * 100),
+			Price:     item.PriceCents,
 		})
 	}
 
-	orderID, err := h.usecase.CreateOrder(ctx, userID, items)
+	orderID, err := h.usecase.CreateOrder(ctx, userID, items, req.IdempotencyKey)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, apperrors.ErrInvalidArgument) {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+		return nil, apperrors.ToStatus(err)
 	}
 
 	return &orderv1.CreateOrderResponse{
 		OrderId: orderID.String(),
-		Status:  "pending",
+		Status:  orderv1.OrderStatus_ORDER_STATUS_PENDING,
 	}, nil
 }
 
@@ -77,7 +80,7 @@ func (h *OrderHandler) GetOrder(ctx context.Context, req *orderv1.GetOrderReques
 
 	orderID, err := uuid.Parse(req.OrderId)
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.InvalidArgument, "invalid order_id")
 	}
 
 	order, err := h.usecase.GetOrder(ctx, orderID)
@@ -88,7 +91,8 @@ func (h *OrderHandler) GetOrder(ctx context.Context, req *orderv1.GetOrderReques
 		return nil, status.Errorf(codes.Internal, "get order: %v", err)
 	}
 
-	if order.UserID.String() != authUserID {
+	role, _ := middleware.GetRole(ctx)
+	if order.UserID.String() != authUserID && role != middleware.RoleAdmin {
 		return nil, status.Error(codes.PermissionDenied, "order does not belong to user")
 	}
 
@@ -101,9 +105,6 @@ func (h *OrderHandler) ListOrders(ctx context.Context, req *orderv1.ListOrdersRe
 	authUserID, ok := middleware.GetUserID(ctx)
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "missing user_id in context")
-	}
-	if req.UserId != "" && req.UserId != authUserID {
-		return nil, status.Error(codes.PermissionDenied, "user_id mismatch")
 	}
 	userID, err := uuid.Parse(authUserID)
 	if err != nil {
@@ -125,7 +126,7 @@ func (h *OrderHandler) ListOrders(ctx context.Context, req *orderv1.ListOrdersRe
 
 	orders, total, err := h.usecase.ListOrders(ctx, userID, page, pageSize)
 	if err != nil {
-		return nil, err
+		return nil, apperrors.ToStatus(err)
 	}
 
 	protoOrders := make([]*orderv1.Order, 0, len(orders))
@@ -167,6 +168,9 @@ func (h *OrderHandler) CancelOrder(ctx context.Context, req *orderv1.CancelOrder
 		if errors.Is(err, apperrors.ErrInvalidArgument) {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
+		if errors.Is(err, apperrors.ErrFailedPrecondition) {
+			return nil, status.Error(codes.FailedPrecondition, err.Error())
+		}
 		return nil, status.Errorf(codes.Internal, "cancel order: %v", err)
 	}
 
@@ -174,9 +178,13 @@ func (h *OrderHandler) CancelOrder(ctx context.Context, req *orderv1.CancelOrder
 }
 
 func (h *OrderHandler) UpdateOrderStatus(ctx context.Context, req *orderv1.UpdateOrderStatusRequest) (*orderv1.UpdateOrderStatusResponse, error) {
-	authUserID, ok := middleware.GetUserID(ctx)
-	if !ok {
+	if _, ok := middleware.GetUserID(ctx); !ok {
 		return nil, status.Error(codes.Unauthenticated, "missing user_id in context")
+	}
+
+	role, _ := middleware.GetRole(ctx)
+	if role != middleware.RoleAdmin && role != middleware.RoleService {
+		return nil, status.Error(codes.PermissionDenied, "only admin or service can update order status")
 	}
 
 	orderID, err := uuid.Parse(req.OrderId)
@@ -184,20 +192,17 @@ func (h *OrderHandler) UpdateOrderStatus(ctx context.Context, req *orderv1.Updat
 		return nil, status.Error(codes.InvalidArgument, "invalid order_id")
 	}
 
-	order, err := h.usecase.GetOrder(ctx, orderID)
-	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, err.Error())
+	if req.Status == orderv1.OrderStatus_ORDER_STATUS_UNSPECIFIED {
+		return nil, status.Error(codes.InvalidArgument, "invalid order status")
+	}
+
+	if err := h.usecase.UpdateOrderStatus(ctx, orderID, protoStatusToDomain(req.Status)); err != nil {
+		if errors.Is(err, apperrors.ErrInvalidArgument) {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
-		return nil, status.Errorf(codes.Internal, "get order: %v", err)
-	}
-
-	role, _ := middleware.GetRole(ctx)
-	if order.UserID.String() != authUserID && role != middleware.RoleAdmin {
-		return nil, status.Error(codes.PermissionDenied, "order does not belong to user")
-	}
-
-	if err := h.usecase.UpdateOrderStatus(ctx, orderID, req.Status); err != nil {
+		if errors.Is(err, apperrors.ErrFailedPrecondition) {
+			return nil, status.Error(codes.FailedPrecondition, err.Error())
+		}
 		return nil, status.Errorf(codes.Internal, "update order status: %v", err)
 	}
 
@@ -208,18 +213,64 @@ func mapOrderToProto(order *domain.Order) *orderv1.Order {
 	items := make([]*orderv1.OrderItem, 0, len(order.Items))
 	for _, item := range order.Items {
 		items = append(items, &orderv1.OrderItem{
-			ProductId: item.ProductID.String(),
-			Quantity:  int32(item.Quantity),
-			Price:     float64(item.Price),
+			ProductId:  item.ProductID.String(),
+			Quantity:   int32(item.Quantity),
+			PriceCents: item.Price,
 		})
 	}
 	return &orderv1.Order{
-		OrderId:     order.ID.String(),
-		UserId:      order.UserID.String(),
-		Items:       items,
-		TotalAmount: float64(order.TotalAmount),
-		Status:      order.Status,
-		CreatedAt:   order.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:   order.UpdatedAt.Format(time.RFC3339),
+		OrderId:          order.ID.String(),
+		UserId:           order.UserID.String(),
+		Items:            items,
+		TotalAmountCents: order.TotalAmount,
+		Status:           domainStatusToProto(order.Status),
+		CreatedAt:        order.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:        order.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
+func domainStatusToProto(s domain.OrderStatus) orderv1.OrderStatus {
+	switch s {
+	case domain.OrderStatusPending:
+		return orderv1.OrderStatus_ORDER_STATUS_PENDING
+	case domain.OrderStatusAwaitingPayment:
+		return orderv1.OrderStatus_ORDER_STATUS_AWAITING_PAYMENT
+	case domain.OrderStatusPaid:
+		return orderv1.OrderStatus_ORDER_STATUS_PAID
+	case domain.OrderStatusProcessing:
+		return orderv1.OrderStatus_ORDER_STATUS_PROCESSING
+	case domain.OrderStatusShipped:
+		return orderv1.OrderStatus_ORDER_STATUS_SHIPPED
+	case domain.OrderStatusDelivered:
+		return orderv1.OrderStatus_ORDER_STATUS_DELIVERED
+	case domain.OrderStatusCancelled:
+		return orderv1.OrderStatus_ORDER_STATUS_CANCELLED
+	case domain.OrderStatusRefunded:
+		return orderv1.OrderStatus_ORDER_STATUS_REFUNDED
+	default:
+		return orderv1.OrderStatus_ORDER_STATUS_UNSPECIFIED
+	}
+}
+
+func protoStatusToDomain(s orderv1.OrderStatus) domain.OrderStatus {
+	switch s {
+	case orderv1.OrderStatus_ORDER_STATUS_PENDING:
+		return domain.OrderStatusPending
+	case orderv1.OrderStatus_ORDER_STATUS_AWAITING_PAYMENT:
+		return domain.OrderStatusAwaitingPayment
+	case orderv1.OrderStatus_ORDER_STATUS_PAID:
+		return domain.OrderStatusPaid
+	case orderv1.OrderStatus_ORDER_STATUS_PROCESSING:
+		return domain.OrderStatusProcessing
+	case orderv1.OrderStatus_ORDER_STATUS_SHIPPED:
+		return domain.OrderStatusShipped
+	case orderv1.OrderStatus_ORDER_STATUS_DELIVERED:
+		return domain.OrderStatusDelivered
+	case orderv1.OrderStatus_ORDER_STATUS_CANCELLED:
+		return domain.OrderStatusCancelled
+	case orderv1.OrderStatus_ORDER_STATUS_REFUNDED:
+		return domain.OrderStatusRefunded
+	default:
+		return domain.OrderStatusUnspecified
 	}
 }

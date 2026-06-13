@@ -86,19 +86,48 @@ func (r *Relay) poll(ctx context.Context) {
 	var poisonIDs []uuid.UUID
 
 	for _, event := range events {
-		var product domain.Product
-		if err := json.Unmarshal(event.Payload, &product); err != nil {
-			r.log.Error("failed to unmarshal outbox payload", zap.Error(err), zap.String("event_id", event.ID.String()))
+		switch event.EventType {
+		case "ProductCreated", "ProductUpdated":
+			var product domain.Product
+			if err := json.Unmarshal(event.Payload, &product); err != nil {
+				r.log.Error("failed to unmarshal outbox payload", zap.Error(err), zap.String("event_id", event.ID.String()))
+				poisonIDs = append(poisonIDs, event.ID)
+				continue
+			}
+
+			if err := r.searchRepo.Index(ctx, &product); err != nil {
+				r.log.Error("failed to index product in ES", zap.Error(err), zap.String("event_id", event.ID.String()), zap.String("product_id", product.ID.String()))
+				continue
+			}
+
+			successIDs = append(successIDs, event.ID)
+		case "ProductDeleted":
+			var payload struct {
+				ProductID string `json:"product_id"`
+			}
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				r.log.Error("failed to unmarshal delete payload", zap.Error(err), zap.String("event_id", event.ID.String()))
+				poisonIDs = append(poisonIDs, event.ID)
+				continue
+			}
+
+			id, err := uuid.Parse(payload.ProductID)
+			if err != nil {
+				r.log.Error("invalid product id in delete payload", zap.Error(err), zap.String("event_id", event.ID.String()))
+				poisonIDs = append(poisonIDs, event.ID)
+				continue
+			}
+
+			if err := r.searchRepo.Delete(ctx, id); err != nil {
+				r.log.Error("failed to delete product from ES", zap.Error(err), zap.String("event_id", event.ID.String()), zap.String("product_id", id.String()))
+				continue
+			}
+
+			successIDs = append(successIDs, event.ID)
+		default:
+			r.log.Warn("unknown outbox event type", zap.String("event_type", event.EventType), zap.String("event_id", event.ID.String()))
 			poisonIDs = append(poisonIDs, event.ID)
-			continue
 		}
-
-		if err := r.searchRepo.Index(ctx, &product); err != nil {
-			r.log.Error("failed to index product in ES", zap.Error(err), zap.String("event_id", event.ID.String()), zap.String("product_id", product.ID.String()))
-			continue
-		}
-
-		successIDs = append(successIDs, event.ID)
 	}
 
 	if len(poisonIDs) > 0 {

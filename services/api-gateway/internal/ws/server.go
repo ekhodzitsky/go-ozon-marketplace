@@ -2,20 +2,73 @@ package ws
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
+// Config holds WebSocket security configuration.
+type Config struct {
+	AllowedOrigins []string
+	JWTSecret      string
+}
+
+func originAllowed(r *http.Request, allowed []string) bool {
+	if len(allowed) == 0 {
 		return true
-	},
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	for _, o := range allowed {
+		if o == origin {
+			return true
+		}
+	}
+	return false
+}
+
+func authenticateUpgrade(r *http.Request, jwtSecret string) (string, error) {
+	if jwtSecret == "" {
+		return "", nil
+	}
+	// Prefer token from query parameter for WebSocket clients.
+	tokenStr := r.URL.Query().Get("token")
+	if tokenStr == "" {
+		auth := r.Header.Get("Authorization")
+		if len(auth) > 7 && auth[:7] == "Bearer " {
+			tokenStr = auth[7:]
+		}
+	}
+	if tokenStr == "" {
+		return "", fmt.Errorf("missing token")
+	}
+
+	token, err := jwt.ParseWithClaims(tokenStr, &customClaims{}, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return []byte(jwtSecret), nil
+	})
+	if err != nil || !token.Valid {
+		return "", fmt.Errorf("invalid token")
+	}
+	claims, ok := token.Claims.(*customClaims)
+	if !ok || claims.Subject == "" {
+		return "", fmt.Errorf("invalid token claims")
+	}
+	return claims.Subject, nil
+}
+
+type customClaims struct {
+	jwt.RegisteredClaims
+	Role string `json:"role"`
 }
 
 // WSMessage is the envelope broadcast to WebSocket clients.
@@ -79,6 +132,11 @@ func (h *Hub) Broadcast(message []byte) {
 	}
 }
 
+// BroadcastChannel returns the hub's broadcast channel for testing purposes.
+func (h *Hub) BroadcastChannel() <-chan []byte {
+	return h.broadcast
+}
+
 func (h *Hub) broadcastToClients(message []byte) {
 	var wsMsg WSMessage
 	if err := json.Unmarshal(message, &wsMsg); err != nil {
@@ -119,20 +177,18 @@ func (h *Hub) broadcastToClients(message []byte) {
 type SubscribeMessage struct {
 	Action string   `json:"action"`
 	Topics []string `json:"topics"`
-	UserID string   `json:"user_id"`
 }
 
 func (c *Client) readPump() {
 	defer func() {
 		c.hub.unregister <- c
-		c.conn.Close()
+		_ = c.conn.Close()
 	}()
 
 	c.conn.SetReadLimit(512 * 1024)
-	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	_ = c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-		return nil
+		return c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	})
 
 	for {
@@ -153,9 +209,6 @@ func (c *Client) readPump() {
 			for _, t := range msg.Topics {
 				c.topics[t] = true
 			}
-			if msg.UserID != "" {
-				c.userID = msg.UserID
-			}
 			c.mu.Unlock()
 		}
 	}
@@ -165,27 +218,27 @@ func (c *Client) writePump() {
 	ticker := time.NewTicker(54 * time.Second)
 	defer func() {
 		ticker.Stop()
-		c.conn.Close()
+		_ = c.conn.Close()
 	}()
 
 	for {
 		select {
 		case message, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if !ok {
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 			w, err := c.conn.NextWriter(websocket.TextMessage)
 			if err != nil {
 				return
 			}
-			w.Write(message)
+			_, _ = w.Write(message)
 			if err := w.Close(); err != nil {
 				return
 			}
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
@@ -194,7 +247,22 @@ func (c *Client) writePump() {
 }
 
 // ServeWs handles WebSocket requests from clients.
-func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
+func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, cfg Config) {
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			return originAllowed(r, cfg.AllowedOrigins)
+		},
+	}
+
+	userID, err := authenticateUpgrade(r, cfg.JWTSecret)
+	if err != nil {
+		log.Printf("websocket auth error: %v", err)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("websocket upgrade error: %v", err)
@@ -205,6 +273,7 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		conn:   conn,
 		send:   make(chan []byte, 256),
 		topics: make(map[string]bool),
+		userID: userID,
 	}
 	client.hub.register <- client
 

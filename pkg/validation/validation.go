@@ -37,6 +37,13 @@ func ValidatePrice(price float64) error {
 	return nil
 }
 
+func ValidatePriceCents(cents int64) error {
+	if cents <= 0 {
+		return fmt.Errorf("price must be greater than 0")
+	}
+	return nil
+}
+
 func ValidateQuantity(qty int32) error {
 	if qty <= 0 {
 		return fmt.Errorf("quantity must be greater than 0")

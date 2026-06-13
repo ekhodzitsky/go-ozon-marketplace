@@ -11,7 +11,7 @@ type Order struct {
 	UserID      uuid.UUID
 	Items       []OrderItem
 	TotalAmount int64
-	Status      string
+	Status      OrderStatus
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

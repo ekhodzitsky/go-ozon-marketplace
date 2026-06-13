@@ -98,11 +98,20 @@ func (r *PaymentPostgres) UpdateStatusIf(ctx context.Context, id uuid.UUID, newS
 	return tag.RowsAffected() > 0, nil
 }
 
+func (r *PaymentPostgres) CreateRefund(ctx context.Context, refund *domain.Refund) error {
+	query := `INSERT INTO refunds (id, payment_id, amount, reason, status, idempotency_key, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`
+	_, err := r.db.Exec(ctx, query, refund.ID, refund.PaymentID, refund.Amount, refund.Reason, refund.Status, refund.IdempotencyKey, refund.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("insert refund: %w", err)
+	}
+	return nil
+}
+
 func (r *PaymentPostgres) GetRefund(ctx context.Context, id uuid.UUID) (*domain.Refund, error) {
-	query := `SELECT id, payment_id, amount, reason, status, created_at FROM refunds WHERE id=$1`
+	query := `SELECT id, payment_id, amount, reason, status, idempotency_key, created_at FROM refunds WHERE id=$1`
 	row := r.db.QueryRow(ctx, query, id)
 	var refund domain.Refund
-	if err := row.Scan(&refund.ID, &refund.PaymentID, &refund.Amount, &refund.Reason, &refund.Status, &refund.CreatedAt); err != nil {
+	if err := row.Scan(&refund.ID, &refund.PaymentID, &refund.Amount, &refund.Reason, &refund.Status, &refund.IdempotencyKey, &refund.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("%w: refund", apperrors.ErrNotFound)
 		}
@@ -112,7 +121,7 @@ func (r *PaymentPostgres) GetRefund(ctx context.Context, id uuid.UUID) (*domain.
 }
 
 func (r *PaymentPostgres) ListRefunds(ctx context.Context, paymentID uuid.UUID) ([]*domain.Refund, error) {
-	query := `SELECT id, payment_id, amount, reason, status, created_at FROM refunds WHERE payment_id=$1 ORDER BY created_at DESC`
+	query := `SELECT id, payment_id, amount, reason, status, idempotency_key, created_at FROM refunds WHERE payment_id=$1 ORDER BY created_at DESC`
 	rows, err := r.db.Query(ctx, query, paymentID)
 	if err != nil {
 		return nil, fmt.Errorf("list refunds: %w", err)
@@ -122,7 +131,7 @@ func (r *PaymentPostgres) ListRefunds(ctx context.Context, paymentID uuid.UUID) 
 	var refunds []*domain.Refund
 	for rows.Next() {
 		var refund domain.Refund
-		if err := rows.Scan(&refund.ID, &refund.PaymentID, &refund.Amount, &refund.Reason, &refund.Status, &refund.CreatedAt); err != nil {
+		if err := rows.Scan(&refund.ID, &refund.PaymentID, &refund.Amount, &refund.Reason, &refund.Status, &refund.IdempotencyKey, &refund.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan refund: %w", err)
 		}
 		refunds = append(refunds, &refund)

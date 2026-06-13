@@ -2,7 +2,21 @@ syntax = "proto3";
 
 package order.v1;
 
+import "buf/validate/validate.proto";
+
 option go_package = "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1;orderv1";
+
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  ORDER_STATUS_PENDING = 1;
+  ORDER_STATUS_AWAITING_PAYMENT = 2;
+  ORDER_STATUS_PAID = 3;
+  ORDER_STATUS_PROCESSING = 4;
+  ORDER_STATUS_SHIPPED = 5;
+  ORDER_STATUS_DELIVERED = 6;
+  ORDER_STATUS_CANCELLED = 7;
+  ORDER_STATUS_REFUNDED = 8;
+}
 
 service OrderService {
   rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse);
@@ -13,17 +27,17 @@ service OrderService {
 }
 
 message CreateOrderRequest {
-  string user_id = 1;
-  repeated OrderItem items = 2;
+  repeated OrderItem items = 1 [(buf.validate.field).repeated.min_items = 1];
+  string idempotency_key = 2 [(buf.validate.field).string.min_len = 1];
 }
 
 message CreateOrderResponse {
   string order_id = 1;
-  string status = 2;
+  OrderStatus status = 2;
 }
 
 message GetOrderRequest {
-  string order_id = 1;
+  string order_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
 message GetOrderResponse {
@@ -31,9 +45,8 @@ message GetOrderResponse {
 }
 
 message ListOrdersRequest {
-  string user_id = 1;
-  int32 page = 2;
-  int32 page_size = 3;
+  int32 page = 1 [(buf.validate.field).int32.gte = 1];
+  int32 page_size = 2 [(buf.validate.field).int32 = { gt: 0, lte: 100 }];
 }
 
 message ListOrdersResponse {
@@ -45,20 +58,20 @@ message Order {
   string order_id = 1;
   string user_id = 2;
   repeated OrderItem items = 3;
-  double total_amount = 4;
-  string status = 5;
+  int64 total_amount_cents = 4 [(buf.validate.field).int64.gte = 0];
+  OrderStatus status = 5;
   string created_at = 6;
   string updated_at = 7;
 }
 
 message OrderItem {
-  string product_id = 1;
-  int32 quantity = 2;
-  double price = 3;
+  string product_id = 1 [(buf.validate.field).string.min_len = 1];
+  int32 quantity = 2 [(buf.validate.field).int32.gt = 0];
+  int64 price_cents = 3 [(buf.validate.field).int64.gt = 0];
 }
 
 message CancelOrderRequest {
-  string order_id = 1;
+  string order_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
 message CancelOrderResponse {
@@ -66,11 +79,11 @@ message CancelOrderResponse {
 }
 
 message UpdateOrderStatusRequest {
-  string order_id = 1;
-  string status = 2;
+  string order_id = 1 [(buf.validate.field).string.min_len = 1];
+  OrderStatus status = 2 [(buf.validate.field).enum.defined_only = true];
 }
 
 message UpdateOrderStatusResponse {
   string order_id = 1;
-  string status = 2;
+  OrderStatus status = 2;
 }

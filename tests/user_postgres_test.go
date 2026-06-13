@@ -22,11 +22,15 @@ func TestUserServicePostgres(t *testing.T) {
 
 	RunMigrations(ctx, t, dsn, "../services/user-service/migrations")
 
+	jwtSecret := "this-is-a-very-long-test-secret-for-integration-tests-only"
+
 	grpcPort := GetFreePort(t)
+	metricsPort := GetFreePort(t)
 	StartService(t, "../services/user-service", []string{
 		"POSTGRES_DSN=" + dsn,
 		fmt.Sprintf("GRPC_PORT=%d", grpcPort),
-		"JWT_SECRET=test-secret",
+		fmt.Sprintf("METRICS_PORT=%d", metricsPort),
+		"JWT_SECRET=" + jwtSecret,
 	})
 
 	addr := fmt.Sprintf("127.0.0.1:%d", grpcPort)
@@ -36,16 +40,16 @@ func TestUserServicePostgres(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to connect to user-service: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	client := userv1.NewUserServiceClient(conn)
 
 	// Test Register
-	regResp, err := client.Register(ctx, &userv1.RegisterRequest{
-		Email:    "test@example.com",
-		Password: "password123",
-		Name:     "Test User",
-	})
+	regResp, err := client.Register(ctx, NewUserRequestBuilder().
+		WithEmail("test@example.com").
+		WithPassword("password123").
+		WithName("Test User").
+		BuildRegister())
 	if err != nil {
 		t.Fatalf("register failed: %v", err)
 	}
@@ -54,10 +58,10 @@ func TestUserServicePostgres(t *testing.T) {
 	}
 
 	// Test Login
-	loginResp, err := client.Login(ctx, &userv1.LoginRequest{
-		Email:    "test@example.com",
-		Password: "password123",
-	})
+	loginResp, err := client.Login(ctx, NewUserRequestBuilder().
+		WithEmail("test@example.com").
+		WithPassword("password123").
+		BuildLogin())
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
 	}
@@ -65,10 +69,9 @@ func TestUserServicePostgres(t *testing.T) {
 		t.Fatal("expected token after login")
 	}
 
-	// Test GetUser
-	getResp, err := client.GetUser(ctx, &userv1.GetUserRequest{
-		UserId: regResp.UserId,
-	})
+	// Test GetUser: the caller is identified from the auth context.
+	authCtx := AuthContext(ctx, regResp.UserId, jwtSecret)
+	getResp, err := client.GetUser(authCtx, NewGetUserRequestBuilder().Build())
 	if err != nil {
 		t.Fatalf("get user failed: %v", err)
 	}

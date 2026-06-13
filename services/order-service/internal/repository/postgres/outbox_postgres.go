@@ -11,15 +11,56 @@ import (
 )
 
 type OutboxPostgres struct {
-	db Querier
+	db   Querier
+	pool Querier
+	tx   pgx.Tx
 }
 
 func NewOutboxPostgres(db Querier) *OutboxPostgres {
-	return &OutboxPostgres{db: db}
+	return &OutboxPostgres{db: db, pool: db}
 }
 
 func (r *OutboxPostgres) WithTx(tx pgx.Tx) *OutboxPostgres {
-	return &OutboxPostgres{db: tx}
+	return &OutboxPostgres{db: tx, pool: tx, tx: tx}
+}
+
+func (r *OutboxPostgres) Begin(ctx context.Context) error {
+	if r.tx != nil {
+		return nil
+	}
+	beginner, ok := r.pool.(interface {
+		Begin(ctx context.Context) (pgx.Tx, error)
+	})
+	if !ok {
+		return fmt.Errorf("outbox postgres: cannot begin transaction: db does not support Begin")
+	}
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin outbox tx: %w", err)
+	}
+	r.tx = tx
+	r.db = tx
+	return nil
+}
+
+func (r *OutboxPostgres) Commit(ctx context.Context) error {
+	if r.tx == nil {
+		return fmt.Errorf("no active outbox transaction")
+	}
+	err := r.tx.Commit(ctx)
+	r.tx = nil
+	r.db = r.pool
+	return err
+}
+
+func (r *OutboxPostgres) Rollback(ctx context.Context) error {
+	if r.tx == nil {
+		return nil
+	}
+	err := r.tx.Rollback(ctx)
+	r.tx = nil
+	r.db = r.pool
+	return err
 }
 
 func (r *OutboxPostgres) Create(ctx context.Context, event *domain.OutboxEvent) error {

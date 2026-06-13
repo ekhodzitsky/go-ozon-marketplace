@@ -81,7 +81,7 @@ func graphqlRequest(t *testing.T, url, query string) map[string]interface{} {
 	if err != nil {
 		t.Fatalf("graphql request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -97,17 +97,21 @@ func TestOrderFlow(t *testing.T) {
 	ctx := context.Background()
 
 	// Start PostgreSQL and Elasticsearch
-	dsn := tests.StartPostgres(ctx, t)
+	adminDSN := tests.StartPostgres(ctx, t)
 
 	esURL, cleanupES := tests.StartElasticsearch(ctx, t)
 	defer cleanupES()
 
-	// Run migrations
-	tests.RunMigrations(ctx, t, dsn,
-		"../../services/user-service/migrations",
-		"../../services/catalog-service/migrations",
-		"../../services/order-service/migrations",
-	)
+	redisAddr := tests.StartRedis(ctx, t)
+	kafkaAddr := tests.StartKafka(ctx, t)
+
+	userDSN := tests.CreateDatabase(ctx, t, adminDSN, "user_service")
+	catalogDSN := tests.CreateDatabase(ctx, t, adminDSN, "catalog_service")
+	orderDSN := tests.CreateDatabase(ctx, t, adminDSN, "order_service")
+
+	tests.RunMigrations(ctx, t, userDSN, "../../services/user-service/migrations")
+	tests.RunMigrations(ctx, t, catalogDSN, "../../services/catalog-service/migrations")
+	tests.RunMigrations(ctx, t, orderDSN, "../../services/order-service/migrations")
 
 	// Start mock inventory and payment servers
 	invAddr := startMockGRPCServer(t, func(s *grpc.Server) {
@@ -119,44 +123,60 @@ func TestOrderFlow(t *testing.T) {
 
 	// Start user-service
 	userPort := tests.GetFreePort(t)
+	userMetricsPort := tests.GetFreePort(t)
 	tests.StartService(t, "../../services/user-service", []string{
-		"POSTGRES_DSN=" + dsn,
+		"POSTGRES_DSN=" + userDSN,
 		fmt.Sprintf("GRPC_PORT=%d", userPort),
-		"JWT_SECRET=test-secret",
+		fmt.Sprintf("METRICS_PORT=%d", userMetricsPort),
+		"JWT_SECRET=" + e2eJWTSecret,
 	})
 	userAddr := fmt.Sprintf("127.0.0.1:%d", userPort)
 	tests.WaitForGRPC(t, userAddr)
 
 	// Start catalog-service
 	catalogPort := tests.GetFreePort(t)
+	catalogMetricsPort := tests.GetFreePort(t)
 	tests.StartService(t, "../../services/catalog-service", []string{
-		"POSTGRES_DSN=" + dsn,
+		"POSTGRES_DSN=" + catalogDSN,
 		fmt.Sprintf("GRPC_PORT=%d", catalogPort),
+		fmt.Sprintf("METRICS_PORT=%d", catalogMetricsPort),
 		"ES_URL=" + esURL,
-		"JWT_SECRET=test-secret",
+		"JWT_SECRET=" + e2eJWTSecret,
 	})
 	catalogAddr := fmt.Sprintf("127.0.0.1:%d", catalogPort)
 	tests.WaitForGRPC(t, catalogAddr)
 
 	// Start order-service
 	orderPort := tests.GetFreePort(t)
+	orderMetricsPort := tests.GetFreePort(t)
 	tests.StartService(t, "../../services/order-service", []string{
-		"POSTGRES_DSN=" + dsn,
+		"POSTGRES_DSN=" + orderDSN,
 		fmt.Sprintf("GRPC_PORT=%d", orderPort),
+		fmt.Sprintf("METRICS_PORT=%d", orderMetricsPort),
 		"INVENTORY_ADDR=" + invAddr,
 		"PAYMENT_ADDR=" + payAddr,
-		"JWT_SECRET=test-secret",
+		"CATALOG_ADDR=" + catalogAddr,
+		"REDIS_ADDR=" + redisAddr,
+		"KAFKA_BROKERS=" + kafkaAddr,
+		"JWT_SECRET=" + e2eJWTSecret,
 	})
 	orderAddr := fmt.Sprintf("127.0.0.1:%d", orderPort)
 	tests.WaitForGRPC(t, orderAddr)
 
 	// Start API gateway
 	gatewayPort := tests.GetFreePort(t)
+	gatewayMetricsPort := tests.GetFreePort(t)
 	tests.StartService(t, "../../services/api-gateway", []string{
 		fmt.Sprintf("USER_SERVICE_ADDR=%s", userAddr),
 		fmt.Sprintf("CATALOG_SERVICE_ADDR=%s", catalogAddr),
+		fmt.Sprintf("ORDER_SERVICE_ADDR=%s", orderAddr),
+		fmt.Sprintf("INVENTORY_SERVICE_ADDR=%s", invAddr),
+		fmt.Sprintf("PAYMENT_SERVICE_ADDR=%s", payAddr),
 		fmt.Sprintf("PORT=%d", gatewayPort),
-		"JWT_SECRET=test-secret",
+		fmt.Sprintf("METRICS_PORT=%d", gatewayMetricsPort),
+		"JWT_SECRET=" + e2eJWTSecret,
+		"INSECURE_SKIP_TLS=true",
+		"REDIS_ADDR=" + redisAddr,
 	})
 	gatewayURL := fmt.Sprintf("http://127.0.0.1:%d", gatewayPort)
 	tests.WaitForHTTP(t, gatewayURL+"/query")
@@ -172,8 +192,8 @@ func TestOrderFlow(t *testing.T) {
 		t.Fatalf("expected user id, got: %v", data["register"])
 	}
 
-	// Step 2: Create product via API Gateway
-	prodResult := graphqlRequest(t, gatewayURL+"/query", `mutation { createProduct(name: "Test Product", description: "A test product", price: 99.99, categories: ["test"]) }`)
+	// Step 2: Create product via API Gateway (requires admin role).
+	prodResult := graphqlRequestWithAuth(t, gatewayURL, `mutation { createProduct(name: "Test Product", description: "A test product", price: 99.99, categories: ["test"]) }`, adminToken(userID, e2eJWTSecret))
 	data, ok = prodResult["data"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("createProduct returned no data: %v", prodResult)
@@ -188,19 +208,13 @@ func TestOrderFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to connect to order-service: %v", err)
 	}
-	defer orderConn.Close()
+	defer func() { _ = orderConn.Close() }()
 
 	orderClient := orderv1.NewOrderServiceClient(orderConn)
-	createResp, err := orderClient.CreateOrder(ctx, &orderv1.CreateOrderRequest{
-		UserId: userID,
-		Items: []*orderv1.OrderItem{
-			{
-				ProductId: productID,
-				Quantity:  2,
-				Price:     99.99,
-			},
-		},
-	})
+	authCtx := authContext(ctx, userID, e2eJWTSecret)
+	createResp, err := orderClient.CreateOrder(authCtx, tests.NewCreateOrderRequestBuilder().
+		AddItem(productID, 2, 9999).
+		Build())
 	if err != nil {
 		t.Fatalf("create order failed: %v", err)
 	}
@@ -209,30 +223,30 @@ func TestOrderFlow(t *testing.T) {
 	}
 
 	// Step 4: Verify order status
-	// The saga should complete with mock inventory/payment, resulting in "confirmed" status.
+	// The saga should complete with mock inventory/payment, resulting in paid status.
 	// However, the saga runs asynchronously after CreateOrder returns.
-	// We poll for the status to become "confirmed".
-	getResp, err := orderClient.GetOrder(ctx, &orderv1.GetOrderRequest{
-		OrderId: createResp.OrderId,
-	})
+	// We poll for the status to become paid.
+	getResp, err := orderClient.GetOrder(authCtx, tests.NewGetOrderRequestBuilder().
+		WithOrderID(createResp.OrderId).
+		Build())
 	if err != nil {
 		t.Fatalf("get order failed: %v", err)
 	}
 
-	// Poll for confirmed status with timeout
+	// Poll for paid status with timeout
 	deadline := time.Now().Add(5 * time.Second)
-	for getResp.Order.Status != "confirmed" && time.Now().Before(deadline) {
+	for getResp.Order.Status != orderv1.OrderStatus_ORDER_STATUS_PAID && time.Now().Before(deadline) {
 		time.Sleep(200 * time.Millisecond)
-		getResp, err = orderClient.GetOrder(ctx, &orderv1.GetOrderRequest{
-			OrderId: createResp.OrderId,
-		})
+		getResp, err = orderClient.GetOrder(authCtx, tests.NewGetOrderRequestBuilder().
+			WithOrderID(createResp.OrderId).
+			Build())
 		if err != nil {
 			t.Fatalf("get order poll failed: %v", err)
 		}
 	}
 
-	if getResp.Order.Status != "confirmed" {
-		t.Fatalf("expected order status 'confirmed', got '%s'", getResp.Order.Status)
+	if getResp.Order.Status != orderv1.OrderStatus_ORDER_STATUS_PAID {
+		t.Fatalf("expected order status %v, got %v", orderv1.OrderStatus_ORDER_STATUS_PAID, getResp.Order.Status)
 	}
 	if getResp.Order.UserId != userID {
 		t.Fatalf("expected order user_id %s, got %s", userID, getResp.Order.UserId)
@@ -246,12 +260,12 @@ func TestOrderFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to connect to catalog-service: %v", err)
 	}
-	defer catalogConn.Close()
+	defer func() { _ = catalogConn.Close() }()
 
 	catalogClient := catalogv1.NewCatalogServiceClient(catalogConn)
-	prodResp, err := catalogClient.GetProduct(ctx, &catalogv1.GetProductRequest{
-		ProductId: productID,
-	})
+	prodResp, err := catalogClient.GetProduct(ctx, tests.NewGetProductRequestBuilder().
+		WithProductID(productID).
+		Build())
 	if err != nil {
 		t.Fatalf("get product failed: %v", err)
 	}

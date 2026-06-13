@@ -7,10 +7,11 @@ import (
 )
 
 type Refund struct {
-	ID        uuid.UUID
-	PaymentID uuid.UUID
-	Amount    int64
-	Reason    string
-	Status    string
-	CreatedAt time.Time
+	ID             uuid.UUID
+	PaymentID      uuid.UUID
+	Amount         int64
+	Reason         string
+	Status         Status
+	IdempotencyKey string
+	CreatedAt      time.Time
 }

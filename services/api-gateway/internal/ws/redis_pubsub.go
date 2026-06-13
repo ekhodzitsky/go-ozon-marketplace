@@ -10,7 +10,7 @@ import (
 // StartRedisPubSub subscribes to Redis channels and forwards messages to the Hub.
 func StartRedisPubSub(ctx context.Context, redisClient *redis.Client, hub *Hub) {
 	pubsub := redisClient.PSubscribe(ctx, "order-events", "inventory-events")
-	defer pubsub.Close()
+	defer func() { _ = pubsub.Close() }()
 
 	ch := pubsub.Channel()
 	for {

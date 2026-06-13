@@ -1,10 +1,10 @@
-# Allow api-gateway to reach all other backend services
+# Allow api-gateway and Prometheus to reach all other backend services
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: user-service-ingress
-  namespace: default
+  namespace: marketplace-staging
 spec:
   podSelector:
     matchLabels:
@@ -16,12 +16,19 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: api-gateway
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app: prometheus
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: catalog-service-ingress
-  namespace: default
+  namespace: marketplace-staging
 spec:
   podSelector:
     matchLabels:
@@ -33,12 +40,19 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: api-gateway
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app: prometheus
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: inventory-service-ingress
-  namespace: default
+  namespace: marketplace-staging
 spec:
   podSelector:
     matchLabels:
@@ -53,12 +67,19 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: order-service
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app: prometheus
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: payment-service-ingress
-  namespace: default
+  namespace: marketplace-staging
 spec:
   podSelector:
     matchLabels:
@@ -73,12 +94,19 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: order-service
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app: prometheus
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: notification-service-ingress
-  namespace: default
+  namespace: marketplace-staging
 spec:
   podSelector:
     matchLabels:
@@ -90,12 +118,19 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: api-gateway
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app: prometheus
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: analytics-service-ingress
-  namespace: default
+  namespace: marketplace-staging
 spec:
   podSelector:
     matchLabels:
@@ -107,3 +142,10 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: api-gateway
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app: prometheus

@@ -46,6 +46,10 @@ spec:
           env:
             - name: GRPC_PORT
               value: {{ .Values.env.GRPC_PORT | quote }}
+            - name: METRICS_PORT
+              value: {{ .Values.service.metricsPort | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.env.OTEL_EXPORTER_OTLP_ENDPOINT | default "http://jaeger.monitoring.svc.cluster.local:4318" | quote }}
           envFrom:
             - secretRef:
                 name: {{ include "notification-service.fullname" . }}-secrets

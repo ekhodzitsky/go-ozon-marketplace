@@ -8,7 +8,7 @@ import (
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/mocks"
-	"github.com/ekhodzitsky/go-ozon-marketplace/tests"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -28,18 +28,26 @@ func TestAnalyticsHandler_TrackEvent(t *testing.T) {
 	}{
 		{
 			name: "success",
-			req:  tests.NewTrackEventRequestBuilder().WithEventType("click").WithAggregateID("a1").WithPayload("{}").WithAggregationKey("k").Build(),
+			req: &analyticsv1.TrackEventRequest{
+				EventType:      "click",
+				AggregateId:    "a1",
+				Payload:        "{}",
+				AggregationKey: "k",
+			},
 			setupMock: func(m *mocks.MockAnalyticsUsecase) {
-				m.EXPECT().TrackEvent(gomock.Any(), domain.EventType("click"), "a1", "{}", "k").Return(nil)
+				m.EXPECT().TrackEvent(gomock.Any(), domain.EventType("click"), "a1", "{}", "k", float64(0)).Return(nil)
 			},
 			wantCode: codes.OK,
 			wantErr:  false,
 		},
 		{
 			name: "usecase_error",
-			req:  tests.NewTrackEventRequestBuilder().WithEventType("click").WithAggregateID("a1").Build(),
+			req: &analyticsv1.TrackEventRequest{
+				EventType:   "click",
+				AggregateId: "a1",
+			},
 			setupMock: func(m *mocks.MockAnalyticsUsecase) {
-				m.EXPECT().TrackEvent(gomock.Any(), domain.EventType("click"), "a1", "", "").Return(assert.AnError)
+				m.EXPECT().TrackEvent(gomock.Any(), domain.EventType("click"), "a1", "", "", float64(0)).Return(assert.AnError)
 			},
 			wantCode: codes.Internal,
 			wantErr:  true,
@@ -80,7 +88,7 @@ func TestAnalyticsHandler_GetDailyRevenue(t *testing.T) {
 	}{
 		{
 			name: "success",
-			req:  tests.NewGetDailyRevenueRequestBuilder().WithDate("2024-01-01").Build(),
+			req:  &analyticsv1.GetDailyRevenueRequest{Date: "2024-01-01"},
 			setupMock: func(m *mocks.MockAnalyticsUsecase) {
 				m.EXPECT().GetDailyRevenue(gomock.Any(), "2024-01-01").Return(1234.5, nil)
 			},
@@ -89,7 +97,7 @@ func TestAnalyticsHandler_GetDailyRevenue(t *testing.T) {
 		},
 		{
 			name: "usecase_error",
-			req:  tests.NewGetDailyRevenueRequestBuilder().WithDate("2024-01-01").Build(),
+			req:  &analyticsv1.GetDailyRevenueRequest{Date: "2024-01-01"},
 			setupMock: func(m *mocks.MockAnalyticsUsecase) {
 				m.EXPECT().GetDailyRevenue(gomock.Any(), "2024-01-01").Return(0.0, assert.AnError)
 			},
@@ -108,6 +116,70 @@ func TestAnalyticsHandler_GetDailyRevenue(t *testing.T) {
 			}
 			h := grpcdelivery.NewAnalyticsHandler(mockUC)
 			_, err := h.GetDailyRevenue(context.Background(), tt.req)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				s, _ := status.FromError(err)
+				assert.Equal(t, tt.wantCode, s.Code())
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestAnalyticsHandler_TrackABTestEvent(t *testing.T) {
+	t.Parallel()
+
+	validUserID := uuid.Must(uuid.NewV7()).String()
+
+	testsCases := []struct {
+		name      string
+		req       *analyticsv1.TrackABTestEventRequest
+		setupMock func(m *mocks.MockAnalyticsUsecase)
+		wantCode  codes.Code
+		wantErr   bool
+	}{
+		{
+			name: "success",
+			req: &analyticsv1.TrackABTestEventRequest{
+				Experiment:   "exp-1",
+				Variation:    "var-a",
+				UserId:       validUserID,
+				Conversion:   true,
+				RevenueMinor: 100,
+			},
+			setupMock: func(m *mocks.MockAnalyticsUsecase) {
+				m.EXPECT().TrackABTestEvent(gomock.Any(), gomock.Any()).Return(nil)
+			},
+			wantCode: codes.OK,
+			wantErr:  false,
+		},
+		{
+			name: "invalid_user_id",
+			req: &analyticsv1.TrackABTestEventRequest{
+				Experiment:   "exp-1",
+				Variation:    "var-a",
+				UserId:       "not-a-uuid",
+				Conversion:   true,
+				RevenueMinor: 100,
+			},
+			setupMock: func(m *mocks.MockAnalyticsUsecase) {},
+			wantCode:  codes.InvalidArgument,
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range testsCases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			mockUC := mocks.NewMockAnalyticsUsecase(ctrl)
+			if tt.setupMock != nil {
+				tt.setupMock(mockUC)
+			}
+			h := grpcdelivery.NewAnalyticsHandler(mockUC)
+			_, err := h.TrackABTestEvent(context.Background(), tt.req)
 
 			if tt.wantErr {
 				require.Error(t, err)

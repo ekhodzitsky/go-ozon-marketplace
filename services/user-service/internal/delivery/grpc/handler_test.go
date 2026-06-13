@@ -7,10 +7,10 @@ import (
 
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/mocks"
-	"github.com/ekhodzitsky/go-ozon-marketplace/tests"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,7 +31,11 @@ func TestUserHandler_Register(t *testing.T) {
 	}{
 		{
 			name: "success",
-			req:  tests.NewUserRequestBuilder().WithEmail("a@b.co").WithPassword("password123").WithName("NN").BuildRegister(),
+			req: &userv1.RegisterRequest{
+				Email:    "a@b.co",
+				Password: "password123",
+				Name:     "NN",
+			},
 			mock: func(m *mocks.MockUserUsecase) {
 				m.EXPECT().Register(gomock.Any(), "a@b.co", "password123", "NN").Return(uuid.MustParse("11111111-1111-1111-1111-111111111111"), nil)
 			},
@@ -40,7 +44,11 @@ func TestUserHandler_Register(t *testing.T) {
 		},
 		{
 			name: "usecase_error",
-			req:  tests.NewUserRequestBuilder().WithEmail("a@b.co").WithPassword("password123").WithName("NN").BuildRegister(),
+			req: &userv1.RegisterRequest{
+				Email:    "a@b.co",
+				Password: "password123",
+				Name:     "NN",
+			},
 			mock: func(m *mocks.MockUserUsecase) {
 				m.EXPECT().Register(gomock.Any(), "a@b.co", "password123", "NN").Return(uuid.Nil, assert.AnError)
 			},
@@ -84,7 +92,10 @@ func TestUserHandler_Login(t *testing.T) {
 	}{
 		{
 			name: "success",
-			req:  tests.NewUserRequestBuilder().WithEmail("a@b.co").WithPassword("password123").BuildLogin(),
+			req: &userv1.LoginRequest{
+				Email:    "a@b.co",
+				Password: "password123",
+			},
 			mock: func(m *mocks.MockUserUsecase) {
 				m.EXPECT().Login(gomock.Any(), "a@b.co", "password123").Return("token", nil)
 			},
@@ -93,7 +104,10 @@ func TestUserHandler_Login(t *testing.T) {
 		},
 		{
 			name: "usecase_error",
-			req:  tests.NewUserRequestBuilder().WithEmail("a@b.co").WithPassword("password123").BuildLogin(),
+			req: &userv1.LoginRequest{
+				Email:    "a@b.co",
+				Password: "password123",
+			},
 			mock: func(m *mocks.MockUserUsecase) {
 				m.EXPECT().Login(gomock.Any(), "a@b.co", "password123").Return("", assert.AnError)
 			},
@@ -133,7 +147,7 @@ func TestUserHandler_GetUser(t *testing.T) {
 
 	testsCases := []struct {
 		name      string
-		req       *userv1.GetUserRequest
+		ctx       context.Context
 		mock      func(m *mocks.MockUserUsecase)
 		wantCode  codes.Code
 		wantErr   bool
@@ -141,7 +155,7 @@ func TestUserHandler_GetUser(t *testing.T) {
 	}{
 		{
 			name: "success",
-			req:  tests.NewGetUserRequestBuilder().WithUserID(userID.String()).Build(),
+			ctx:  context.WithValue(context.Background(), middleware.ContextKeyUserID, userID.String()),
 			mock: func(m *mocks.MockUserUsecase) {
 				m.EXPECT().GetUser(gomock.Any(), userID).Return(&domain.User{
 					ID:        userID,
@@ -155,13 +169,13 @@ func TestUserHandler_GetUser(t *testing.T) {
 			wantEmail: "a@b.c",
 		},
 		{
-			name:    "invalid_uuid",
-			req:     tests.NewGetUserRequestBuilder().WithUserID("bad").Build(),
+			name:    "missing_identity",
+			ctx:     context.Background(),
 			wantErr: true,
 		},
 		{
 			name: "not_found",
-			req:  tests.NewGetUserRequestBuilder().WithUserID(userID.String()).Build(),
+			ctx:  context.WithValue(context.Background(), middleware.ContextKeyUserID, userID.String()),
 			mock: func(m *mocks.MockUserUsecase) {
 				m.EXPECT().GetUser(gomock.Any(), userID).Return(nil, apperrors.ErrNotFound)
 			},
@@ -170,7 +184,7 @@ func TestUserHandler_GetUser(t *testing.T) {
 		},
 		{
 			name: "internal_error",
-			req:  tests.NewGetUserRequestBuilder().WithUserID(userID.String()).Build(),
+			ctx:  context.WithValue(context.Background(), middleware.ContextKeyUserID, userID.String()),
 			mock: func(m *mocks.MockUserUsecase) {
 				m.EXPECT().GetUser(gomock.Any(), userID).Return(nil, assert.AnError)
 			},
@@ -190,7 +204,7 @@ func TestUserHandler_GetUser(t *testing.T) {
 				tt.mock(mockUC)
 			}
 			h := grpcdelivery.NewUserHandler(mockUC)
-			resp, err := h.GetUser(context.Background(), tt.req)
+			resp, err := h.GetUser(tt.ctx, &userv1.GetUserRequest{})
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantCode != codes.OK {

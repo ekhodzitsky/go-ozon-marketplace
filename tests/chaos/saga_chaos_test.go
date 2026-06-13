@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/tests"
 	"github.com/google/uuid"
 )
 
@@ -36,12 +36,9 @@ func TestSagaWithOrderServiceKilled(t *testing.T) {
 
 	go func() {
 		defer created.Store(true)
-		resp, err := orderClient.CreateOrder(authContext(ctx, userID), &orderv1.CreateOrderRequest{
-			UserId: userID,
-			Items: []*orderv1.OrderItem{
-				{ProductId: productID, Quantity: 1, Price: 49.99},
-			},
-		})
+		resp, err := orderClient.CreateOrder(authContext(ctx, userID), tests.NewCreateOrderRequestBuilder().
+			AddItem(productID, 1, 4999).
+			Build())
 		if err != nil {
 			t.Logf("create order errored as expected during chaos: %v", err)
 			return
@@ -51,27 +48,28 @@ func TestSagaWithOrderServiceKilled(t *testing.T) {
 
 	// Give the saga time to reach payment step, then kill order-service
 	time.Sleep(600 * time.Millisecond)
-	dockerKill(t, "go-ozon-marketplace-order-service-1")
+	dockerKill(t, containerName("order-service"))
 	// Also kill payment-service so recovery cannot complete payment and must compensate
-	dockerKill(t, "go-ozon-marketplace-payment-service-1")
+	dockerKill(t, containerName("payment-service"))
 
 	// Wait for goroutine to finish
 	time.Sleep(1 * time.Second)
 
-	// Restart services
-	dockerStart(t, "go-ozon-marketplace-order-service-1")
-	dockerStart(t, "go-ozon-marketplace-payment-service-1")
+	// Restart services and wait for them to be running
+	dockerStart(t, containerName("order-service"))
+	dockerStart(t, containerName("payment-service"))
+	waitForContainer(t, containerName("order-service"), 30*time.Second)
+	waitForContainer(t, containerName("payment-service"), 30*time.Second)
 
 	// Wait for recovery worker to run (interval 5s) plus compensation
 	time.Sleep(8 * time.Second)
 
 	// If orderID was not returned due to early kill, find the latest order for user
 	if orderID == "" {
-		listResp, err := orderClient.ListOrders(authContext(ctx, userID), &orderv1.ListOrdersRequest{
-			UserId:   userID,
-			Page:     1,
-			PageSize: 10,
-		})
+		listResp, err := orderClient.ListOrders(authContext(ctx, userID), tests.NewListOrdersRequestBuilder().
+			WithPage(1).
+			WithPageSize(10).
+			Build())
 		if err != nil {
 			t.Fatalf("failed to list orders: %v", err)
 		}
@@ -84,17 +82,21 @@ func TestSagaWithOrderServiceKilled(t *testing.T) {
 		t.Fatal("no order found after recovery")
 	}
 
-	getResp, err := orderClient.GetOrder(authContext(ctx, userID), &orderv1.GetOrderRequest{OrderId: orderID})
+	getResp, err := orderClient.GetOrder(authContext(ctx, userID), tests.NewGetOrderRequestBuilder().
+		WithOrderID(orderID).
+		Build())
 	if err != nil {
 		t.Fatalf("failed to get order: %v", err)
 	}
 
-	if getResp.Order.Status != "cancelled" {
-		t.Fatalf("expected order status cancelled, got %s", getResp.Order.Status)
+	if getResp.Order.Status != orderv1.OrderStatus_ORDER_STATUS_CANCELLED {
+		t.Fatalf("expected order status cancelled, got %v", getResp.Order.Status)
 	}
 
 	// Verify inventory released
-	stockResp, err := invClient.GetStock(serviceAuthContext(ctx), &inventoryv1.GetStockRequest{ProductId: productID})
+	stockResp, err := invClient.GetStock(serviceAuthContext(ctx), tests.NewGetStockRequestBuilder().
+		WithProductID(productID).
+		Build())
 	if err != nil {
 		t.Fatalf("failed to get stock: %v", err)
 	}
@@ -123,28 +125,25 @@ func TestSagaWithInventoryServiceDown(t *testing.T) {
 	ensureStock(t, productID, 100)
 
 	// Kill inventory-service before creating order
-	dockerKill(t, "go-ozon-marketplace-inventory-service-1")
+	dockerKill(t, containerName("inventory-service"))
 
-	_, err := orderClient.CreateOrder(authContext(ctx, userID), &orderv1.CreateOrderRequest{
-		UserId: userID,
-		Items: []*orderv1.OrderItem{
-			{ProductId: productID, Quantity: 1, Price: 49.99},
-		},
-	})
+	_, err := orderClient.CreateOrder(authContext(ctx, userID), tests.NewCreateOrderRequestBuilder().
+		AddItem(productID, 1, 4999).
+		Build())
 	if err == nil {
 		t.Fatal("expected create order to fail when inventory is down")
 	}
 
-	// Restart inventory-service
-	dockerStart(t, "go-ozon-marketplace-inventory-service-1")
+	// Restart inventory-service and wait for it to be running
+	dockerStart(t, containerName("inventory-service"))
+	waitForContainer(t, containerName("inventory-service"), 30*time.Second)
 	time.Sleep(3 * time.Second)
 
 	// Verify order was cancelled (created in DB then compensated)
-	listResp, err := orderClient.ListOrders(authContext(ctx, userID), &orderv1.ListOrdersRequest{
-		UserId:   userID,
-		Page:     1,
-		PageSize: 10,
-	})
+	listResp, err := orderClient.ListOrders(authContext(ctx, userID), tests.NewListOrdersRequestBuilder().
+		WithPage(1).
+		WithPageSize(10).
+		Build())
 	if err != nil {
 		t.Fatalf("failed to list orders: %v", err)
 	}
@@ -153,13 +152,15 @@ func TestSagaWithInventoryServiceDown(t *testing.T) {
 		// Order might not have been committed if failure happened before commit
 		// In this case we just verify no hanging reservations
 	} else {
-		if listResp.Orders[0].Status != "cancelled" {
-			t.Fatalf("expected order status cancelled, got %s", listResp.Orders[0].Status)
+		if listResp.Orders[0].Status != orderv1.OrderStatus_ORDER_STATUS_CANCELLED {
+			t.Fatalf("expected order status cancelled, got %v", listResp.Orders[0].Status)
 		}
 	}
 
 	// Verify no hanging reservations
-	stockResp, err := invClient.GetStock(serviceAuthContext(ctx), &inventoryv1.GetStockRequest{ProductId: productID})
+	stockResp, err := invClient.GetStock(serviceAuthContext(ctx), tests.NewGetStockRequestBuilder().
+		WithProductID(productID).
+		Build())
 	if err != nil {
 		t.Fatalf("failed to get stock: %v", err)
 	}

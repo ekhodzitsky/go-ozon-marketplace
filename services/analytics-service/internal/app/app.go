@@ -17,24 +17,31 @@ import (
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/internal/repository/clickhouse"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/internal/usecase"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/migrations"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
-func New() *fx.App {
-	return fx.New(
+// New builds the fx application container. It returns the constructed app
+// together with any error produced during dependency resolution (e.g. invalid
+// configuration or unreachable infrastructure).
+// Optional fx overrides can be supplied for tests.
+func New(overrides ...fx.Option) (*fx.App, error) {
+	application := fx.New(
 		fx.Provide(
 			config.Load,
 			func(cfg *config.Config) (*zap.Logger, error) {
 				return logger.New(cfg.LogLevel, cfg.LogFormat)
 			},
 			func(cfg *config.Config) (*clickhouse.EventRepo, error) {
-				return clickhouse.NewEventRepo(cfg.ClickHouseAddr, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
+				return clickhouse.NewEventRepo(cfg.ClickHouseAddr, cfg.ClickHouseUser, cfg.ClickHousePassword, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout, migrations.FS)
 			},
-			func(cfg *config.Config, repo *clickhouse.EventRepo) usecase.AnalyticsUsecase {
-				return usecase.NewAnalyticsUsecase(repo, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
+			func(cfg *config.Config, repo *clickhouse.EventRepo, log *zap.Logger) usecase.AnalyticsUsecase {
+				return usecase.NewAnalyticsUsecase(repo, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout, log)
 			},
 			func(cfg *config.Config, uc usecase.AnalyticsUsecase, log *zap.Logger) (*consumer.Consumer, error) {
 				return consumer.NewConsumer(cfg.KafkaBrokers, cfg.KafkaConsumerGroup, cfg.KafkaTopics, uc, log)
@@ -55,7 +62,7 @@ func New() *fx.App {
 				},
 			})
 		}),
-		fx.Invoke(func(lc fx.Lifecycle, handler *grpcdelivery.AnalyticsHandler, cfg *config.Config, log *zap.Logger) {
+		fx.Invoke(func(lc fx.Lifecycle, handler *grpcdelivery.AnalyticsHandler, cfg *config.Config, log *zap.Logger, uc usecase.AnalyticsUsecase) {
 			opts := []grpc.ServerOption{
 				grpc.ChainUnaryInterceptor(middleware.LoggingUnaryInterceptor, middleware.MetricsUnaryInterceptor, tracing.UnaryServerInterceptor(), middleware.AuthUnaryInterceptor(cfg.JWTSecret)),
 			}
@@ -80,9 +87,15 @@ func New() *fx.App {
 				Handler: mux,
 			}
 			analyticsv1.RegisterAnalyticsServiceServer(grpcServer.Server, handler)
+			healthSrv := health.NewServer()
+			healthpb.RegisterHealthServer(grpcServer.Server, healthSrv)
 
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
+					if cfg.GRPCPort == 0 && cfg.MetricsPort == 0 {
+						log.Info("server startup disabled (ports set to 0)")
+						return nil
+					}
 					go func() {
 						if err := metricsServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 							log.Fatal("metrics server error", zap.Error(err))
@@ -96,6 +109,12 @@ func New() *fx.App {
 					return nil
 				},
 				OnStop: func(ctx context.Context) error {
+					if err := uc.Flush(ctx); err != nil {
+						log.Error("flush analytics buffer error", zap.Error(err))
+					}
+					if cfg.GRPCPort == 0 && cfg.MetricsPort == 0 {
+						return nil
+					}
 					if err := metricsServer.Shutdown(ctx); err != nil {
 						log.Error("metrics server shutdown error", zap.Error(err))
 					}
@@ -104,5 +123,8 @@ func New() *fx.App {
 				},
 			})
 		}),
+		fx.Options(overrides...),
 	)
+
+	return application, application.Err()
 }

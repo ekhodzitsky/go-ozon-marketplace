@@ -7,3 +7,5 @@ lint:
     - STANDARD
   except:
     - PACKAGE_DIRECTORY_MATCH
+deps:
+  - buf.build/bufbuild/protovalidate

@@ -4,12 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-
-	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 )
 
 type Querier interface {
@@ -46,7 +45,7 @@ func (r *OrderPostgres) Create(ctx context.Context, order *domain.Order) error {
 	}
 
 	br := r.db.SendBatch(ctx, batch)
-	defer br.Close()
+	defer func() { _ = br.Close() }()
 
 	for range order.Items {
 		if _, err := br.Exec(); err != nil {
@@ -112,11 +111,14 @@ func (r *OrderPostgres) GetByID(ctx context.Context, id uuid.UUID) (*domain.Orde
 	return order, nil
 }
 
-func (r *OrderPostgres) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
+func (r *OrderPostgres) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.OrderStatus) error {
 	query := `UPDATE orders SET status=$1, updated_at=NOW() WHERE id=$2`
-	_, err := r.db.Exec(ctx, query, status, id)
+	tag, err := r.db.Exec(ctx, query, status, id)
 	if err != nil {
 		return fmt.Errorf("update order status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: order", apperrors.ErrNotFound)
 	}
 	return nil
 }

@@ -35,7 +35,6 @@ env:
 
 secrets:
   jwtSecret: ""      # required
-  postgresDSN: ""    # required
 
 autoscaling:
   enabled: false

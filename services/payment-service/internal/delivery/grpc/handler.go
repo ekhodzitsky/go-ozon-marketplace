@@ -7,7 +7,6 @@ import (
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/validation"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/dlq"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/usecase"
@@ -46,29 +45,27 @@ func (h *PaymentHandler) ProcessPayment(ctx context.Context, req *paymentv1.Proc
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "missing user_id in context")
 	}
-	role, _ := middleware.GetRole(ctx)
 
-	if err := validation.ValidatePrice(req.Amount); err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+	if req.AmountCents <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "amount_cents must be greater than 0")
+	}
+	if req.IdempotencyKey == "" {
+		return nil, status.Error(codes.InvalidArgument, "idempotency_key is required")
 	}
 
 	orderID, err := uuid.Parse(req.OrderId)
 	if err != nil {
 		return nil, apperrors.ToStatus(err)
 	}
-	userID, err := uuid.Parse(req.UserId)
+	userID, err := uuid.Parse(authUserID)
 	if err != nil {
 		return nil, apperrors.ToStatus(err)
 	}
 
-	if req.UserId != authUserID && role != middleware.RoleAdmin {
-		return nil, status.Error(codes.PermissionDenied, "user_id mismatch")
-	}
-
-	payment, err := h.usecase.ProcessPayment(ctx, orderID, userID, int64(req.Amount*100))
+	payment, err := h.usecase.ProcessPayment(ctx, orderID, userID, req.AmountCents)
 	if err != nil {
 		if h.dlq != nil {
-			_ = h.dlq.SendToDLQ("ProcessPaymentFailed", req.String(), err.Error())
+			h.dlq.SendToDLQ("ProcessPaymentFailed", req.String(), err.Error())
 		}
 		return nil, apperrors.ToStatus(err)
 	}
@@ -86,6 +83,10 @@ func (h *PaymentHandler) Refund(ctx context.Context, req *paymentv1.RefundReques
 	}
 	role, _ := middleware.GetRole(ctx)
 
+	if req.IdempotencyKey == "" {
+		return nil, status.Error(codes.InvalidArgument, "idempotency_key is required")
+	}
+
 	paymentID, err := uuid.Parse(req.PaymentId)
 	if err != nil {
 		return nil, apperrors.ToStatus(err)
@@ -100,7 +101,7 @@ func (h *PaymentHandler) Refund(ctx context.Context, req *paymentv1.RefundReques
 		return nil, status.Error(codes.PermissionDenied, "payment does not belong to user")
 	}
 
-	payment, err = h.usecase.Refund(ctx, paymentID)
+	payment, _, err = h.usecase.Refund(ctx, paymentID, req.IdempotencyKey)
 	if err != nil {
 		return nil, apperrors.ToStatus(err)
 	}
@@ -111,6 +112,12 @@ func (h *PaymentHandler) Refund(ctx context.Context, req *paymentv1.RefundReques
 }
 
 func (h *PaymentHandler) GetRefund(ctx context.Context, req *paymentv1.GetRefundRequest) (*paymentv1.GetRefundResponse, error) {
+	authUserID, ok := middleware.GetUserID(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "missing user_id in context")
+	}
+	role, _ := middleware.GetRole(ctx)
+
 	refundID, err := uuid.Parse(req.RefundId)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid refund_id")
@@ -119,16 +126,42 @@ func (h *PaymentHandler) GetRefund(ctx context.Context, req *paymentv1.GetRefund
 	if err != nil {
 		return nil, apperrors.ToStatus(err)
 	}
+
+	payment, err := h.usecase.GetByID(ctx, refund.PaymentID)
+	if err != nil {
+		return nil, apperrors.ToStatus(err)
+	}
+
+	if role != middleware.RoleAdmin && payment.UserID.String() != authUserID {
+		return nil, status.Error(codes.PermissionDenied, "refund does not belong to user")
+	}
+
 	return &paymentv1.GetRefundResponse{
 		Refund: refundToProto(refund),
 	}, nil
 }
 
 func (h *PaymentHandler) ListRefunds(ctx context.Context, req *paymentv1.ListRefundsRequest) (*paymentv1.ListRefundsResponse, error) {
+	authUserID, ok := middleware.GetUserID(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "missing user_id in context")
+	}
+	role, _ := middleware.GetRole(ctx)
+
 	paymentID, err := uuid.Parse(req.PaymentId)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid payment_id")
 	}
+
+	payment, err := h.usecase.GetByID(ctx, paymentID)
+	if err != nil {
+		return nil, apperrors.ToStatus(err)
+	}
+
+	if role != middleware.RoleAdmin && payment.UserID.String() != authUserID {
+		return nil, status.Error(codes.PermissionDenied, "payment does not belong to user")
+	}
+
 	refunds, err := h.usecase.ListRefunds(ctx, paymentID)
 	if err != nil {
 		return nil, apperrors.ToStatus(err)
@@ -149,7 +182,7 @@ func refundToProto(r *domain.Refund) *paymentv1.Refund {
 		PaymentId: r.PaymentID.String(),
 		Amount:    r.Amount,
 		Reason:    r.Reason,
-		Status:    r.Status,
+		Status:    statusToProto(r.Status),
 		CreatedAt: r.CreatedAt.Format(time.RFC3339),
 	}
 }

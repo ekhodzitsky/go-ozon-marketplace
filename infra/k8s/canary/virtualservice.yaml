@@ -2,7 +2,7 @@ apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
   name: api-gateway
-  namespace: marketplace
+  namespace: marketplace-staging
 spec:
   hosts:
     - api-gateway.local

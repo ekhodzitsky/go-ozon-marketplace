@@ -2,6 +2,8 @@ package graph
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"time"
 
 	analyticsv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/analytics/v1"
@@ -12,6 +14,7 @@ import (
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/abtesting"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/featureflags"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph/model"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/ws"
 	"github.com/redis/go-redis/v9"
@@ -41,6 +44,14 @@ func (r *Resolver) withQueryTimeout(ctx context.Context) (context.Context, conte
 	return context.WithTimeout(ctx, r.QueryTimeout)
 }
 
+func dollarsToCents(dollars float64) int64 {
+	return int64(math.Round(dollars * 100))
+}
+
+func centsToDollars(cents int64) float64 {
+	return float64(cents) / 100.0
+}
+
 func protoProductToModel(p *catalogv1.Product) *model.Product {
 	if p == nil {
 		return nil
@@ -49,7 +60,7 @@ func protoProductToModel(p *catalogv1.Product) *model.Product {
 		ID:          p.ProductId,
 		Name:        p.Name,
 		Description: p.Description,
-		Price:       p.Price,
+		Price:       centsToDollars(p.PriceCents),
 		Categories:  p.Categories,
 		CreatedAt:   p.CreatedAt,
 	}
@@ -62,7 +73,7 @@ func protoOrderItemToModel(item *orderv1.OrderItem) *model.OrderItem {
 	return &model.OrderItem{
 		ProductID: item.ProductId,
 		Quantity:  item.Quantity,
-		Price:     item.Price,
+		Price:     centsToDollars(item.PriceCents),
 	}
 }
 
@@ -78,9 +89,56 @@ func protoOrderToModel(o *orderv1.Order) *model.Order {
 		ID:          o.OrderId,
 		UserID:      o.UserId,
 		Items:       items,
-		TotalAmount: o.TotalAmount,
-		Status:      o.Status,
+		TotalAmount: centsToDollars(o.TotalAmountCents),
+		Status:      orderStatusString(o.Status),
 		CreatedAt:   o.CreatedAt,
 		UpdatedAt:   o.UpdatedAt,
 	}
+}
+
+func orderStatusString(s orderv1.OrderStatus) string {
+	switch s {
+	case orderv1.OrderStatus_ORDER_STATUS_PENDING:
+		return "pending"
+	case orderv1.OrderStatus_ORDER_STATUS_AWAITING_PAYMENT:
+		return "awaiting_payment"
+	case orderv1.OrderStatus_ORDER_STATUS_PAID:
+		return "paid"
+	case orderv1.OrderStatus_ORDER_STATUS_PROCESSING:
+		return "processing"
+	case orderv1.OrderStatus_ORDER_STATUS_SHIPPED:
+		return "shipped"
+	case orderv1.OrderStatus_ORDER_STATUS_DELIVERED:
+		return "delivered"
+	case orderv1.OrderStatus_ORDER_STATUS_CANCELLED:
+		return "cancelled"
+	case orderv1.OrderStatus_ORDER_STATUS_REFUNDED:
+		return "refunded"
+	default:
+		return ""
+	}
+}
+
+func requireAuth(ctx context.Context) (string, error) {
+	userID, ok := middleware.GetUserID(ctx)
+	if !ok || userID == "" {
+		return "", fmt.Errorf("unauthenticated")
+	}
+	return userID, nil
+}
+
+func isAdmin(ctx context.Context) bool {
+	role, _ := middleware.GetRole(ctx)
+	return role == middleware.RoleAdmin
+}
+
+func requireOwnerOrAdmin(ctx context.Context, ownerID string) error {
+	userID, err := requireAuth(ctx)
+	if err != nil {
+		return err
+	}
+	if userID == ownerID || isAdmin(ctx) {
+		return nil
+	}
+	return fmt.Errorf("forbidden")
 }

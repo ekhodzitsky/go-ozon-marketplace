@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"path/filepath"
 	"time"
@@ -35,6 +36,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 )
@@ -43,13 +46,21 @@ func initCtx(cfg *config.Config) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), cfg.DefaultQueryTimeout)
 }
 
-func clientCreds(cfg *config.Config) (credentials.TransportCredentials, error) {
+func serverNameFromAddr(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	return host
+}
+
+func clientCreds(cfg *config.Config, addr string) (credentials.TransportCredentials, error) {
 	if cfg.CertPath != "" {
 		return server.LoadClientMTLSCredentials(
 			filepath.Join(cfg.CertPath, "server-cert.pem"),
 			filepath.Join(cfg.CertPath, "server-key.pem"),
 			filepath.Join(cfg.CertPath, "ca-cert.pem"),
-			"",
+			serverNameFromAddr(addr),
 		)
 	}
 	return insecure.NewCredentials(), nil
@@ -67,7 +78,10 @@ func serviceAuthInterceptor(jwtSecret string) grpc.UnaryClientInterceptor {
 			},
 			Role: string(middleware.RoleService),
 		})
-		tokenStr, _ := token.SignedString([]byte(jwtSecret))
+		tokenStr, err := token.SignedString([]byte(jwtSecret))
+		if err != nil {
+			return fmt.Errorf("sign service token: %w", err)
+		}
 		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+tokenStr)
 		return invoker(ctx, method, req, reply, cc, opts...)
 	}
@@ -117,14 +131,11 @@ func New() *fx.App {
 			},
 			func(r *postgres.SagaPostgres) repository.SagaRepository { return r },
 			func(cfg *config.Config, lc fx.Lifecycle) (saga.InventoryClient, error) {
-				ctx, cancel := context.WithTimeout(context.Background(), cfg.DefaultCallTimeout)
-				defer cancel()
-				creds, err := clientCreds(cfg)
+				creds, err := clientCreds(cfg, cfg.InventoryAddr)
 				if err != nil {
 					return nil, err
 				}
-				conn, err := grpc.DialContext(
-					ctx,
+				conn, err := grpc.NewClient(
 					cfg.InventoryAddr,
 					grpc.WithTransportCredentials(creds),
 					grpc.WithChainUnaryInterceptor(serviceAuthInterceptor(cfg.JWTSecret)),
@@ -133,7 +144,6 @@ func New() *fx.App {
 						Timeout:             20 * time.Second,
 						PermitWithoutStream: true,
 					}),
-					grpc.WithBlock(),
 				)
 				if err != nil {
 					return nil, err
@@ -146,14 +156,11 @@ func New() *fx.App {
 				return grpcclient.NewInventoryClient(conn, cfg.DefaultCallTimeout), nil
 			},
 			func(cfg *config.Config, lc fx.Lifecycle) (saga.PaymentClient, error) {
-				ctx, cancel := context.WithTimeout(context.Background(), cfg.DefaultCallTimeout)
-				defer cancel()
-				creds, err := clientCreds(cfg)
+				creds, err := clientCreds(cfg, cfg.PaymentAddr)
 				if err != nil {
 					return nil, err
 				}
-				conn, err := grpc.DialContext(
-					ctx,
+				conn, err := grpc.NewClient(
 					cfg.PaymentAddr,
 					grpc.WithTransportCredentials(creds),
 					grpc.WithChainUnaryInterceptor(serviceAuthInterceptor(cfg.JWTSecret)),
@@ -162,7 +169,6 @@ func New() *fx.App {
 						Timeout:             20 * time.Second,
 						PermitWithoutStream: true,
 					}),
-					grpc.WithBlock(),
 				)
 				if err != nil {
 					return nil, err
@@ -173,6 +179,31 @@ func New() *fx.App {
 					},
 				})
 				return grpcclient.NewPaymentClient(conn, cfg.DefaultCallTimeout), nil
+			},
+			func(cfg *config.Config, lc fx.Lifecycle) (grpcclient.CatalogClient, error) {
+				creds, err := clientCreds(cfg, cfg.CatalogAddr)
+				if err != nil {
+					return nil, err
+				}
+				conn, err := grpc.NewClient(
+					cfg.CatalogAddr,
+					grpc.WithTransportCredentials(creds),
+					grpc.WithChainUnaryInterceptor(serviceAuthInterceptor(cfg.JWTSecret)),
+					grpc.WithKeepaliveParams(keepalive.ClientParameters{
+						Time:                10 * time.Second,
+						Timeout:             20 * time.Second,
+						PermitWithoutStream: true,
+					}),
+				)
+				if err != nil {
+					return nil, err
+				}
+				lc.Append(fx.Hook{
+					OnStop: func(ctx context.Context) error {
+						return conn.Close()
+					},
+				})
+				return grpcclient.NewCatalogClient(conn, cfg.DefaultCallTimeout), nil
 			},
 			func(
 				orderRepo repository.OrderRepository,
@@ -188,12 +219,15 @@ func New() *fx.App {
 				uowFactory func() unitofwork.UnitOfWork,
 				orderRepo repository.OrderRepository,
 				outboxRepo repository.OutboxRepository,
+				sagaRepo repository.SagaRepository,
 				orchestrator *saga.Orchestrator,
 				invClient saga.InventoryClient,
+				payClient saga.PaymentClient,
+				catalogClient grpcclient.CatalogClient,
 				redisClient *redis.Client,
 				cfg *config.Config,
 			) usecase.OrderUsecase {
-				return usecase.NewOrderUsecase(uowFactory, orderRepo, outboxRepo, orchestrator, invClient, redisClient, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
+				return usecase.NewOrderUsecase(uowFactory, orderRepo, outboxRepo, sagaRepo, orchestrator, invClient, payClient, catalogClient, redisClient, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
 			},
 			grpcdelivery.NewOrderHandler,
 			func(cfg *config.Config, lc fx.Lifecycle) (outbox.Producer, error) {
@@ -213,9 +247,10 @@ func New() *fx.App {
 			},
 			func(
 				orchestrator *saga.Orchestrator,
+				pool *pgxpool.Pool,
 				log *zap.Logger,
 			) *saga.RecoveryWorker {
-				return saga.NewRecoveryWorker(orchestrator, log)
+				return saga.NewRecoveryWorker(orchestrator, log, saga.WithLocker(saga.NewPostgresAdvisoryLock(pool)))
 			},
 		),
 		fx.Invoke(func(lc fx.Lifecycle, handler *grpcdelivery.OrderHandler, cfg *config.Config, log *zap.Logger) {
@@ -239,10 +274,14 @@ func New() *fx.App {
 			mux := http.NewServeMux()
 			mux.Handle("/metrics", promhttp.Handler())
 			metricsServer := &http.Server{
-				Addr:    fmt.Sprintf(":%d", cfg.MetricsPort),
-				Handler: mux,
+				Addr:         fmt.Sprintf(":%d", cfg.MetricsPort),
+				Handler:      mux,
+				ReadTimeout:  5 * time.Second,
+				WriteTimeout: 10 * time.Second,
+				IdleTimeout:  120 * time.Second,
 			}
 			orderv1.RegisterOrderServiceServer(grpcServer.Server, handler)
+			grpc_health_v1.RegisterHealthServer(grpcServer.Server, health.NewServer())
 
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
@@ -270,7 +309,8 @@ func New() *fx.App {
 		fx.Invoke(func(lc fx.Lifecycle, relay *outbox.Relay) {
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
-					relay.Start(ctx)
+					// Use a background context so the relay keeps running after fx startup.
+					relay.Start(context.Background())
 					return nil
 				},
 				OnStop: func(ctx context.Context) error {
@@ -282,7 +322,8 @@ func New() *fx.App {
 		fx.Invoke(func(lc fx.Lifecycle, recovery *saga.RecoveryWorker) {
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
-					recovery.Start(ctx)
+					// Use a background context so the worker keeps running after fx startup.
+					recovery.Start(context.Background())
 					return nil
 				},
 				OnStop: func(ctx context.Context) error {

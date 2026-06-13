@@ -22,7 +22,7 @@ func (tm *PaymentTxManager) Run(ctx context.Context, fn func(repo repository.Pay
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	repoTx := tm.repo.WithTx(tx)
 	if err := fn(repoTx); err != nil {

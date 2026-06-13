@@ -21,7 +21,7 @@ func NewAnalyticsHandler(uc usecase.AnalyticsUsecase) *AnalyticsHandler {
 }
 
 func (h *AnalyticsHandler) TrackEvent(ctx context.Context, req *analyticsv1.TrackEventRequest) (*analyticsv1.TrackEventResponse, error) {
-	if err := h.usecase.TrackEvent(ctx, domain.EventType(req.EventType), req.AggregateId, req.Payload, req.AggregationKey); err != nil {
+	if err := h.usecase.TrackEvent(ctx, domain.EventType(req.EventType), req.AggregateId, req.Payload, req.AggregationKey, 0); err != nil {
 		return nil, apperrors.ToStatus(err)
 	}
 	return &analyticsv1.TrackEventResponse{Success: true}, nil
@@ -38,7 +38,7 @@ func (h *AnalyticsHandler) GetDailyRevenue(ctx context.Context, req *analyticsv1
 func (h *AnalyticsHandler) TrackABTestEvent(ctx context.Context, req *analyticsv1.TrackABTestEventRequest) (*analyticsv1.TrackABTestEventResponse, error) {
 	userID, err := uuid.Parse(req.UserId)
 	if err != nil {
-		userID = uuid.Nil
+		return nil, apperrors.ToStatus(apperrors.ErrInvalidArgument)
 	}
 	event := domain.ABTestEvent{
 		Experiment:   req.Experiment,

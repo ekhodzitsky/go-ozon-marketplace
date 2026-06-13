@@ -2,7 +2,7 @@ apiVersion: flagger.app/v1beta1
 kind: Canary
 metadata:
   name: api-gateway
-  namespace: marketplace
+  namespace: marketplace-staging
 spec:
   targetRef:
     apiVersion: apps/v1

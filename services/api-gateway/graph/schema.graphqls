@@ -80,7 +80,7 @@ type Mutation {
   register(email: String!, password: String!, name: String!): ID!
   login(email: String!, password: String!): String!
   createProduct(name: String!, description: String!, price: Float!, categories: [String!]!): ID!
-  createOrder(userId: ID!, items: [OrderItemInput!]!): ID!
+  createOrder(items: [OrderItemInput!]!): ID!
   cancelOrder(orderId: ID!): Boolean!
 }
 

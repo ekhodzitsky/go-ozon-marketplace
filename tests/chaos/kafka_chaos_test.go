@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
-	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/tests"
 	"github.com/google/uuid"
 )
 
@@ -31,12 +31,9 @@ func TestOutboxWithKafkaDown(t *testing.T) {
 	dockerStop(t, "go-ozon-marketplace-redpanda-1")
 
 	// Create order while Kafka is down
-	_, err := orderClient.CreateOrder(authContext(ctx, userID), &orderv1.CreateOrderRequest{
-		UserId: userID,
-		Items: []*orderv1.OrderItem{
-			{ProductId: productID, Quantity: 1, Price: 49.99},
-		},
-	})
+	_, err := orderClient.CreateOrder(authContext(ctx, userID), tests.NewCreateOrderRequestBuilder().
+		AddItem(productID, 1, 4999).
+		Build())
 	if err != nil {
 		t.Fatalf("create order failed: %v", err)
 	}
@@ -105,7 +102,7 @@ func TestKafkaConsumerLag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create producer: %v", err)
 	}
-	defer producer.Close()
+	defer func() { _ = producer.Close() }()
 
 	_, _, err = producer.SendMessage(&sarama.ProducerMessage{
 		Topic: topic,
@@ -121,7 +118,7 @@ func TestKafkaConsumerLag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create consumer group: %v", err)
 	}
-	defer group.Close()
+	defer func() { _ = group.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

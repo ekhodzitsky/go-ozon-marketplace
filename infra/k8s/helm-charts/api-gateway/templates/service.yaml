@@ -7,6 +7,9 @@ metadata:
     helm.sh/chart: {{ include "api-gateway.chart" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "{{ .Values.service.metricsPort }}"
 spec:
   type: {{ .Values.service.type }}
   ports:
@@ -14,6 +17,14 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+    - port: {{ .Values.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
+    - port: {{ .Values.service.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
   selector:
     app.kubernetes.io/name: {{ include "api-gateway.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}

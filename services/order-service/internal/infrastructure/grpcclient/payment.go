@@ -17,13 +17,13 @@ func NewPaymentClient(conn *grpc.ClientConn, callTimeout time.Duration) *Payment
 	return &PaymentClient{client: paymentv1.NewPaymentServiceClient(conn), callTimeout: callTimeout}
 }
 
-func (c *PaymentClient) ProcessPayment(ctx context.Context, orderID, userID string, amount int64) (string, error) {
+func (c *PaymentClient) ProcessPayment(ctx context.Context, orderID string, amountCents int64, idempotencyKey string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.callTimeout)
 	defer cancel()
 	resp, err := c.client.ProcessPayment(ctx, &paymentv1.ProcessPaymentRequest{
-		OrderId: orderID,
-		UserId:  userID,
-		Amount:  float64(amount),
+		OrderId:        orderID,
+		AmountCents:    amountCents,
+		IdempotencyKey: idempotencyKey,
 	})
 	if err != nil {
 		return "", err
@@ -31,9 +31,9 @@ func (c *PaymentClient) ProcessPayment(ctx context.Context, orderID, userID stri
 	return resp.PaymentId, nil
 }
 
-func (c *PaymentClient) Refund(ctx context.Context, paymentID string) error {
+func (c *PaymentClient) Refund(ctx context.Context, paymentID string, idempotencyKey string) error {
 	ctx, cancel := context.WithTimeout(ctx, c.callTimeout)
 	defer cancel()
-	_, err := c.client.Refund(ctx, &paymentv1.RefundRequest{PaymentId: paymentID})
+	_, err := c.client.Refund(ctx, &paymentv1.RefundRequest{PaymentId: paymentID, IdempotencyKey: idempotencyKey})
 	return err
 }

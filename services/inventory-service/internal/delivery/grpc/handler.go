@@ -33,6 +33,9 @@ func (h *InventoryHandler) Reserve(ctx context.Context, req *inventoryv1.Reserve
 	if err := validation.ValidateQuantity(req.Quantity); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
+	if req.IdempotencyKey == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing idempotency_key")
+	}
 
 	productID, err := uuid.Parse(req.ProductId)
 	if err != nil {
@@ -55,6 +58,9 @@ func (h *InventoryHandler) Release(ctx context.Context, req *inventoryv1.Release
 
 	if err := validation.ValidateQuantity(req.Quantity); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if req.IdempotencyKey == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing idempotency_key")
 	}
 
 	productID, err := uuid.Parse(req.ProductId)
@@ -104,7 +110,7 @@ func (h *InventoryHandler) GetLedger(ctx context.Context, req *inventoryv1.GetLe
 			Id:             e.ID.String(),
 			ProductId:      e.ProductID.String(),
 			QuantityChange: int32(e.QuantityChange),
-			OperationType:  e.OperationType,
+			OperationType:  inventoryv1.LedgerOperation(inventoryv1.LedgerOperation_value[e.OperationType]),
 			CreatedAt:      e.CreatedAt.Format(time.RFC3339),
 		}
 		if e.OrderID != nil {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"testing"
 
+	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
 	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
@@ -24,15 +25,20 @@ func TestPriceTamper(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	dsn := tests.StartPostgres(ctx, t)
+	adminDSN := tests.StartPostgres(ctx, t)
 	esURL, cleanupES := tests.StartElasticsearch(ctx, t)
 	defer cleanupES()
 
-	tests.RunMigrations(ctx, t, dsn,
-		"../../services/user-service/migrations",
-		"../../services/catalog-service/migrations",
-		"../../services/order-service/migrations",
-	)
+	redisAddr := tests.StartRedis(ctx, t)
+	kafkaAddr := tests.StartKafka(ctx, t)
+
+	userDSN := tests.CreateDatabase(ctx, t, adminDSN, "user_service")
+	catalogDSN := tests.CreateDatabase(ctx, t, adminDSN, "catalog_service")
+	orderDSN := tests.CreateDatabase(ctx, t, adminDSN, "order_service")
+
+	tests.RunMigrations(ctx, t, userDSN, "../../services/user-service/migrations")
+	tests.RunMigrations(ctx, t, catalogDSN, "../../services/catalog-service/migrations")
+	tests.RunMigrations(ctx, t, orderDSN, "../../services/order-service/migrations")
 
 	invAddr := startMockGRPCServer(t, func(s *grpc.Server) {
 		inventoryv1.RegisterInventoryServiceServer(s, &mockInventoryServer{})
@@ -41,44 +47,58 @@ func TestPriceTamper(t *testing.T) {
 		paymentv1.RegisterPaymentServiceServer(s, &mockPaymentServer{})
 	})
 
-	jwtSecret := "test-secret"
-
 	userPort := tests.GetFreePort(t)
+	userMetricsPort := tests.GetFreePort(t)
 	tests.StartService(t, "../../services/user-service", []string{
-		"POSTGRES_DSN=" + dsn,
+		"POSTGRES_DSN=" + userDSN,
 		fmt.Sprintf("GRPC_PORT=%d", userPort),
-		"JWT_SECRET=" + jwtSecret,
+		fmt.Sprintf("METRICS_PORT=%d", userMetricsPort),
+		"JWT_SECRET=" + e2eJWTSecret,
 	})
 	userAddr := fmt.Sprintf("127.0.0.1:%d", userPort)
 	tests.WaitForGRPC(t, userAddr)
 
 	catalogPort := tests.GetFreePort(t)
+	catalogMetricsPort := tests.GetFreePort(t)
 	tests.StartService(t, "../../services/catalog-service", []string{
-		"POSTGRES_DSN=" + dsn,
+		"POSTGRES_DSN=" + catalogDSN,
 		fmt.Sprintf("GRPC_PORT=%d", catalogPort),
+		fmt.Sprintf("METRICS_PORT=%d", catalogMetricsPort),
 		"ES_URL=" + esURL,
-		"JWT_SECRET=" + jwtSecret,
+		"JWT_SECRET=" + e2eJWTSecret,
 	})
 	catalogAddr := fmt.Sprintf("127.0.0.1:%d", catalogPort)
 	tests.WaitForGRPC(t, catalogAddr)
 
 	orderPort := tests.GetFreePort(t)
+	orderMetricsPort := tests.GetFreePort(t)
 	tests.StartService(t, "../../services/order-service", []string{
-		"POSTGRES_DSN=" + dsn,
+		"POSTGRES_DSN=" + orderDSN,
 		fmt.Sprintf("GRPC_PORT=%d", orderPort),
+		fmt.Sprintf("METRICS_PORT=%d", orderMetricsPort),
 		"INVENTORY_ADDR=" + invAddr,
 		"PAYMENT_ADDR=" + payAddr,
-		"JWT_SECRET=" + jwtSecret,
+		"CATALOG_ADDR=" + catalogAddr,
+		"REDIS_ADDR=" + redisAddr,
+		"KAFKA_BROKERS=" + kafkaAddr,
+		"JWT_SECRET=" + e2eJWTSecret,
 	})
 	orderAddr := fmt.Sprintf("127.0.0.1:%d", orderPort)
 	tests.WaitForGRPC(t, orderAddr)
 
 	gatewayPort := tests.GetFreePort(t)
+	gatewayMetricsPort := tests.GetFreePort(t)
 	tests.StartService(t, "../../services/api-gateway", []string{
 		fmt.Sprintf("USER_SERVICE_ADDR=%s", userAddr),
 		fmt.Sprintf("CATALOG_SERVICE_ADDR=%s", catalogAddr),
+		fmt.Sprintf("ORDER_SERVICE_ADDR=%s", orderAddr),
+		fmt.Sprintf("INVENTORY_SERVICE_ADDR=%s", invAddr),
+		fmt.Sprintf("PAYMENT_SERVICE_ADDR=%s", payAddr),
 		fmt.Sprintf("PORT=%d", gatewayPort),
-		"JWT_SECRET=" + jwtSecret,
+		fmt.Sprintf("METRICS_PORT=%d", gatewayMetricsPort),
+		"JWT_SECRET=" + e2eJWTSecret,
+		"INSECURE_SKIP_TLS=true",
+		"REDIS_ADDR=" + redisAddr,
 	})
 	gatewayURL := fmt.Sprintf("http://127.0.0.1:%d", gatewayPort)
 	tests.WaitForHTTP(t, gatewayURL+"/query")
@@ -93,7 +113,7 @@ func TestPriceTamper(t *testing.T) {
 		t.Fatalf("expected user id, got: %v", data["register"])
 	}
 
-	prodResult := graphqlRequest(t, gatewayURL+"/query", `mutation { createProduct(name: "Expensive", description: "Expensive item", price: 100.00, categories: ["test"]) }`)
+	prodResult := graphqlRequestWithAuth(t, gatewayURL, `mutation { createProduct(name: "Expensive", description: "Expensive item", price: 100.00, categories: ["test"]) }`, adminToken(userID, e2eJWTSecret))
 	data, ok = prodResult["data"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("createProduct returned no data: %v", prodResult)
@@ -103,36 +123,44 @@ func TestPriceTamper(t *testing.T) {
 		t.Fatalf("expected product id, got: %v", data["createProduct"])
 	}
 
+	// Fetch the real product price from catalog-service.
+	catalogConn, err := grpc.NewClient(catalogAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("failed to connect to catalog-service: %v", err)
+	}
+	defer func() { _ = catalogConn.Close() }()
+	catalogClient := catalogv1.NewCatalogServiceClient(catalogConn)
+	prodResp, err := catalogClient.GetProduct(ctx, tests.NewGetProductRequestBuilder().WithProductID(productID).Build())
+	if err != nil {
+		t.Fatalf("failed to get product: %v", err)
+	}
+	realPriceCents := prodResp.Product.PriceCents
+	if realPriceCents <= 0 {
+		t.Fatalf("expected positive product price, got %d", realPriceCents)
+	}
+
 	orderConn, err := grpc.NewClient(orderAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatalf("failed to connect to order-service: %v", err)
 	}
-	defer orderConn.Close()
+	defer func() { _ = orderConn.Close() }()
 
 	orderClient := orderv1.NewOrderServiceClient(orderConn)
-	createCtx := authContext(ctx, userID, jwtSecret)
-	createResp, err := orderClient.CreateOrder(createCtx, &orderv1.CreateOrderRequest{
-		UserId: userID,
-		Items: []*orderv1.OrderItem{
-			{ProductId: productID, Quantity: 1, Price: 0.01},
-		},
-	})
-	if err != nil {
-		t.Fatalf("create order failed: %v", err)
-	}
+	createCtx := authContext(ctx, userID, e2eJWTSecret)
 
-	getResp, err := orderClient.GetOrder(authContext(ctx, userID, jwtSecret), &orderv1.GetOrderRequest{
-		OrderId: createResp.OrderId,
-	})
-	if err != nil {
-		t.Fatalf("get order failed: %v", err)
+	// Attempt to create an order with a tampered price (1 cent instead of the real price).
+	_, err = orderClient.CreateOrder(createCtx, tests.NewCreateOrderRequestBuilder().
+		AddItem(productID, 1, 1).
+		Build())
+	if err == nil {
+		t.Fatal("expected price tamper to be rejected, but order was created")
 	}
-
-	if getResp.Order.TotalAmount != 0.01 {
-		t.Fatalf("expected tampered total 0.01, got %v", getResp.Order.TotalAmount)
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected gRPC status error, got %v", err)
 	}
-	if len(getResp.Order.Items) != 1 || getResp.Order.Items[0].Price != 0.01 {
-		t.Fatalf("expected item price 0.01, got %v", getResp.Order.Items)
+	if st.Code() != codes.InvalidArgument && st.Code() != codes.FailedPrecondition {
+		t.Fatalf("expected InvalidArgument or FailedPrecondition for tampered price, got %v: %s", st.Code(), st.Message())
 	}
 }
 
@@ -145,12 +173,13 @@ func TestPaymentFailThenRefund(t *testing.T) {
 	dsn := tests.StartPostgres(ctx, t)
 	tests.RunMigrations(ctx, t, dsn, "../../services/payment-service/migrations")
 
-	jwtSecret := "test-secret"
 	payPort := tests.GetFreePort(t)
+	payMetricsPort := tests.GetFreePort(t)
 	tests.StartService(t, "../../services/payment-service", []string{
 		"POSTGRES_DSN=" + dsn,
 		fmt.Sprintf("GRPC_PORT=%d", payPort),
-		"JWT_SECRET=" + jwtSecret,
+		fmt.Sprintf("METRICS_PORT=%d", payMetricsPort),
+		"JWT_SECRET=" + e2eJWTSecret,
 	})
 	payAddr := fmt.Sprintf("127.0.0.1:%d", payPort)
 	tests.WaitForGRPC(t, payAddr)
@@ -159,19 +188,19 @@ func TestPaymentFailThenRefund(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to connect to payment-service: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	client := paymentv1.NewPaymentServiceClient(conn)
 	userID := uuid.New().String()
+	authCtx := authContext(ctx, userID, e2eJWTSecret)
 
 	var failedPaymentID string
 	for i := 0; i < 50; i++ {
 		orderID := uuid.New().String()
-		resp, err := client.ProcessPayment(authContext(ctx, userID, jwtSecret), &paymentv1.ProcessPaymentRequest{
-			OrderId: orderID,
-			UserId:  userID,
-			Amount:  99.99,
-		})
+		resp, err := client.ProcessPayment(authCtx, tests.NewProcessPaymentRequestBuilder().
+			WithOrderID(orderID).
+			WithAmountCents(9999).
+			Build())
 		if err != nil {
 			t.Fatalf("process payment failed unexpectedly: %v", err)
 		}
@@ -184,9 +213,9 @@ func TestPaymentFailThenRefund(t *testing.T) {
 		t.Fatal("could not get a failed payment after 50 attempts")
 	}
 
-	_, err = client.Refund(authContext(ctx, userID, jwtSecret), &paymentv1.RefundRequest{
-		PaymentId: failedPaymentID,
-	})
+	_, err = client.Refund(authCtx, tests.NewRefundRequestBuilder().
+		WithPaymentID(failedPaymentID).
+		Build())
 	if err == nil {
 		t.Fatal("expected refund of failed payment to return error")
 	}

@@ -25,7 +25,14 @@ type GRPCServer struct {
 }
 
 func NewGRPC(port int, opts ...grpc.ServerOption) *GRPCServer {
-	log, _ := logger.New("info", "json")
+	return NewGRPCWithLogger(port, defaultLog(), opts...)
+}
+
+// NewGRPCWithLogger creates a gRPC server with an explicit logger.
+func NewGRPCWithLogger(port int, log *zap.Logger, opts ...grpc.ServerOption) *GRPCServer {
+	if log == nil {
+		log = defaultLog()
+	}
 	return &GRPCServer{
 		Server: grpc.NewServer(opts...),
 		Port:   port,
@@ -95,6 +102,7 @@ func LoadServerMTLSCredentials(certFile, keyFile, caFile string) (grpc.ServerOpt
 		Certificates: []tls.Certificate{cert},
 		ClientCAs:    caCertPool,
 		ClientAuth:   tls.RequireAndVerifyClientCert,
+		MinVersion:   tls.VersionTLS12,
 	}
 	return grpc.Creds(credentials.NewTLS(tlsConfig)), nil
 }
@@ -118,6 +126,7 @@ func LoadClientMTLSCredentials(certFile, keyFile, caFile, serverName string) (cr
 		Certificates: []tls.Certificate{cert},
 		RootCAs:      caCertPool,
 		ServerName:   serverName,
+		MinVersion:   tls.VersionTLS12,
 	}
 	return credentials.NewTLS(tlsConfig), nil
 }
@@ -128,7 +137,14 @@ type HTTPServer struct {
 }
 
 func NewHTTP(handler http.Handler, port int) *HTTPServer {
-	log, _ := logger.New("info", "json")
+	return NewHTTPWithLogger(handler, port, defaultLog())
+}
+
+// NewHTTPWithLogger creates an HTTP server with an explicit logger.
+func NewHTTPWithLogger(handler http.Handler, port int, log *zap.Logger) *HTTPServer {
+	if log == nil {
+		log = defaultLog()
+	}
 	return &HTTPServer{
 		Server: &http.Server{
 			Addr:         fmt.Sprintf(":%d", port),
@@ -155,4 +171,9 @@ func WaitShutdown(shutdown func()) {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 	shutdown()
+}
+
+func defaultLog() *zap.Logger {
+	log, _ := logger.New("info", "json")
+	return log
 }

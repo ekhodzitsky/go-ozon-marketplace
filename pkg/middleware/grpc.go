@@ -26,20 +26,35 @@ func init() {
 	prometheus.MustRegister(grpcRequestsTotal, grpcRequestDuration)
 }
 
+// LoggingUnaryInterceptor is the default logging interceptor using the default logger.
 func LoggingUnaryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	start := time.Now()
+	return NewLoggingInterceptor(nil)(ctx, req, info, handler)
+}
+
+// NewLoggingInterceptor returns a gRPC unary interceptor that logs requests with the provided logger.
+func NewLoggingInterceptor(log *zap.Logger) grpc.UnaryServerInterceptor {
+	if log == nil {
+		log = defaultGRPCLog()
+	}
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		start := time.Now()
+
+		resp, err := handler(ctx, req)
+
+		st, _ := status.FromError(err)
+		log.Info("gRPC request",
+			zap.String("method", info.FullMethod),
+			zap.Duration("duration", time.Since(start)),
+			zap.String("code", st.Code().String()),
+		)
+
+		return resp, err
+	}
+}
+
+func defaultGRPCLog() *zap.Logger {
 	log, _ := logger.New("info", "json")
-
-	resp, err := handler(ctx, req)
-
-	st, _ := status.FromError(err)
-	log.Info("gRPC request",
-		zap.String("method", info.FullMethod),
-		zap.Duration("duration", time.Since(start)),
-		zap.String("code", st.Code().String()),
-	)
-
-	return resp, err
+	return log
 }
 
 func MetricsUnaryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {

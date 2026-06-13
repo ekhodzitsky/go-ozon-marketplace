@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package notification.v1;
 
+import "buf/validate/validate.proto";
+
 option go_package = "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/notification/v1;notificationv1";
 
 service NotificationService {
@@ -9,9 +11,9 @@ service NotificationService {
 }
 
 message SendEmailRequest {
-  string to = 1;
-  string subject = 2;
-  string body = 3;
+  string to = 1 [(buf.validate.field).string.email = true];
+  string subject = 2 [(buf.validate.field).string.min_len = 1];
+  string body = 3 [(buf.validate.field).string.min_len = 1];
 }
 
 message SendEmailResponse {

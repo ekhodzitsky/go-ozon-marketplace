@@ -9,7 +9,6 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/notification-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/notification-service/mocks"
-	"github.com/ekhodzitsky/go-ozon-marketplace/tests"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -19,6 +18,14 @@ import (
 
 func authCtxWithRole(role middleware.Role) context.Context {
 	return context.WithValue(context.Background(), middleware.ContextKeyRole, string(role))
+}
+
+func newSendEmailRequest(to, subject, body string) *notificationv1.SendEmailRequest {
+	return &notificationv1.SendEmailRequest{
+		To:      to,
+		Subject: subject,
+		Body:    body,
+	}
 }
 
 func TestNotificationHandler_SendEmail(t *testing.T) {
@@ -35,7 +42,7 @@ func TestNotificationHandler_SendEmail(t *testing.T) {
 		{
 			name: "success",
 			ctx:  authCtxWithRole(middleware.RoleService),
-			req:  tests.NewSendEmailRequestBuilder().WithTo("a@b.c").WithSubject("S").WithBody("B").Build(),
+			req:  newSendEmailRequest("a@b.c", "S", "B"),
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockNotificationUsecase {
 				m := mocks.NewMockNotificationUsecase(ctrl)
 				m.EXPECT().SendEmail(gomock.Any(), "a@b.c", "S", "B").Return(nil)
@@ -47,21 +54,42 @@ func TestNotificationHandler_SendEmail(t *testing.T) {
 		{
 			name:     "missing_role",
 			ctx:      context.Background(),
-			req:      tests.NewSendEmailRequestBuilder().WithTo("a@b.c").WithSubject("S").WithBody("B").Build(),
+			req:      newSendEmailRequest("a@b.c", "S", "B"),
 			wantCode: codes.PermissionDenied,
 			wantErr:  true,
 		},
 		{
 			name:     "external_denied",
 			ctx:      authCtxWithRole(middleware.RoleUser),
-			req:      tests.NewSendEmailRequestBuilder().WithTo("a@b.c").WithSubject("S").WithBody("B").Build(),
+			req:      newSendEmailRequest("a@b.c", "S", "B"),
 			wantCode: codes.PermissionDenied,
+			wantErr:  true,
+		},
+		{
+			name:     "invalid_email",
+			ctx:      authCtxWithRole(middleware.RoleService),
+			req:      newSendEmailRequest("not-an-email", "S", "B"),
+			wantCode: codes.InvalidArgument,
+			wantErr:  true,
+		},
+		{
+			name:     "missing_subject",
+			ctx:      authCtxWithRole(middleware.RoleService),
+			req:      newSendEmailRequest("a@b.c", "", "B"),
+			wantCode: codes.InvalidArgument,
+			wantErr:  true,
+		},
+		{
+			name:     "missing_body",
+			ctx:      authCtxWithRole(middleware.RoleService),
+			req:      newSendEmailRequest("a@b.c", "S", ""),
+			wantCode: codes.InvalidArgument,
 			wantErr:  true,
 		},
 		{
 			name: "usecase_not_found",
 			ctx:  authCtxWithRole(middleware.RoleService),
-			req:  tests.NewSendEmailRequestBuilder().WithTo("a@b.c").WithSubject("S").WithBody("B").Build(),
+			req:  newSendEmailRequest("a@b.c", "S", "B"),
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockNotificationUsecase {
 				m := mocks.NewMockNotificationUsecase(ctrl)
 				m.EXPECT().SendEmail(gomock.Any(), "a@b.c", "S", "B").Return(apperrors.ErrNotFound)
@@ -73,7 +101,7 @@ func TestNotificationHandler_SendEmail(t *testing.T) {
 		{
 			name: "usecase_invalid_argument",
 			ctx:  authCtxWithRole(middleware.RoleService),
-			req:  tests.NewSendEmailRequestBuilder().WithTo("a@b.c").WithSubject("S").WithBody("B").Build(),
+			req:  newSendEmailRequest("a@b.c", "S", "B"),
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockNotificationUsecase {
 				m := mocks.NewMockNotificationUsecase(ctrl)
 				m.EXPECT().SendEmail(gomock.Any(), "a@b.c", "S", "B").Return(apperrors.ErrInvalidArgument)
@@ -85,7 +113,7 @@ func TestNotificationHandler_SendEmail(t *testing.T) {
 		{
 			name: "usecase_generic_error",
 			ctx:  authCtxWithRole(middleware.RoleService),
-			req:  tests.NewSendEmailRequestBuilder().WithTo("a@b.c").WithSubject("S").WithBody("B").Build(),
+			req:  newSendEmailRequest("a@b.c", "S", "B"),
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockNotificationUsecase {
 				m := mocks.NewMockNotificationUsecase(ctrl)
 				m.EXPECT().SendEmail(gomock.Any(), "a@b.c", "S", "B").Return(assert.AnError)

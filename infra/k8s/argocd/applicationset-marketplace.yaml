@@ -1,0 +1,47 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: marketplace
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - service: api-gateway
+          - service: user-service
+          - service: catalog-service
+          - service: inventory-service
+          - service: payment-service
+          - service: order-service
+          - service: notification-service
+          - service: analytics-service
+  template:
+    metadata:
+      name: '{{ .service }}'
+      labels:
+        app.kubernetes.io/part-of: marketplace
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/ekhodzitsky/go-ozon-marketplace.git
+        targetRevision: master
+        path: 'infra/k8s/helm-charts/{{ .service }}'
+        helm:
+          valueFiles:
+            - values-staging.yaml
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: marketplace-staging
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+        syncOptions:
+          - CreateNamespace=true

@@ -47,14 +47,15 @@ func NewCatalogUsecase(
 	}
 }
 
-func (u *catalogUsecase) CreateProduct(ctx context.Context, name, description string, price int64, categories []string) (uuid.UUID, error) {
+func (u *catalogUsecase) CreateProduct(ctx context.Context, name, description string, price int64, categories []string, idempotencyKey string) (_ uuid.UUID, err error) {
 	product := &domain.Product{
-		ID:          uuid.New(),
-		Name:        name,
-		Description: description,
-		Price:       price,
-		Categories:  categories,
-		CreatedAt:   time.Now().UTC(),
+		ID:             uuid.New(),
+		Name:           name,
+		Description:    description,
+		Price:          price,
+		Categories:     categories,
+		IdempotencyKey: idempotencyKey,
+		CreatedAt:      time.Now().UTC(),
 	}
 
 	payload, err := json.Marshal(product)
@@ -78,10 +79,19 @@ func (u *catalogUsecase) CreateProduct(ctx context.Context, name, description st
 	if err := uow.Begin(txCtx); err != nil {
 		return uuid.Nil, fmt.Errorf("begin uow: %w", err)
 	}
-	defer uow.Rollback(txCtx)
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		if rbErr := uow.Rollback(txCtx); rbErr != nil && err == nil {
+			err = fmt.Errorf("rollback uow: %w", rbErr)
+		}
+	}()
 
-	if err := uow.ProductRepo().Create(txCtx, product); err != nil {
-		return uuid.Nil, fmt.Errorf("create product: %w", err)
+	createdID, err := uow.ProductRepo().Create(txCtx, product)
+	if err != nil {
+		return createdID, fmt.Errorf("create product: %w", err)
 	}
 
 	if err := uow.OutboxRepo().Create(txCtx, event); err != nil {
@@ -91,8 +101,9 @@ func (u *catalogUsecase) CreateProduct(ctx context.Context, name, description st
 	if err := uow.Commit(txCtx); err != nil {
 		return uuid.Nil, fmt.Errorf("commit uow: %w", err)
 	}
+	committed = true
 
-	return product.ID, nil
+	return createdID, nil
 }
 
 func (u *catalogUsecase) GetProduct(ctx context.Context, id uuid.UUID) (*domain.Product, error) {
@@ -101,15 +112,7 @@ func (u *catalogUsecase) GetProduct(ctx context.Context, id uuid.UUID) (*domain.
 	return u.productRepo.GetByID(ctx, id)
 }
 
-func (u *catalogUsecase) UpdateProduct(ctx context.Context, id uuid.UUID, name, description string, price int64, categories []string) error {
-	product := &domain.Product{
-		ID:          id,
-		Name:        name,
-		Description: description,
-		Price:       price,
-		Categories:  categories,
-	}
-
+func (u *catalogUsecase) UpdateProduct(ctx context.Context, id uuid.UUID, name, description string, price int64, categories []string) (err error) {
 	txCtx, cancel := context.WithTimeout(ctx, u.queryTimeout)
 	defer cancel()
 
@@ -117,20 +120,65 @@ func (u *catalogUsecase) UpdateProduct(ctx context.Context, id uuid.UUID, name, 
 	if err := uow.Begin(txCtx); err != nil {
 		return fmt.Errorf("begin uow: %w", err)
 	}
-	defer uow.Rollback(txCtx)
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		if rbErr := uow.Rollback(txCtx); rbErr != nil && err == nil {
+			err = fmt.Errorf("rollback uow: %w", rbErr)
+		}
+	}()
 
-	if err := uow.ProductRepo().Update(txCtx, product); err != nil {
+	existing, err := uow.ProductRepo().GetByID(txCtx, id)
+	if err != nil {
+		return fmt.Errorf("get product: %w", err)
+	}
+
+	if name != "" {
+		existing.Name = name
+	}
+	if description != "" {
+		existing.Description = description
+	}
+	if price > 0 {
+		existing.Price = price
+	}
+	if len(categories) > 0 {
+		existing.Categories = categories
+	}
+
+	if err := uow.ProductRepo().Update(txCtx, existing); err != nil {
 		return fmt.Errorf("update product: %w", err)
+	}
+
+	payload, err := json.Marshal(existing)
+	if err != nil {
+		return fmt.Errorf("marshal product payload: %w", err)
+	}
+
+	event := &domain.OutboxEvent{
+		ID:            uuid.New(),
+		AggregateType: "product",
+		AggregateID:   existing.ID.String(),
+		EventType:     "ProductUpdated",
+		Payload:       payload,
+		CreatedAt:     time.Now().UTC(),
+	}
+
+	if err := uow.OutboxRepo().Create(txCtx, event); err != nil {
+		return fmt.Errorf("create outbox event: %w", err)
 	}
 
 	if err := uow.Commit(txCtx); err != nil {
 		return fmt.Errorf("commit uow: %w", err)
 	}
+	committed = true
 
 	return nil
 }
 
-func (u *catalogUsecase) DeleteProduct(ctx context.Context, id uuid.UUID) error {
+func (u *catalogUsecase) DeleteProduct(ctx context.Context, id uuid.UUID) (err error) {
 	txCtx, cancel := context.WithTimeout(ctx, u.queryTimeout)
 	defer cancel()
 
@@ -138,15 +186,42 @@ func (u *catalogUsecase) DeleteProduct(ctx context.Context, id uuid.UUID) error 
 	if err := uow.Begin(txCtx); err != nil {
 		return fmt.Errorf("begin uow: %w", err)
 	}
-	defer uow.Rollback(txCtx)
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		if rbErr := uow.Rollback(txCtx); rbErr != nil && err == nil {
+			err = fmt.Errorf("rollback uow: %w", rbErr)
+		}
+	}()
 
 	if err := uow.ProductRepo().Delete(txCtx, id); err != nil {
 		return fmt.Errorf("delete product: %w", err)
 	}
 
+	payload, err := json.Marshal(map[string]string{"product_id": id.String()})
+	if err != nil {
+		return fmt.Errorf("marshal delete payload: %w", err)
+	}
+
+	event := &domain.OutboxEvent{
+		ID:            uuid.New(),
+		AggregateType: "product",
+		AggregateID:   id.String(),
+		EventType:     "ProductDeleted",
+		Payload:       payload,
+		CreatedAt:     time.Now().UTC(),
+	}
+
+	if err := uow.OutboxRepo().Create(txCtx, event); err != nil {
+		return fmt.Errorf("create outbox event: %w", err)
+	}
+
 	if err := uow.Commit(txCtx); err != nil {
 		return fmt.Errorf("commit uow: %w", err)
 	}
+	committed = true
 
 	return nil
 }

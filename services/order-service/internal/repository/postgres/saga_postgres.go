@@ -6,11 +6,10 @@ import (
 	"errors"
 	"fmt"
 
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-
-	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 )
 
 type SagaPostgres struct {
@@ -67,18 +66,24 @@ func (r *SagaPostgres) GetByOrderID(ctx context.Context, orderID uuid.UUID) (*do
 
 func (r *SagaPostgres) UpdateStatus(ctx context.Context, orderID uuid.UUID, status domain.SagaStatus, step string, errMsg string) error {
 	query := `UPDATE sagas SET status=$1, current_step=$2, error_message=$3, updated_at=NOW() WHERE order_id=$4`
-	_, err := r.db.Exec(ctx, query, status, step, errMsg, orderID)
+	tag, err := r.db.Exec(ctx, query, status, step, errMsg, orderID)
 	if err != nil {
 		return fmt.Errorf("update saga status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: saga", apperrors.ErrNotFound)
 	}
 	return nil
 }
 
 func (r *SagaPostgres) Save(ctx context.Context, saga *domain.Saga) error {
 	query := `UPDATE sagas SET status=$1, current_step=$2, error_message=$3, payment_id=$4, reserved_items=$5, updated_at=NOW() WHERE order_id=$6`
-	_, err := r.db.Exec(ctx, query, saga.Status, saga.CurrentStep, saga.ErrorMessage, saga.PaymentID, marshalReservedItems(saga.ReservedItems), saga.OrderID)
+	tag, err := r.db.Exec(ctx, query, saga.Status, saga.CurrentStep, saga.ErrorMessage, saga.PaymentID, marshalReservedItems(saga.ReservedItems), saga.OrderID)
 	if err != nil {
 		return fmt.Errorf("save saga: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: saga", apperrors.ErrNotFound)
 	}
 	return nil
 }

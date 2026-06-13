@@ -15,6 +15,23 @@ import (
 	"go.uber.org/zap"
 )
 
+type fakeLocker struct {
+	locked bool
+}
+
+func (f *fakeLocker) TryLock(ctx context.Context, key string) (bool, error) {
+	if f.locked {
+		return false, nil
+	}
+	f.locked = true
+	return true, nil
+}
+
+func (f *fakeLocker) Unlock(ctx context.Context, key string) error {
+	f.locked = false
+	return nil
+}
+
 func TestRecoveryWorker_StartStop(t *testing.T) {
 	t.Parallel()
 
@@ -25,7 +42,7 @@ func TestRecoveryWorker_StartStop(t *testing.T) {
 	sagaRepo.EXPECT().ListIncomplete(gomock.Any(), 100).Return(nil, nil).AnyTimes()
 
 	log := zap.NewNop()
-	w := saga.NewRecoveryWorker(orchestrator, log)
+	w := saga.NewRecoveryWorker(orchestrator, log, saga.WithRecoveryInterval(50*time.Millisecond))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -47,10 +64,10 @@ func TestRecoveryWorker_RecoverOnceError(t *testing.T) {
 	defer ctrl.Finish()
 
 	orchestrator, _, sagaRepo, _, _ := newTestOrchestrator(ctrl)
-	sagaRepo.EXPECT().ListIncomplete(gomock.Any(), 100).Return(nil, errors.New("db error"))
+	sagaRepo.EXPECT().ListIncomplete(gomock.Any(), 100).Return(nil, errors.New("db error")).AnyTimes()
 
 	log := zap.NewNop()
-	w := saga.NewRecoveryWorker(orchestrator, log)
+	w := saga.NewRecoveryWorker(orchestrator, log, saga.WithRecoveryInterval(50*time.Millisecond))
 
 	ctx := context.Background()
 	w.Start(ctx)
@@ -68,7 +85,7 @@ func TestRecoveryWorker_ContextCancellation(t *testing.T) {
 	sagaRepo.EXPECT().ListIncomplete(gomock.Any(), 100).Return([]domain.Saga{}, nil).AnyTimes()
 
 	log := zap.NewNop()
-	w := saga.NewRecoveryWorker(orchestrator, log)
+	w := saga.NewRecoveryWorker(orchestrator, log, saga.WithRecoveryInterval(50*time.Millisecond))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	w.Start(ctx)
@@ -115,18 +132,18 @@ func TestRecoveryWorker_ProcessesIncompleteSagas(t *testing.T) {
 		ID:     orderID,
 		UserID: uuid.New(),
 		Items:  []domain.OrderItem{},
-		Status: "awaiting_payment",
+		Status: domain.OrderStatusAwaitingPayment,
 	}
 
-	sagaRepo.EXPECT().ListIncomplete(gomock.Any(), 100).Return([]domain.Saga{incompleteSaga}, nil)
-	orderRepo.EXPECT().GetByID(gomock.Any(), orderID).Return(order, nil)
-	sagaRepo.EXPECT().GetByOrderID(gomock.Any(), orderID).Return(&incompleteSaga, nil)
+	sagaRepo.EXPECT().ListIncomplete(gomock.Any(), 100).Return([]domain.Saga{incompleteSaga}, nil).AnyTimes()
+	orderRepo.EXPECT().GetByID(gomock.Any(), orderID).Return(order, nil).AnyTimes()
+	sagaRepo.EXPECT().GetByOrderID(gomock.Any(), orderID).Return(&incompleteSaga, nil).AnyTimes()
 	// ProcessOrder from Reserved state will transition to Paying, Paid, Confirming, Confirmed
 	sagaRepo.EXPECT().Save(gomock.Any(), gomock.Any()).AnyTimes()
-	payClient.EXPECT().ProcessPayment(gomock.Any(), orderID.String(), order.UserID.String(), order.TotalAmount).Return("pay-001", nil)
-	orderRepo.EXPECT().UpdateStatus(gomock.Any(), orderID, "confirmed").Return(nil)
+	payClient.EXPECT().ProcessPayment(gomock.Any(), orderID.String(), order.TotalAmount, gomock.Any()).Return("pay-001", nil).AnyTimes()
+	orderRepo.EXPECT().UpdateStatus(gomock.Any(), orderID, domain.OrderStatusPaid).Return(nil).AnyTimes()
 
-	w := saga.NewRecoveryWorker(orchestrator, log)
+	w := saga.NewRecoveryWorker(orchestrator, log, saga.WithLocker(&fakeLocker{}), saga.WithRecoveryInterval(50*time.Millisecond))
 	ctx := context.Background()
 	w.Start(ctx)
 

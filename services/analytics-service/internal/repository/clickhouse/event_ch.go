@@ -3,7 +3,9 @@ package clickhouse
 import (
 	"context"
 	"fmt"
-	"sync"
+	"io/fs"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -13,19 +15,23 @@ import (
 )
 
 type EventRepo struct {
-	conn driver.Conn
-	mu   sync.Mutex
-	// seen tracks aggregation keys for in-process deduplication.
-	// TODO: add TTL or external store for cross-process idempotency.
-	seen         map[string]struct{}
+	conn         driver.Conn
 	callTimeout  time.Duration
 	queryTimeout time.Duration
 }
 
-func NewEventRepo(addr string, callTimeout, queryTimeout time.Duration) (*EventRepo, error) {
-	conn, err := clickhouse.Open(&clickhouse.Options{
+func NewEventRepo(addr, user, password string, callTimeout, queryTimeout time.Duration, migrationFS fs.FS) (*EventRepo, error) {
+	opts := &clickhouse.Options{
 		Addr: []string{addr},
-	})
+	}
+	if user != "" {
+		opts.Auth = clickhouse.Auth{
+			Database: "default",
+			Username: user,
+			Password: password,
+		}
+	}
+	conn, err := clickhouse.Open(opts)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse open: %w", err)
 	}
@@ -37,35 +43,37 @@ func NewEventRepo(addr string, callTimeout, queryTimeout time.Duration) (*EventR
 		return nil, fmt.Errorf("clickhouse ping: %w", err)
 	}
 
-	if err := conn.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS events (
-			event_type String,
-			aggregate_id String,
-			payload String,
-			created_at DateTime,
-			aggregation_key String
-		) ENGINE = MergeTree()
-		ORDER BY created_at
-	`); err != nil {
-		return nil, fmt.Errorf("create table: %w", err)
+	if migrationFS != nil {
+		if err := runMigrations(ctx, conn, migrationFS); err != nil {
+			return nil, fmt.Errorf("run migrations: %w", err)
+		}
 	}
 
-	if err := conn.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS ab_test_events (
-			event_id UUID,
-			experiment String,
-			variation String,
-			user_id UUID,
-			conversion Bool,
-			revenue_minor Int64,
-			created_at DateTime
-		) ENGINE = MergeTree()
-		ORDER BY created_at
-	`); err != nil {
-		return nil, fmt.Errorf("create ab_test_events table: %w", err)
-	}
+	return &EventRepo{conn: conn, callTimeout: callTimeout, queryTimeout: queryTimeout}, nil
+}
 
-	return &EventRepo{conn: conn, seen: make(map[string]struct{}), callTimeout: callTimeout, queryTimeout: queryTimeout}, nil
+func runMigrations(ctx context.Context, conn driver.Conn, fsys fs.FS) error {
+	entries, err := fs.ReadDir(fsys, ".")
+	if err != nil {
+		return fmt.Errorf("read migration dir: %w", err)
+	}
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".up.sql") {
+			files = append(files, e.Name())
+		}
+	}
+	sort.Strings(files)
+	for _, f := range files {
+		data, err := fs.ReadFile(fsys, f)
+		if err != nil {
+			return fmt.Errorf("read migration %s: %w", f, err)
+		}
+		if err := conn.Exec(ctx, string(data)); err != nil {
+			return fmt.Errorf("execute migration %s: %w", f, err)
+		}
+	}
+	return nil
 }
 
 func (r *EventRepo) BatchInsert(ctx context.Context, events []domain.Event) error {
@@ -75,16 +83,19 @@ func (r *EventRepo) BatchInsert(ctx context.Context, events []domain.Event) erro
 		defer cancel()
 	}
 
-	batch, err := r.conn.PrepareBatch(ctx, "INSERT INTO events")
+	batch, err := r.conn.PrepareBatch(ctx, "INSERT INTO events (event_type, aggregate_id, payload, amount, currency, occurred_at, created_at, aggregation_key)")
 	if err != nil {
 		return fmt.Errorf("prepare batch: %w", err)
 	}
 
 	for _, ev := range events {
 		if err := batch.Append(
-			ev.EventType,
+			string(ev.EventType),
 			ev.AggregateID,
 			ev.Payload,
+			ev.Amount,
+			ev.Currency,
+			ev.OccurredAt,
 			ev.CreatedAt,
 			ev.AggregationKey,
 		); err != nil {
@@ -96,52 +107,6 @@ func (r *EventRepo) BatchInsert(ctx context.Context, events []domain.Event) erro
 		return fmt.Errorf("send batch: %w", err)
 	}
 
-	return nil
-}
-
-func (r *EventRepo) Insert(ctx context.Context, event domain.Event) error {
-	r.mu.Lock()
-	if event.AggregationKey != "" {
-		if _, exists := r.seen[event.AggregationKey]; exists {
-			r.mu.Unlock()
-			return nil
-		}
-	}
-	r.mu.Unlock()
-
-	if event.AggregationKey != "" {
-		var cnt uint64
-		queryCtx := ctx
-		if r.queryTimeout > 0 {
-			var cancel context.CancelFunc
-			queryCtx, cancel = context.WithTimeout(ctx, r.queryTimeout)
-			defer cancel()
-		}
-		if err := r.conn.QueryRow(queryCtx, "SELECT count() FROM events WHERE aggregation_key = ?", event.AggregationKey).Scan(&cnt); err != nil {
-			return fmt.Errorf("check aggregation key: %w", err)
-		}
-		if cnt > 0 {
-			r.mu.Lock()
-			r.seen[event.AggregationKey] = struct{}{}
-			r.mu.Unlock()
-			return nil
-		}
-	}
-
-	if r.callTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, r.callTimeout)
-		defer cancel()
-	}
-	if err := r.BatchInsert(ctx, []domain.Event{event}); err != nil {
-		return err
-	}
-
-	if event.AggregationKey != "" {
-		r.mu.Lock()
-		r.seen[event.AggregationKey] = struct{}{}
-		r.mu.Unlock()
-	}
 	return nil
 }
 
@@ -181,6 +146,13 @@ func (r *EventRepo) TrackABTestEvent(ctx context.Context, event domain.ABTestEve
 	}
 
 	return nil
+}
+
+func (r *EventRepo) Close() error {
+	if r.conn == nil {
+		return nil
+	}
+	return r.conn.Close()
 }
 
 func (r *EventRepo) GetDailyRevenue(ctx context.Context, date string) (float64, error) {

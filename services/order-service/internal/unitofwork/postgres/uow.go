@@ -37,8 +37,11 @@ func (u *UnitOfWork) Commit(ctx context.Context) error {
 }
 
 func (u *UnitOfWork) Rollback(ctx context.Context) error {
+	if u.tx == nil {
+		return nil
+	}
 	return u.tx.Rollback(ctx)
 }
 
-func (u *UnitOfWork) OrderRepo() repository.OrderRepository  { return u.orderRepo }
+func (u *UnitOfWork) OrderRepo() repository.OrderRepository   { return u.orderRepo }
 func (u *UnitOfWork) OutboxRepo() repository.OutboxRepository { return u.outboxRepo }

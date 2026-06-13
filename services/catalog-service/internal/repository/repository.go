@@ -8,7 +8,7 @@ import (
 )
 
 type ProductRepository interface {
-	Create(ctx context.Context, product *domain.Product) error
+	Create(ctx context.Context, product *domain.Product) (uuid.UUID, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Product, error)
 	Update(ctx context.Context, product *domain.Product) error
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -17,7 +17,9 @@ type ProductRepository interface {
 
 type ProductSearchRepository interface {
 	Index(ctx context.Context, product *domain.Product) error
+	Delete(ctx context.Context, id uuid.UUID) error
 	Search(ctx context.Context, query string, page, pageSize int) ([]*domain.Product, int, error)
+	EnsureIndex(ctx context.Context) error
 }
 
 type OutboxRepository interface {

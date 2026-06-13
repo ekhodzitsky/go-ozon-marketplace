@@ -9,7 +9,7 @@ import (
 
 // CatalogUsecase defines the catalog use-case boundary.
 type CatalogUsecase interface {
-	CreateProduct(ctx context.Context, name, description string, price int64, categories []string) (uuid.UUID, error)
+	CreateProduct(ctx context.Context, name, description string, price int64, categories []string, idempotencyKey string) (uuid.UUID, error)
 	GetProduct(ctx context.Context, id uuid.UUID) (*domain.Product, error)
 	UpdateProduct(ctx context.Context, id uuid.UUID, name, description string, price int64, categories []string) error
 	DeleteProduct(ctx context.Context, id uuid.UUID) error

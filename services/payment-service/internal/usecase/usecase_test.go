@@ -2,9 +2,11 @@ package usecase
 
 import (
 	"context"
+	"sort"
 	"testing"
 	"time"
 
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/repository"
 	"github.com/google/uuid"
@@ -18,7 +20,9 @@ import (
 type mockPaymentRepository struct {
 	payments      map[uuid.UUID]*domain.Payment
 	orderPayments map[uuid.UUID]*domain.Payment
+	refunds       map[uuid.UUID]*domain.Refund
 	createErr     error
+	refundErr     error
 	updateErr     error
 }
 
@@ -26,6 +30,7 @@ func newMockPaymentRepository() *mockPaymentRepository {
 	return &mockPaymentRepository{
 		payments:      make(map[uuid.UUID]*domain.Payment),
 		orderPayments: make(map[uuid.UUID]*domain.Payment),
+		refunds:       make(map[uuid.UUID]*domain.Refund),
 	}
 }
 
@@ -60,7 +65,7 @@ func (m *mockPaymentRepository) CreateOrGet(ctx context.Context, payment *domain
 func (m *mockPaymentRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Payment, error) {
 	payment, ok := m.payments[id]
 	if !ok {
-		return nil, assert.AnError
+		return nil, apperrors.ErrNotFound
 	}
 	return payment, nil
 }
@@ -92,12 +97,39 @@ func (m *mockPaymentRepository) UpdateStatusIf(ctx context.Context, id uuid.UUID
 	return true, nil
 }
 
+func (m *mockPaymentRepository) CreateRefund(ctx context.Context, refund *domain.Refund) error {
+	if m.refundErr != nil {
+		return m.refundErr
+	}
+	for _, existing := range m.refunds {
+		if existing.IdempotencyKey != "" && existing.IdempotencyKey == refund.IdempotencyKey {
+			return assert.AnError
+		}
+	}
+	m.refunds[refund.ID] = refund
+	return nil
+}
+
 func (m *mockPaymentRepository) GetRefund(ctx context.Context, id uuid.UUID) (*domain.Refund, error) {
-	return nil, assert.AnError
+	refund, ok := m.refunds[id]
+	if !ok {
+		return nil, apperrors.ErrNotFound
+	}
+	return refund, nil
 }
 
 func (m *mockPaymentRepository) ListRefunds(ctx context.Context, paymentID uuid.UUID) ([]*domain.Refund, error) {
-	return nil, assert.AnError
+	var out []*domain.Refund
+	for _, refund := range m.refunds {
+		if refund.PaymentID == paymentID {
+			out = append(out, refund)
+		}
+	}
+	// Descending by created_at to match the production implementation.
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	return out, nil
 }
 
 type mockTxManager struct {
@@ -264,7 +296,7 @@ func TestPaymentUsecase_Refund(t *testing.T) {
 				paymentID = uuid.New()
 			}
 
-			payment, err := uc.Refund(context.Background(), paymentID)
+			payment, refund, err := uc.Refund(context.Background(), paymentID, uuid.New().String())
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -273,6 +305,8 @@ func TestPaymentUsecase_Refund(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, domain.StatusRefunded, payment.Status)
+			assert.NotNil(t, refund)
+			assert.Equal(t, domain.StatusRefunded, refund.Status)
 
 			// Verify repository was updated
 			updated, err := repo.GetByID(context.Background(), paymentID)

@@ -55,7 +55,8 @@ func AuthUnaryInterceptor(jwtSecret string) grpc.UnaryServerInterceptor {
 			return nil, status.Error(codes.Unauthenticated, "invalid authorization header format")
 		}
 
-		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+		claims := &CustomClaims{}
+		token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
 			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 			}
@@ -63,11 +64,6 @@ func AuthUnaryInterceptor(jwtSecret string) grpc.UnaryServerInterceptor {
 		})
 		if err != nil || !token.Valid {
 			return nil, status.Errorf(codes.Unauthenticated, "invalid token: %v", err)
-		}
-
-		claims, ok := token.Claims.(*CustomClaims)
-		if !ok {
-			return nil, status.Error(codes.Unauthenticated, "invalid token claims")
 		}
 
 		if claims.Subject == "" {
@@ -111,6 +107,9 @@ func isPublicEndpoint(method string) bool {
 		"/user.v1.UserService/Register",
 		"/user.v1.UserService/Login",
 		"/grpc.health.v1.Health/Check",
+		"/catalog.v1.CatalogService/GetProduct",
+		"/catalog.v1.CatalogService/ListProducts",
+		"/catalog.v1.CatalogService/SearchProducts",
 	}
 	for _, p := range public {
 		if method == p {

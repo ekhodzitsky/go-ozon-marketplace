@@ -84,6 +84,9 @@ func (e *Engine) Register(flag *Flag) {
 
 // LoadFromRedis loads flags from Redis hash "featureflags".
 func (e *Engine) LoadFromRedis() error {
+	if e.client == nil {
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(e.ctx, 5*time.Second)
 	defer cancel()
 	data, err := e.client.HGetAll(ctx, "featureflags").Result()
@@ -108,6 +111,9 @@ func (e *Engine) LoadFromRedis() error {
 
 // SaveToRedis saves the current local flag state to Redis.
 func (e *Engine) SaveToRedis() error {
+	if e.client == nil {
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(e.ctx, 5*time.Second)
 	defer cancel()
 
@@ -150,8 +156,9 @@ func (e *Engine) SetEnabled(name string, enabled bool) error {
 		e.store[name] = flag
 	}
 	flag.Enabled = enabled
+	cp := *flag
 	e.mu.Unlock()
-	return e.saveFlag(name, flag)
+	return e.saveFlag(name, &cp)
 }
 
 // SetPercentage updates a flag's percentage strategy in local memory and Redis.
@@ -168,14 +175,18 @@ func (e *Engine) SetPercentage(name string, percentage int) error {
 	flag.Strategy = "percentage"
 	flag.Percentage = percentage
 	flag.Enabled = true
+	cp := *flag
 	e.mu.Unlock()
-	return e.saveFlag(name, flag)
+	return e.saveFlag(name, &cp)
 }
 
 func (e *Engine) saveFlag(name string, flag *Flag) error {
 	b, err := json.Marshal(flag)
 	if err != nil {
 		return err
+	}
+	if e.client == nil {
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(e.ctx, 5*time.Second)
 	defer cancel()

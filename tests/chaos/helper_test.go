@@ -6,8 +6,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,15 +28,42 @@ import (
 )
 
 const (
-	jwtSecret    = "chaos-test-secret"
-	postgresDSN  = "postgres://ozon:ozonpass@localhost:5432/marketplace?sslmode=disable"
-	composeBase  = "../../infra/docker/docker-compose.yml"
-	composeChaos = "../../infra/docker/docker-compose.chaos.yml"
+	jwtSecret   = "chaos-test-secret"
+	composeBase = "../../infra/docker/docker-compose.yml"
 )
+
+func postgresDSN() string {
+	if dsn := os.Getenv("POSTGRES_DSN"); dsn != "" {
+		return dsn
+	}
+	return "postgres://ozon:ozonpass@localhost:5432/marketplace?sslmode=disable"
+}
+
+func composeProjectName() string {
+	if name := os.Getenv("COMPOSE_PROJECT_NAME"); name != "" {
+		return name
+	}
+	return "go-ozon-marketplace"
+}
+
+func containerName(service string) string {
+	return fmt.Sprintf("%s-%s-1", composeProjectName(), service)
+}
+
+func dockerComposeFiles() []string {
+	files := []string{"-f", composeBase}
+	if chaos := os.Getenv("COMPOSE_CHAOS_FILE"); chaos != "" {
+		files = append(files, "-f", chaos)
+	} else {
+		files = append(files, "-f", "../../infra/docker/docker-compose.chaos.yml")
+	}
+	return files
+}
 
 func dockerComposeUp(t *testing.T) {
 	t.Helper()
-	cmd := exec.Command("docker", "compose", "-f", composeBase, "-f", composeChaos, "up", "--build", "-d")
+	args := append(dockerComposeFiles(), "up", "--build", "-d")
+	cmd := exec.Command("docker", append([]string{"compose"}, args...)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("docker compose up failed: %v\n%s", err, out)
@@ -41,13 +71,26 @@ func dockerComposeUp(t *testing.T) {
 	t.Cleanup(func() {
 		dockerComposeDown(t)
 	})
-	// Allow containers to start and become healthy
-	time.Sleep(8 * time.Second)
+	// Wait for the gateway to be ready instead of sleeping a fixed amount.
+	gatewayURL := "http://localhost:8080/query"
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(gatewayURL)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode < 500 {
+				return
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Logf("gateway did not become ready within 30s, continuing anyway")
 }
 
 func dockerComposeDown(t *testing.T) {
 	t.Helper()
-	cmd := exec.Command("docker", "compose", "-f", composeBase, "-f", composeChaos, "down", "-v")
+	args := append(dockerComposeFiles(), "down", "-v")
+	cmd := exec.Command("docker", append([]string{"compose"}, args...)...)
 	_ = cmd.Run()
 }
 
@@ -78,9 +121,31 @@ func dockerStart(t *testing.T, container string) {
 	}
 }
 
+func dockerHealthCheck(t *testing.T, container string) bool {
+	t.Helper()
+	cmd := exec.Command("docker", "inspect", "--format={{.State.Status}}", container)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "running"
+}
+
+func waitForContainer(t *testing.T, container string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if dockerHealthCheck(t, container) {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatalf("container %s did not become running within %v", container, timeout)
+}
+
 func runMigrations(t *testing.T) {
 	t.Helper()
-	tests.RunMigrations(context.Background(), t, postgresDSN,
+	tests.RunMigrations(context.Background(), t, postgresDSN(),
 		"../../services/order-service/migrations",
 		"../../services/inventory-service/migrations",
 		"../../services/payment-service/migrations",
@@ -96,7 +161,9 @@ func authContext(ctx context.Context, userID string) context.Context {
 			Issuer:    "go-ozon-marketplace",
 			Audience:  jwt.ClaimStrings{"api-gateway"},
 			ID:        uuid.New().String(),
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
+			NotBefore: jwt.NewNumericDate(time.Now().UTC()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(time.Hour)),
 		},
 		Role: string(middleware.RoleUser),
 	}
@@ -112,7 +179,7 @@ func serviceAuthContext(ctx context.Context) context.Context {
 			Issuer:    "go-ozon-marketplace",
 			Audience:  jwt.ClaimStrings{"api-gateway"},
 			ID:        uuid.New().String(),
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(time.Hour)),
 		},
 		Role: string(middleware.RoleService),
 	}
@@ -129,7 +196,7 @@ func newOrderClient(t *testing.T) orderv1.OrderServiceClient {
 	if err != nil {
 		t.Fatalf("failed to connect to order-service: %v", err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	return orderv1.NewOrderServiceClient(conn)
 }
 
@@ -141,7 +208,7 @@ func newInventoryClient(t *testing.T) inventoryv1.InventoryServiceClient {
 	if err != nil {
 		t.Fatalf("failed to connect to inventory-service: %v", err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	return inventoryv1.NewInventoryServiceClient(conn)
 }
 
@@ -153,13 +220,13 @@ func newPaymentClient(t *testing.T) paymentv1.PaymentServiceClient {
 	if err != nil {
 		t.Fatalf("failed to connect to payment-service: %v", err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	return paymentv1.NewPaymentServiceClient(conn)
 }
 
 func ensureStock(t *testing.T, productID string, available int) {
 	t.Helper()
-	pool, err := pgxpool.New(context.Background(), postgresDSN)
+	pool, err := pgxpool.New(context.Background(), postgresDSN())
 	if err != nil {
 		t.Fatalf("failed to connect to postgres: %v", err)
 	}
@@ -175,7 +242,7 @@ func ensureStock(t *testing.T, productID string, available int) {
 
 func getOrderStatus(t *testing.T, orderID string) string {
 	t.Helper()
-	pool, err := pgxpool.New(context.Background(), postgresDSN)
+	pool, err := pgxpool.New(context.Background(), postgresDSN())
 	if err != nil {
 		t.Fatalf("failed to connect to postgres: %v", err)
 	}
@@ -190,7 +257,7 @@ func getOrderStatus(t *testing.T, orderID string) string {
 
 func getOutboxUnprocessedCount(t *testing.T) int {
 	t.Helper()
-	pool, err := pgxpool.New(context.Background(), postgresDSN)
+	pool, err := pgxpool.New(context.Background(), postgresDSN())
 	if err != nil {
 		t.Fatalf("failed to connect to postgres: %v", err)
 	}
@@ -210,7 +277,7 @@ func graphqlRequest(t *testing.T, url, query string) map[string]interface{} {
 	if err != nil {
 		t.Fatalf("graphql request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {

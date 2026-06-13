@@ -18,11 +18,11 @@ type mockConsumerGroupSession struct {
 	marked []*sarama.ConsumerMessage
 }
 
-func (m *mockConsumerGroupSession) Claims() map[string][]int32       { return nil }
-func (m *mockConsumerGroupSession) MemberID() string                 { return "" }
-func (m *mockConsumerGroupSession) GenerationID() int32              { return 0 }
-func (m *mockConsumerGroupSession) MarkOffset(string, int32, int64, string) {}
-func (m *mockConsumerGroupSession) Commit()                            {}
+func (m *mockConsumerGroupSession) Claims() map[string][]int32               { return nil }
+func (m *mockConsumerGroupSession) MemberID() string                         { return "" }
+func (m *mockConsumerGroupSession) GenerationID() int32                      { return 0 }
+func (m *mockConsumerGroupSession) MarkOffset(string, int32, int64, string)  {}
+func (m *mockConsumerGroupSession) Commit()                                  {}
 func (m *mockConsumerGroupSession) ResetOffset(string, int32, int64, string) {}
 func (m *mockConsumerGroupSession) MarkMessage(msg *sarama.ConsumerMessage, _ string) {
 	m.marked = append(m.marked, msg)
@@ -56,13 +56,28 @@ func newEventMessage(t *testing.T, eventType, orderID, userID string) *sarama.Co
 	}
 }
 
+func newPaymentMessage(t *testing.T, orderID string, amountCents int64) *sarama.ConsumerMessage {
+	t.Helper()
+	payload, _ := json.Marshal(Event{
+		EventType:   "PaymentSuccess",
+		OrderID:     orderID,
+		AmountCents: amountCents,
+	})
+	return &sarama.ConsumerMessage{
+		Topic:     "events",
+		Partition: 0,
+		Offset:    0,
+		Value:     payload,
+	}
+}
+
 func TestConsumerHandler_ConsumeClaim_OrderCreated(t *testing.T) {
 	t.Parallel()
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockUC := mocks.NewMockAnalyticsUsecase(ctrl)
-	mockUC.EXPECT().TrackEvent(gomock.Any(), domain.EventTypeOrderCreated, "order-1", gomock.Any(), "user-1").Return(nil)
+	mockUC.EXPECT().TrackEvent(gomock.Any(), domain.EventTypeOrderCreated, "order-1", gomock.Any(), "events:0:0", float64(0)).Return(nil)
 
 	h := &consumerHandler{uc: mockUC, log: zap.NewNop()}
 	session := &mockConsumerGroupSession{}
@@ -81,7 +96,7 @@ func TestConsumerHandler_ConsumeClaim_OrderConfirmed(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockUC := mocks.NewMockAnalyticsUsecase(ctrl)
-	mockUC.EXPECT().TrackEvent(gomock.Any(), domain.EventTypeOrderConfirmed, "order-2", gomock.Any(), "user-2").Return(nil)
+	mockUC.EXPECT().TrackEvent(gomock.Any(), domain.EventTypeOrderConfirmed, "order-2", gomock.Any(), "events:0:0", float64(0)).Return(nil)
 
 	h := &consumerHandler{uc: mockUC, log: zap.NewNop()}
 	session := &mockConsumerGroupSession{}
@@ -100,12 +115,31 @@ func TestConsumerHandler_ConsumeClaim_OrderCancelled(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockUC := mocks.NewMockAnalyticsUsecase(ctrl)
-	mockUC.EXPECT().TrackEvent(gomock.Any(), domain.EventTypeOrderCancelled, "order-3", gomock.Any(), "user-3").Return(nil)
+	mockUC.EXPECT().TrackEvent(gomock.Any(), domain.EventTypeOrderCancelled, "order-3", gomock.Any(), "events:0:0", float64(0)).Return(nil)
 
 	h := &consumerHandler{uc: mockUC, log: zap.NewNop()}
 	session := &mockConsumerGroupSession{}
 	claim := &mockConsumerGroupClaim{messages: make(chan *sarama.ConsumerMessage, 1)}
 	claim.messages <- newEventMessage(t, "OrderCancelled", "order-3", "user-3")
+	close(claim.messages)
+
+	err := h.ConsumeClaim(session, claim)
+	require.NoError(t, err)
+	assert.Len(t, session.marked, 1)
+}
+
+func TestConsumerHandler_ConsumeClaim_PaymentSuccess(t *testing.T) {
+	t.Parallel()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockUC := mocks.NewMockAnalyticsUsecase(ctrl)
+	mockUC.EXPECT().TrackEvent(gomock.Any(), domain.EventTypePaymentSuccess, "order-4", gomock.Any(), "events:0:0", 12.34).Return(nil)
+
+	h := &consumerHandler{uc: mockUC, log: zap.NewNop()}
+	session := &mockConsumerGroupSession{}
+	claim := &mockConsumerGroupClaim{messages: make(chan *sarama.ConsumerMessage, 1)}
+	claim.messages <- newPaymentMessage(t, "order-4", 1234)
 	close(claim.messages)
 
 	err := h.ConsumeClaim(session, claim)
@@ -124,7 +158,7 @@ func TestConsumerHandler_ConsumeClaim_UnknownEvent(t *testing.T) {
 	h := &consumerHandler{uc: mockUC, log: zap.NewNop()}
 	session := &mockConsumerGroupSession{}
 	claim := &mockConsumerGroupClaim{messages: make(chan *sarama.ConsumerMessage, 1)}
-	claim.messages <- newEventMessage(t, "UnknownEvent", "order-4", "user-4")
+	claim.messages <- newEventMessage(t, "UnknownEvent", "order-5", "user-5")
 	close(claim.messages)
 
 	err := h.ConsumeClaim(session, claim)
@@ -161,17 +195,17 @@ func TestConsumerHandler_ConsumeClaim_TrackEventError(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockUC := mocks.NewMockAnalyticsUsecase(ctrl)
-	mockUC.EXPECT().TrackEvent(gomock.Any(), domain.EventTypeOrderCreated, "order-5", gomock.Any(), "user-5").Return(assert.AnError)
+	mockUC.EXPECT().TrackEvent(gomock.Any(), domain.EventTypeOrderCreated, "order-6", gomock.Any(), "events:0:0", float64(0)).Return(assert.AnError).Times(3)
 
 	h := &consumerHandler{uc: mockUC, log: zap.NewNop()}
 	session := &mockConsumerGroupSession{}
 	claim := &mockConsumerGroupClaim{messages: make(chan *sarama.ConsumerMessage, 1)}
-	claim.messages <- newEventMessage(t, "OrderCreated", "order-5", "user-5")
+	claim.messages <- newEventMessage(t, "OrderCreated", "order-6", "user-6")
 	close(claim.messages)
 
 	err := h.ConsumeClaim(session, claim)
 	require.NoError(t, err)
-	assert.Len(t, session.marked, 1)
+	assert.Len(t, session.marked, 0)
 }
 
 func TestConsumer_StartClose(t *testing.T) {

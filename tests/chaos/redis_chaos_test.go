@@ -21,7 +21,7 @@ func TestRateLimiterWithoutRedis(t *testing.T) {
 	dockerComposeUp(t)
 
 	// Stop Redis
-	dockerStop(t, "go-ozon-marketplace-redis-1")
+	dockerStop(t, containerName("redis"))
 	time.Sleep(2 * time.Second)
 
 	gatewayURL := "http://localhost:8080/query"
@@ -58,7 +58,7 @@ func TestRateLimiterWithoutRedis(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 
 	if httpResp.StatusCode == http.StatusTooManyRequests {
 		t.Fatal("rate limiter should fail open when redis is down, got 429")

@@ -5,8 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PPROF_PORT="${PPROF_PORT:-6060}"
 PROFILE_DIR="${PROFILE_DIR:-$PROJECT_ROOT/profiles}"
-SERVICE_BIN="${SERVICE_BIN:-$PROJECT_ROOT/services/order-service/main}"
+SERVICE_BIN="${SERVICE_BIN:-$PROJECT_ROOT/bin/order-service}"
 SERVICE_CMD="${SERVICE_CMD:-}"
+READINESS_URL="${READINESS_URL:-}"
 
 mkdir -p "$PROFILE_DIR"
 
@@ -33,8 +34,40 @@ echo "Service: $CMD"
 echo "pprof port: $PPROF_PORT"
 echo "Profiles dir: $PROFILE_DIR"
 
+wait_for_pprof() {
+    local i
+    for i in {1..30}; do
+        if curl -fsS "http://localhost:$PPROF_PORT/debug/pprof/" > /dev/null 2>&1; then
+            return 0
+        fi
+        if ! kill -0 "$PID" 2>/dev/null; then
+            echo "Error: service process (PID: $PID) exited before pprof endpoint was available."
+            echo "Check service logs and environment variables (e.g., POSTGRES_DSN, JWT_SECRET)."
+            return 1
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+wait_for_readiness() {
+    local url="$1"
+    local i
+    for i in {1..30}; do
+        if curl -fsS "$url" > /dev/null 2>&1; then
+            return 0
+        fi
+        if ! kill -0 "$PID" 2>/dev/null; then
+            echo "Error: service process (PID: $PID) exited before readiness endpoint was available."
+            return 1
+        fi
+        sleep 1
+    done
+    return 1
+}
+
 # Check if pprof port is already occupied
-if nc -z localhost "$PPROF_PORT" 2>/dev/null; then
+if curl -fsS "http://localhost:$PPROF_PORT/debug/pprof/" > /dev/null 2>&1; then
     echo "Note: pprof endpoint already available on localhost:$PPROF_PORT"
 else
     echo "Starting service with GODEBUG=gctrace=1 ..."
@@ -42,23 +75,22 @@ else
     PID=$!
     echo "Service PID: $PID"
 
-    # Wait for pprof
-    for i in {1..30}; do
-        if nc -z localhost "$PPROF_PORT" 2>/dev/null; then
-            break
-        fi
-        if ! kill -0 $PID 2>/dev/null; then
-            echo "Error: service process (PID: $PID) exited before pprof endpoint was available."
-            echo "Check service logs and environment variables (e.g., POSTGRES_DSN, JWT_SECRET)."
+    # Wait for readiness endpoint if configured
+    if [ -n "$READINESS_URL" ]; then
+        echo "Waiting for readiness endpoint: $READINESS_URL"
+        if ! wait_for_readiness "$READINESS_URL"; then
+            echo "Error: readiness endpoint $READINESS_URL did not become available"
+            kill "$PID" 2>/dev/null || true
             exit 1
         fi
-        sleep 1
-    done
+        echo "Readiness endpoint is available"
+    fi
 
-    if ! nc -z localhost "$PPROF_PORT" 2>/dev/null; then
+    # Wait for pprof
+    if ! wait_for_pprof; then
         echo "Error: pprof endpoint did not start on localhost:$PPROF_PORT"
         echo "Make sure the service imports _ \"net/http/pprof\" and starts debug server"
-        kill $PID 2>/dev/null || true
+        kill "$PID" 2>/dev/null || true
         exit 1
     fi
 fi
@@ -86,7 +118,7 @@ ls -la "$PROFILE_DIR"/*.svg 2>/dev/null || true
 if [ -n "${PID:-}" ]; then
     echo ""
     echo "Stopping service (PID: $PID) ..."
-    kill $PID 2>/dev/null || true
+    kill "$PID" 2>/dev/null || true
 fi
 
 echo "=== Profiling Complete ==="

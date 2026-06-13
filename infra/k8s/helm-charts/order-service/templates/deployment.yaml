@@ -50,6 +50,10 @@ spec:
               value: {{ .Values.env.INVENTORY_ADDR | quote }}
             - name: PAYMENT_ADDR
               value: {{ .Values.env.PAYMENT_ADDR | quote }}
+            - name: METRICS_PORT
+              value: {{ .Values.service.metricsPort | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.env.OTEL_EXPORTER_OTLP_ENDPOINT | default "http://jaeger.monitoring.svc.cluster.local:4318" | quote }}
           envFrom:
             - secretRef:
                 name: {{ include "order-service.fullname" . }}-secrets

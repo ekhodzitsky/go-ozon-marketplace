@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	indexName           = "products"
-	DefaultCallTimeout  = 5 * time.Second
+	indexName          = "products"
+	DefaultCallTimeout = 5 * time.Second
 )
 
 type ProductES struct {
@@ -38,7 +38,7 @@ func (r *ProductES) Index(ctx context.Context, product *domain.Product) error {
 			"id":          product.ID.String(),
 			"name":        product.Name,
 			"description": product.Description,
-			"price":       product.Price,
+			"price_cents": product.Price,
 			"categories":  product.Categories,
 			"created_at":  product.CreatedAt.Format(time.RFC3339),
 		}).
@@ -46,6 +46,57 @@ func (r *ProductES) Index(ctx context.Context, product *domain.Product) error {
 	if err != nil {
 		return fmt.Errorf("index product: %w", err)
 	}
+	return nil
+}
+
+func (r *ProductES) Delete(ctx context.Context, id uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(ctx, DefaultCallTimeout)
+	defer cancel()
+
+	_, err := r.client.Delete().
+		Index(indexName).
+		Id(id.String()).
+		Do(ctx)
+	if err != nil && !elastic.IsNotFound(err) {
+		return fmt.Errorf("delete product from index: %w", err)
+	}
+	return nil
+}
+
+func (r *ProductES) EnsureIndex(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, DefaultCallTimeout)
+	defer cancel()
+
+	exists, err := r.client.IndexExists(indexName).Do(ctx)
+	if err != nil {
+		return fmt.Errorf("check index exists: %w", err)
+	}
+	if exists {
+		return nil
+	}
+
+	mapping := map[string]interface{}{
+		"settings": map[string]interface{}{
+			"number_of_shards":   1,
+			"number_of_replicas": 0,
+		},
+		"mappings": map[string]interface{}{
+			"properties": map[string]interface{}{
+				"id":          map[string]string{"type": "keyword"},
+				"name":        map[string]string{"type": "text"},
+				"description": map[string]string{"type": "text"},
+				"price_cents": map[string]string{"type": "long"},
+				"categories":  map[string]string{"type": "keyword"},
+				"created_at":  map[string]string{"type": "date"},
+			},
+		},
+	}
+
+	_, err = r.client.CreateIndex(indexName).BodyJson(mapping).Do(ctx)
+	if err != nil {
+		return fmt.Errorf("create index: %w", err)
+	}
+	r.log.Info("created elasticsearch index", zap.String("index", indexName))
 	return nil
 }
 
@@ -118,10 +169,10 @@ func (r *ProductES) mapToProduct(source map[string]interface{}) (*domain.Product
 	}
 
 	var price int64
-	if v, ok := source["price"].(float64); ok {
+	if v, ok := source["price_cents"].(float64); ok {
 		price = int64(v)
 	} else {
-		r.log.Warn("mapToProduct: missing or invalid price", zap.Any("value", source["price"]))
+		r.log.Warn("mapToProduct: missing or invalid price_cents", zap.Any("value", source["price_cents"]))
 	}
 
 	var categories []string

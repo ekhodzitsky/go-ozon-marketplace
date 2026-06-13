@@ -15,11 +15,14 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/notification-service/internal/config"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/notification-service/internal/consumer"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/notification-service/internal/delivery/grpc"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/notification-service/internal/email"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/notification-service/internal/usecase"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	grpchealthv1 "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 func New() *fx.App {
@@ -29,11 +32,17 @@ func New() *fx.App {
 			func(cfg *config.Config) (*zap.Logger, error) {
 				return logger.New(cfg.LogLevel, cfg.LogFormat)
 			},
-			func(log *zap.Logger, cfg *config.Config) usecase.NotificationUsecase {
-				return usecase.NewNotificationUsecase(log, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
+			func(cfg *config.Config, log *zap.Logger) email.Provider {
+				if cfg.SMTPHost != "" {
+					return email.NewSMTPProvider(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPFrom, cfg.SMTPUser, cfg.SMTPPassword)
+				}
+				return email.NewLogProvider(log)
+			},
+			func(log *zap.Logger, cfg *config.Config, provider email.Provider) usecase.NotificationUsecase {
+				return usecase.NewNotificationUsecase(log, provider, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
 			},
 			func(cfg *config.Config, uc usecase.NotificationUsecase, log *zap.Logger) (*consumer.Consumer, error) {
-				return consumer.NewConsumer(cfg.KafkaBrokers, cfg.KafkaConsumerGroup, cfg.KafkaTopics, uc, log)
+				return consumer.NewConsumer(cfg.KafkaBrokers, cfg.KafkaConsumerGroup, cfg.KafkaTopics, cfg.KafkaDLQTopic, uc, log)
 			},
 			grpcdelivery.NewNotificationHandler,
 		),
@@ -68,6 +77,10 @@ func New() *fx.App {
 				log.Info("tls enabled for gRPC server", zap.String("cert_path", cfg.CertPath))
 			}
 			grpcServer := server.NewGRPC(cfg.GRPCPort, opts...)
+
+			healthSrv := health.NewServer()
+			grpchealthv1.RegisterHealthServer(grpcServer.Server, healthSrv)
+			healthSrv.SetServingStatus("", grpchealthv1.HealthCheckResponse_SERVING)
 
 			mux := http.NewServeMux()
 			mux.Handle("/metrics", promhttp.Handler())

@@ -24,6 +24,8 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 func New() *fx.App {
@@ -38,13 +40,16 @@ func New() *fx.App {
 				defer cancel()
 				return pkgpostgres.NewPool(ctx, cfg.PostgresDSN)
 			},
+			func(db *pgxpool.Pool) postgres.Querier {
+				return db
+			},
 			postgres.NewPaymentPostgres,
 			postgres.NewPaymentTxManager,
 			func(repo repository.PaymentRepository, txm repository.TxManager, log *zap.Logger, cfg *config.Config) usecase.PaymentUsecase {
 				return usecase.NewPaymentUsecase(repo, txm, log, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
 			},
-			func(cfg *config.Config) (*dlq.Producer, error) {
-				return dlq.NewProducer(cfg.KafkaBrokers, cfg.DLQTopic)
+			func(cfg *config.Config, log *zap.Logger) (*dlq.Producer, error) {
+				return dlq.NewProducer(cfg.KafkaBrokers, cfg.DLQTopic, log)
 			},
 			grpcdelivery.NewPaymentHandler,
 		),
@@ -83,6 +88,10 @@ func New() *fx.App {
 				Handler: mux,
 			}
 			paymentv1.RegisterPaymentServiceServer(grpcServer.Server, handler)
+
+			healthServer := health.NewServer()
+			grpc_health_v1.RegisterHealthServer(grpcServer.Server, healthServer)
+			healthServer.SetServingStatus("payment.v1.PaymentService", grpc_health_v1.HealthCheckResponse_SERVING)
 
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {

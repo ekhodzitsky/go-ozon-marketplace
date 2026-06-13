@@ -8,6 +8,7 @@ import (
 
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/infrastructure/grpcclient"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/saga"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/unitofwork"
@@ -19,23 +20,33 @@ var (
 	_ OrderUsecase = (*orderUsecase)(nil)
 )
 
+type OrderOrchestrator interface {
+	ProcessOrder(ctx context.Context, order *domain.Order, idempotencyKey string) error
+}
+
 type orderUsecase struct {
-	uowFactory   func() unitofwork.UnitOfWork
-	orderRepo    repository.OrderRepository
-	outboxRepo   repository.OutboxRepository
-	orchestrator *saga.Orchestrator
-	invClient    saga.InventoryClient
-	redis        *redis.Client
-	callTimeout  time.Duration
-	queryTimeout time.Duration
+	uowFactory    func() unitofwork.UnitOfWork
+	orderRepo     repository.OrderRepository
+	outboxRepo    repository.OutboxRepository
+	sagaRepo      repository.SagaRepository
+	orchestrator  OrderOrchestrator
+	invClient     saga.InventoryClient
+	payClient     saga.PaymentClient
+	catalogClient grpcclient.CatalogClient
+	redis         *redis.Client
+	callTimeout   time.Duration
+	queryTimeout  time.Duration
 }
 
 func NewOrderUsecase(
 	uowFactory func() unitofwork.UnitOfWork,
 	orderRepo repository.OrderRepository,
 	outboxRepo repository.OutboxRepository,
-	orchestrator *saga.Orchestrator,
+	sagaRepo repository.SagaRepository,
+	orchestrator OrderOrchestrator,
 	invClient saga.InventoryClient,
+	payClient saga.PaymentClient,
+	catalogClient grpcclient.CatalogClient,
 	redis *redis.Client,
 	callTimeout time.Duration,
 	queryTimeout time.Duration,
@@ -47,14 +58,17 @@ func NewOrderUsecase(
 		queryTimeout = 3 * time.Second
 	}
 	return &orderUsecase{
-		uowFactory:   uowFactory,
-		orderRepo:    orderRepo,
-		outboxRepo:   outboxRepo,
-		orchestrator: orchestrator,
-		invClient:    invClient,
-		redis:        redis,
-		callTimeout:  callTimeout,
-		queryTimeout: queryTimeout,
+		uowFactory:    uowFactory,
+		orderRepo:     orderRepo,
+		outboxRepo:    outboxRepo,
+		sagaRepo:      sagaRepo,
+		orchestrator:  orchestrator,
+		invClient:     invClient,
+		payClient:     payClient,
+		catalogClient: catalogClient,
+		redis:         redis,
+		callTimeout:   callTimeout,
+		queryTimeout:  queryTimeout,
 	}
 }
 
@@ -63,8 +77,8 @@ func (u *orderUsecase) publishOrderEvent(ctx context.Context, orderID, status, u
 		return
 	}
 	event := map[string]interface{}{
-		"topic":    "orders",
-		"user_id":  userID,
+		"topic":   "orders",
+		"user_id": userID,
 		"payload": map[string]interface{}{
 			"order_id": orderID,
 			"status":   status,
@@ -77,7 +91,10 @@ func (u *orderUsecase) publishOrderEvent(ctx context.Context, orderID, status, u
 	u.redis.Publish(pubCtx, "order-events", string(data))
 }
 
-func (u *orderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items []domain.OrderItem) (uuid.UUID, error) {
+func (u *orderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items []domain.OrderItem, idempotencyKey string) (uuid.UUID, error) {
+	if idempotencyKey == "" {
+		return uuid.Nil, fmt.Errorf("%w: idempotency_key is required", apperrors.ErrInvalidArgument)
+	}
 	if len(items) == 0 {
 		return uuid.Nil, fmt.Errorf("%w: order must contain at least one item", apperrors.ErrInvalidArgument)
 	}
@@ -87,8 +104,8 @@ func (u *orderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items 
 		if item.Quantity <= 0 {
 			return uuid.Nil, fmt.Errorf("%w: quantity must be positive", apperrors.ErrInvalidArgument)
 		}
-		if item.Price < 0 {
-			return uuid.Nil, fmt.Errorf("%w: price cannot be negative", apperrors.ErrInvalidArgument)
+		if item.Price <= 0 {
+			return uuid.Nil, fmt.Errorf("%w: price must be greater than zero", apperrors.ErrInvalidArgument)
 		}
 		total += item.Price * int64(item.Quantity)
 	}
@@ -97,12 +114,22 @@ func (u *orderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items 
 		return uuid.Nil, fmt.Errorf("%w: total amount must be greater than zero", apperrors.ErrInvalidArgument)
 	}
 
+	for _, item := range items {
+		product, err := u.catalogClient.GetProduct(ctx, item.ProductID.String())
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("get product %s: %w", item.ProductID, err)
+		}
+		if product == nil || product.PriceCents != item.Price {
+			return uuid.Nil, fmt.Errorf("%w: price mismatch for product %s", apperrors.ErrInvalidArgument, item.ProductID)
+		}
+	}
+
 	order := &domain.Order{
 		ID:          uuid.New(),
 		UserID:      userID,
 		Items:       items,
 		TotalAmount: total,
-		Status:      "pending",
+		Status:      domain.OrderStatusPending,
 		CreatedAt:   time.Now().UTC(),
 		UpdatedAt:   time.Now().UTC(),
 	}
@@ -118,7 +145,7 @@ func (u *orderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items 
 	if err := uow.Begin(txCtx); err != nil {
 		return uuid.Nil, fmt.Errorf("begin uow: %w", err)
 	}
-	defer uow.Rollback(txCtx)
+	defer func() { _ = uow.Rollback(txCtx) }()
 
 	if err := uow.OrderRepo().Create(txCtx, order); err != nil {
 		return uuid.Nil, fmt.Errorf("create order: %w", err)
@@ -146,11 +173,11 @@ func (u *orderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items 
 		return uuid.Nil, fmt.Errorf("commit uow: %w", err)
 	}
 
-	u.publishOrderEvent(ctx, order.ID.String(), order.Status, order.UserID.String())
+	u.publishOrderEvent(ctx, order.ID.String(), string(order.Status), order.UserID.String())
 
 	sagaCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
 	defer cancel()
-	if err := u.orchestrator.ProcessOrder(sagaCtx, order); err != nil {
+	if err := u.orchestrator.ProcessOrder(sagaCtx, order, idempotencyKey); err != nil {
 		return order.ID, fmt.Errorf("saga process order: %w", err)
 	}
 
@@ -178,28 +205,57 @@ func (u *orderUsecase) CancelOrder(ctx context.Context, id uuid.UUID) error {
 		return fmt.Errorf("get order: %w", err)
 	}
 
-	if order.Status == "cancelled" {
+	if order.Status == domain.OrderStatusCancelled {
 		return fmt.Errorf("%w: order already cancelled", apperrors.ErrInvalidArgument)
 	}
 
-	if err := u.orderRepo.UpdateStatus(qCtx, id, "cancelled"); err != nil {
-		return fmt.Errorf("update order status: %w", err)
-	}
-
-	u.publishOrderEvent(ctx, order.ID.String(), "cancelled", order.UserID.String())
-
-	cCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
-	defer cancel()
-	for _, item := range order.Items {
-		if err := u.invClient.Release(cCtx, item.ProductID.String(), int32(item.Quantity), order.ID.String()); err != nil {
-			return fmt.Errorf("release inventory for product %s: %w", item.ProductID, err)
+	if order.Status.CancellableDirectly() {
+		if err := u.orderRepo.UpdateStatus(qCtx, id, domain.OrderStatusCancelled); err != nil {
+			return fmt.Errorf("update order status: %w", err)
 		}
+		u.publishOrderEvent(ctx, order.ID.String(), string(domain.OrderStatusCancelled), order.UserID.String())
+
+		cCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
+		defer cancel()
+		for _, item := range order.Items {
+			if err := u.invClient.Release(cCtx, item.ProductID.String(), int32(item.Quantity), order.ID.String(), releaseIdempotencyKey(order.ID.String(), item.ProductID.String())); err != nil {
+				return fmt.Errorf("release inventory for product %s: %w", item.ProductID, err)
+			}
+		}
+		return nil
 	}
 
-	return nil
+	// Paid or later orders require compensation/refund.
+	if order.Status == domain.OrderStatusPaid || order.Status == domain.OrderStatusProcessing || order.Status == domain.OrderStatusShipped {
+		saga, err := u.sagaRepo.GetByOrderID(qCtx, order.ID)
+		if err != nil {
+			return fmt.Errorf("%w: saga not found for refund: %v", apperrors.ErrFailedPrecondition, err)
+		}
+
+		cCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
+		defer cancel()
+		if saga.PaymentID != "" {
+			if err := u.payClient.Refund(cCtx, saga.PaymentID, refundIdempotencyKey(order.ID.String(), saga.PaymentID)); err != nil {
+				return fmt.Errorf("refund payment %s: %w", saga.PaymentID, err)
+			}
+		}
+		for _, item := range order.Items {
+			if err := u.invClient.Release(cCtx, item.ProductID.String(), int32(item.Quantity), order.ID.String(), releaseIdempotencyKey(order.ID.String(), item.ProductID.String())); err != nil {
+				return fmt.Errorf("release inventory for product %s: %w", item.ProductID, err)
+			}
+		}
+
+		if err := u.orderRepo.UpdateStatus(qCtx, id, domain.OrderStatusCancelled); err != nil {
+			return fmt.Errorf("update order status: %w", err)
+		}
+		u.publishOrderEvent(ctx, order.ID.String(), string(domain.OrderStatusCancelled), order.UserID.String())
+		return nil
+	}
+
+	return fmt.Errorf("%w: order with status %s cannot be cancelled", apperrors.ErrFailedPrecondition, order.Status)
 }
 
-func (u *orderUsecase) UpdateOrderStatus(ctx context.Context, id uuid.UUID, status string) error {
+func (u *orderUsecase) UpdateOrderStatus(ctx context.Context, id uuid.UUID, status domain.OrderStatus) error {
 	qCtx, cancel := context.WithTimeout(ctx, u.queryTimeout)
 	defer cancel()
 
@@ -208,10 +264,22 @@ func (u *orderUsecase) UpdateOrderStatus(ctx context.Context, id uuid.UUID, stat
 		return fmt.Errorf("get order: %w", err)
 	}
 
+	if err := order.Status.ValidateTransition(status); err != nil {
+		return fmt.Errorf("%w: %v", apperrors.ErrInvalidArgument, err)
+	}
+
 	if err := u.orderRepo.UpdateStatus(qCtx, id, status); err != nil {
 		return fmt.Errorf("update order status: %w", err)
 	}
 
-	u.publishOrderEvent(ctx, order.ID.String(), status, order.UserID.String())
+	u.publishOrderEvent(ctx, order.ID.String(), string(status), order.UserID.String())
 	return nil
+}
+
+func releaseIdempotencyKey(orderID, productID string) string {
+	return fmt.Sprintf("release:%s:%s", orderID, productID)
+}
+
+func refundIdempotencyKey(orderID, paymentID string) string {
+	return fmt.Sprintf("refund:%s:%s", orderID, paymentID)
 }

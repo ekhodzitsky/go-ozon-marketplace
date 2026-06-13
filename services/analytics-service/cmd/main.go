@@ -11,7 +11,11 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		panic(err)
+	}
+
 	log, err := logger.New(cfg.LogLevel, cfg.LogFormat)
 	if err != nil {
 		panic(err)
@@ -27,6 +31,9 @@ func main() {
 		}
 	}()
 
-	application := app.New()
+	application, err := app.New()
+	if err != nil {
+		log.Fatal("init application", zap.Error(err))
+	}
 	application.Run()
 }

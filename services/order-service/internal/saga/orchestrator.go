@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"time"
 
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
-
-	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 )
 
 type Orchestrator struct {
@@ -85,7 +84,7 @@ func (o *Orchestrator) saveSaga(ctx context.Context, saga *domain.Saga, status d
 	return nil
 }
 
-func (o *Orchestrator) ProcessOrder(ctx context.Context, order *domain.Order) error {
+func (o *Orchestrator) ProcessOrder(ctx context.Context, order *domain.Order, idempotencyKey string) error {
 	qCtx, cancel := o.withQueryTimeout(ctx)
 	defer cancel()
 	saga, err := o.sagaRepo.GetByOrderID(qCtx, order.ID)
@@ -116,7 +115,7 @@ func (o *Orchestrator) ProcessOrder(ctx context.Context, order *domain.Order) er
 		if err := o.retry(ctx, func() error {
 			qCtx, cancel := o.withQueryTimeout(ctx)
 			defer cancel()
-			return o.orderRepo.UpdateStatus(qCtx, order.ID, "awaiting_payment")
+			return o.orderRepo.UpdateStatus(qCtx, order.ID, domain.OrderStatusAwaitingPayment)
 		}); err != nil {
 			_ = o.saveSaga(ctx, saga, domain.SagaStatusFailed, "update_order_status", err.Error())
 			return fmt.Errorf("update status awaiting_payment: %w", err)
@@ -135,19 +134,21 @@ func (o *Orchestrator) ProcessOrder(ctx context.Context, order *domain.Order) er
 		startIdx := len(saga.ReservedItems)
 		for i := startIdx; i < len(order.Items); i++ {
 			item := order.Items[i]
+			key := reserveIdempotencyKey(idempotencyKey, item.ProductID.String())
 			err := o.retry(ctx, func() error {
 				cCtx, cancel := o.withCallTimeout(ctx)
 				defer cancel()
-				return o.invClient.Reserve(cCtx, item.ProductID.String(), int32(item.Quantity), order.ID.String())
+				return o.invClient.Reserve(cCtx, item.ProductID.String(), int32(item.Quantity), order.ID.String(), key)
 			})
 			if err != nil {
 				_ = o.saveSaga(ctx, saga, domain.SagaStatusCompensating, "compensate_inventory", err.Error())
 				o.compensateInventory(ctx, order, saga.ReservedItems)
 				qCtx, cancel := o.withQueryTimeout(ctx)
 				defer cancel()
-				_ = o.orderRepo.UpdateStatus(qCtx, order.ID, "cancelled")
+				_ = o.orderRepo.UpdateStatus(qCtx, order.ID, domain.OrderStatusCancelled)
 				_ = o.saveSaga(ctx, saga, domain.SagaStatusCancelled, "cancelled", "")
-				return fmt.Errorf("reserve inventory product %s: %w", item.ProductID, err)
+				o.log.Warn("order cancelled after inventory reserve failure", zap.String("order_id", order.ID.String()), zap.Error(err))
+				return nil
 			}
 			saga.ReservedItems = append(saga.ReservedItems, domain.SagaReservedItem{
 				ProductID: item.ProductID.String(),
@@ -174,11 +175,12 @@ func (o *Orchestrator) ProcessOrder(ctx context.Context, order *domain.Order) er
 		}
 
 		var paymentID string
+		payKey := paymentIdempotencyKey(idempotencyKey)
 		err := o.retry(ctx, func() error {
 			cCtx, cancel := o.withCallTimeout(ctx)
 			defer cancel()
 			var payErr error
-			paymentID, payErr = o.payClient.ProcessPayment(cCtx, order.ID.String(), order.UserID.String(), order.TotalAmount)
+			paymentID, payErr = o.payClient.ProcessPayment(cCtx, order.ID.String(), order.TotalAmount, payKey)
 			return payErr
 		})
 		if err != nil {
@@ -186,9 +188,10 @@ func (o *Orchestrator) ProcessOrder(ctx context.Context, order *domain.Order) er
 			o.compensateInventory(ctx, order, saga.ReservedItems)
 			qCtx, cancel := o.withQueryTimeout(ctx)
 			defer cancel()
-			_ = o.orderRepo.UpdateStatus(qCtx, order.ID, "cancelled")
+			_ = o.orderRepo.UpdateStatus(qCtx, order.ID, domain.OrderStatusCancelled)
 			_ = o.saveSaga(ctx, saga, domain.SagaStatusCancelled, "cancelled", "")
-			return fmt.Errorf("process payment: %w", err)
+			o.log.Warn("order cancelled after payment failure", zap.String("order_id", order.ID.String()), zap.Error(err))
+			return nil
 		}
 		saga.Status = domain.SagaStatusPaid
 		saga.CurrentStep = "paid"
@@ -210,7 +213,7 @@ func (o *Orchestrator) ProcessOrder(ctx context.Context, order *domain.Order) er
 		err := o.retry(ctx, func() error {
 			qCtx, cancel := o.withQueryTimeout(ctx)
 			defer cancel()
-			return o.orderRepo.UpdateStatus(qCtx, order.ID, "confirmed")
+			return o.orderRepo.UpdateStatus(qCtx, order.ID, domain.OrderStatusPaid)
 		})
 		if err != nil {
 			_ = o.saveSaga(ctx, saga, domain.SagaStatusCompensating, "compensate_payment+inventory", err.Error())
@@ -218,7 +221,7 @@ func (o *Orchestrator) ProcessOrder(ctx context.Context, order *domain.Order) er
 				if refundErr := o.retry(ctx, func() error {
 					cCtx, cancel := o.withCallTimeout(ctx)
 					defer cancel()
-					return o.payClient.Refund(cCtx, saga.PaymentID)
+					return o.payClient.Refund(cCtx, saga.PaymentID, refundIdempotencyKey(idempotencyKey, saga.PaymentID))
 				}); refundErr != nil {
 					o.log.Error("failed to refund payment", zap.Error(refundErr), zap.String("payment_id", saga.PaymentID))
 				}
@@ -226,9 +229,10 @@ func (o *Orchestrator) ProcessOrder(ctx context.Context, order *domain.Order) er
 			o.compensateInventory(ctx, order, saga.ReservedItems)
 			qCtx, cancel := o.withQueryTimeout(ctx)
 			defer cancel()
-			_ = o.orderRepo.UpdateStatus(qCtx, order.ID, "cancelled")
+			_ = o.orderRepo.UpdateStatus(qCtx, order.ID, domain.OrderStatusCancelled)
 			_ = o.saveSaga(ctx, saga, domain.SagaStatusCancelled, "cancelled", "")
-			return fmt.Errorf("update status confirmed: %w", err)
+			o.log.Warn("order cancelled after confirm failure", zap.String("order_id", order.ID.String()), zap.Error(err))
+			return nil
 		}
 		saga.Status = domain.SagaStatusConfirmed
 		saga.CurrentStep = "confirmed"
@@ -245,7 +249,7 @@ func (o *Orchestrator) compensateInventory(ctx context.Context, order *domain.Or
 		err := o.retry(ctx, func() error {
 			cCtx, cancel := o.withCallTimeout(ctx)
 			defer cancel()
-			return o.invClient.Release(cCtx, item.ProductID, item.Quantity, order.ID.String())
+			return o.invClient.Release(cCtx, item.ProductID, item.Quantity, order.ID.String(), releaseIdempotencyKey(order.ID.String(), item.ProductID))
 		})
 		if err != nil {
 			o.log.Error("failed to release inventory", zap.Error(err), zap.String("product_id", item.ProductID))
@@ -269,10 +273,31 @@ func (o *Orchestrator) Recover(ctx context.Context) error {
 				o.log.Error("recover: failed to get order", zap.Error(err), zap.String("order_id", s.OrderID.String()))
 				return
 			}
-			if err := o.ProcessOrder(ctx, order); err != nil {
+			// Recovery uses a deterministic idempotency key based on the saga/order ID.
+			if err := o.ProcessOrder(ctx, order, recoveryIdempotencyKey(s.OrderID.String())); err != nil {
 				o.log.Error("recover: process order failed", zap.Error(err), zap.String("order_id", s.OrderID.String()))
 			}
 		}(s)
 	}
 	return nil
+}
+
+func reserveIdempotencyKey(base, productID string) string {
+	return fmt.Sprintf("reserve:%s:%s", base, productID)
+}
+
+func releaseIdempotencyKey(orderID, productID string) string {
+	return fmt.Sprintf("release:%s:%s", orderID, productID)
+}
+
+func paymentIdempotencyKey(base string) string {
+	return fmt.Sprintf("payment:%s", base)
+}
+
+func refundIdempotencyKey(base, paymentID string) string {
+	return fmt.Sprintf("refund:%s:%s", base, paymentID)
+}
+
+func recoveryIdempotencyKey(orderID string) string {
+	return fmt.Sprintf("recovery:%s", orderID)
 }

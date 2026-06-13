@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_inventory_ledger_product_created_at;

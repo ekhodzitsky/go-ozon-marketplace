@@ -51,14 +51,18 @@ func (u *inventoryUsecase) GetStock(ctx context.Context, productID uuid.UUID) (*
 			return &stock, nil
 		}
 	}
+	// Cache read failure (including redis.Nil) is non-fatal; fall through to the database.
 
 	stock, err := u.repo.GetStock(ctx, productID)
 	if err != nil {
 		return nil, fmt.Errorf("get stock: %w", err)
 	}
 
-	data, _ := json.Marshal(stock)
-	u.redis.Set(ctx, key, data, cacheTTL)
+	// Populate cache write-through style; ignore cache-write errors so the
+	// request still succeeds when Redis is unavailable.
+	if data, marshalErr := json.Marshal(stock); marshalErr == nil {
+		_ = u.redis.Set(ctx, key, data, cacheTTL).Err()
+	}
 	return stock, nil
 }
 
@@ -96,7 +100,8 @@ func (u *inventoryUsecase) Reserve(ctx context.Context, productID uuid.UUID, qua
 	if err := u.repo.Reserve(ctx, productID, quantity, orderUUID); err != nil {
 		return fmt.Errorf("reserve: %w", err)
 	}
-	u.redis.Del(ctx, cacheKey(productID))
+	// Write updated stock through to cache instead of best-effort deletion.
+	u.writeStockToCache(ctx, productID)
 	u.publishInventoryEvent(ctx, productID)
 	return nil
 }
@@ -113,9 +118,24 @@ func (u *inventoryUsecase) Release(ctx context.Context, productID uuid.UUID, qua
 	if err := u.repo.Release(ctx, productID, quantity, orderUUID); err != nil {
 		return fmt.Errorf("release: %w", err)
 	}
-	u.redis.Del(ctx, cacheKey(productID))
+	// Write updated stock through to cache instead of best-effort deletion.
+	u.writeStockToCache(ctx, productID)
 	u.publishInventoryEvent(ctx, productID)
 	return nil
+}
+
+// writeStockToCache refreshes the cached stock value after a mutation.
+// Cache failures are intentionally ignored: the authoritative source is Postgres.
+func (u *inventoryUsecase) writeStockToCache(ctx context.Context, productID uuid.UUID) {
+	stock, err := u.repo.GetStock(ctx, productID)
+	if err != nil {
+		return
+	}
+	data, err := json.Marshal(stock)
+	if err != nil {
+		return
+	}
+	_ = u.redis.Set(ctx, cacheKey(productID), data, cacheTTL).Err()
 }
 
 func (u *inventoryUsecase) GetLedger(ctx context.Context, productID uuid.UUID) ([]*domain.LedgerEntry, error) {

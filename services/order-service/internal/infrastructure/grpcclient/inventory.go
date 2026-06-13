@@ -9,32 +9,34 @@ import (
 )
 
 type InventoryClient struct {
-	client       inventoryv1.InventoryServiceClient
-	callTimeout  time.Duration
+	client      inventoryv1.InventoryServiceClient
+	callTimeout time.Duration
 }
 
 func NewInventoryClient(conn *grpc.ClientConn, callTimeout time.Duration) *InventoryClient {
 	return &InventoryClient{client: inventoryv1.NewInventoryServiceClient(conn), callTimeout: callTimeout}
 }
 
-func (c *InventoryClient) Reserve(ctx context.Context, productID string, quantity int32, orderID string) error {
+func (c *InventoryClient) Reserve(ctx context.Context, productID string, quantity int32, orderID string, idempotencyKey string) error {
 	ctx, cancel := context.WithTimeout(ctx, c.callTimeout)
 	defer cancel()
 	_, err := c.client.Reserve(ctx, &inventoryv1.ReserveRequest{
-		ProductId: productID,
-		Quantity:  quantity,
-		OrderId:   orderID,
+		ProductId:      productID,
+		Quantity:       quantity,
+		OrderId:        orderID,
+		IdempotencyKey: idempotencyKey,
 	})
 	return err
 }
 
-func (c *InventoryClient) Release(ctx context.Context, productID string, quantity int32, orderID string) error {
+func (c *InventoryClient) Release(ctx context.Context, productID string, quantity int32, orderID string, idempotencyKey string) error {
 	ctx, cancel := context.WithTimeout(ctx, c.callTimeout)
 	defer cancel()
 	_, err := c.client.Release(ctx, &inventoryv1.ReleaseRequest{
-		ProductId: productID,
-		Quantity:  quantity,
-		OrderId:   orderID,
+		ProductId:      productID,
+		Quantity:       quantity,
+		OrderId:        orderID,
+		IdempotencyKey: idempotencyKey,
 	})
 	return err
 }

@@ -13,6 +13,7 @@ services:
       - INVENTORY_SERVICE_ADDR=inventory-service:50053
       - PAYMENT_SERVICE_ADDR=payment-service:50054
       - REDIS_ADDR=redis:6379
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
       - JWT_SECRET=${JWT_SECRET}
     ports:
       - "8080:8080"
@@ -43,6 +44,7 @@ services:
     environment:
       - GRPC_PORT=50051
       - POSTGRES_DSN=postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
       - JWT_SECRET=${JWT_SECRET}
     ports:
       - "50051:50051"
@@ -60,6 +62,7 @@ services:
       - GRPC_PORT=50052
       - POSTGRES_DSN=postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable
       - ES_URL=http://elasticsearch:9200
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
       - JWT_SECRET=${JWT_SECRET}
     ports:
       - "50052:50052"
@@ -79,6 +82,7 @@ services:
       - GRPC_PORT=50053
       - POSTGRES_DSN=postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable
       - REDIS_ADDR=redis:6379
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
       - JWT_SECRET=${JWT_SECRET}
     ports:
       - "50053:50053"
@@ -99,6 +103,7 @@ services:
       - POSTGRES_DSN=postgres://ozon:ozonpass@postgres:5432/marketplace?sslmode=disable
       - JWT_SECRET=${JWT_SECRET}
       - KAFKA_BROKERS=redpanda:9092
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
     ports:
       - "50054:50054"
     depends_on:
@@ -120,6 +125,7 @@ services:
       - PAYMENT_ADDR=payment-service:50054
       - JWT_SECRET=${JWT_SECRET}
       - KAFKA_BROKERS=redpanda:9092
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
     ports:
       - "50055:50055"
     depends_on:
@@ -144,6 +150,7 @@ services:
       - KAFKA_BROKERS=redpanda:9092
       - KAFKA_CONSUMER_GROUP=notification-service
       - KAFKA_TOPICS=order-events
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
     ports:
       - "50056:50056"
     depends_on:
@@ -161,6 +168,7 @@ services:
       - CLICKHOUSE_DSN=clickhouse:9000
       - JWT_SECRET=${JWT_SECRET}
       - KAFKA_BROKERS=redpanda:9092
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
     ports:
       - "50057:50057"
     depends_on:

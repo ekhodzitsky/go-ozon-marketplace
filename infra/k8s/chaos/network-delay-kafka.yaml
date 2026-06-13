@@ -8,7 +8,7 @@ spec:
   mode: all
   selector:
     namespaces:
-      - default
+      - marketplace-staging
     labelSelectors:
       app: kafka
   delay:

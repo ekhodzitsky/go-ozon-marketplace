@@ -28,6 +28,8 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 func New() *fx.App {
@@ -98,6 +100,8 @@ func New() *fx.App {
 				log.Info("tls enabled for gRPC server", zap.String("cert_path", cfg.CertPath))
 			}
 			grpcServer := server.NewGRPC(cfg.GRPCPort, opts...)
+			healthServer := health.NewServer()
+			healthpb.RegisterHealthServer(grpcServer.Server, healthServer)
 
 			mux := http.NewServeMux()
 			mux.Handle("/metrics", promhttp.Handler())
@@ -109,6 +113,7 @@ func New() *fx.App {
 
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
+					healthServer.SetServingStatus("catalog.v1.CatalogService", healthpb.HealthCheckResponse_SERVING)
 					go func() {
 						if err := metricsServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 							log.Fatal("metrics server error", zap.Error(err))
@@ -122,10 +127,22 @@ func New() *fx.App {
 					return nil
 				},
 				OnStop: func(ctx context.Context) error {
+					healthServer.Shutdown()
 					if err := metricsServer.Shutdown(ctx); err != nil {
 						log.Error("metrics server shutdown error", zap.Error(err))
 					}
 					grpcServer.GracefulStop()
+					return nil
+				},
+			})
+		}),
+		fx.Invoke(func(lc fx.Lifecycle, searchRepo repository.ProductSearchRepository, log *zap.Logger) {
+			lc.Append(fx.Hook{
+				OnStart: func(ctx context.Context) error {
+					if err := searchRepo.EnsureIndex(ctx); err != nil {
+						log.Error("failed to ensure elasticsearch index", zap.Error(err))
+						return err
+					}
 					return nil
 				},
 			})

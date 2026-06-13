@@ -25,6 +25,8 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 func New() *fx.App {
@@ -77,6 +79,10 @@ func New() *fx.App {
 				Handler: mux,
 			}
 			inventoryv1.RegisterInventoryServiceServer(grpcServer.Server, handler)
+
+			healthServer := health.NewServer()
+			healthpb.RegisterHealthServer(grpcServer.Server, healthServer)
+			healthServer.SetServingStatus("inventory.v1.InventoryService", healthpb.HealthCheckResponse_SERVING)
 
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {

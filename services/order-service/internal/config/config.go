@@ -15,6 +15,7 @@ type Config struct {
 	PostgresDSN              string
 	InventoryAddr            string
 	PaymentAddr              string
+	CatalogAddr              string
 	JWTSecret                string
 	DefaultCallTimeout       time.Duration
 	DefaultQueryTimeout      time.Duration
@@ -35,6 +36,7 @@ func Load() *Config {
 		PostgresDSN:              config.MustGetEnv("POSTGRES_DSN"),
 		InventoryAddr:            config.GetEnv("INVENTORY_ADDR", "localhost:50053"),
 		PaymentAddr:              config.GetEnv("PAYMENT_ADDR", "localhost:50054"),
+		CatalogAddr:              config.GetEnv("CATALOG_ADDR", "localhost:50052"),
 		JWTSecret:                config.MustGetEnv("JWT_SECRET"),
 		DefaultCallTimeout:       config.GetEnvDuration("DEFAULT_CALL_TIMEOUT", 5*time.Second),
 		DefaultQueryTimeout:      config.GetEnvDuration("DEFAULT_QUERY_TIMEOUT", 3*time.Second),

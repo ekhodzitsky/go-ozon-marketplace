@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ type Config struct {
 	DefaultCallTimeout       time.Duration
 	DefaultQueryTimeout      time.Duration
 	CertPath                 string
+	InsecureSkipTLS          bool
 	JWTSecret                string
 	CORSAllowedOrigins       []string
 }
@@ -43,9 +45,8 @@ func Load() *Config {
 			}
 		}
 	}
-	corsOrigins := []string{"*"}
+	corsOrigins := []string{}
 	if v := config.GetEnv("CORS_ALLOWED_ORIGINS", ""); v != "" {
-		corsOrigins = []string{}
 		for _, s := range strings.Split(v, ",") {
 			s = strings.TrimSpace(s)
 			if s != "" {
@@ -61,7 +62,7 @@ func Load() *Config {
 		InventoryServiceAddr:     config.GetEnv("INVENTORY_SERVICE_ADDR", "localhost:50053"),
 		PaymentServiceAddr:       config.GetEnv("PAYMENT_SERVICE_ADDR", "localhost:50054"),
 		AnalyticsServiceAddr:     config.GetEnv("ANALYTICS_SERVICE_ADDR", "localhost:50056"),
-		HTTPPort:                 config.GetEnv("PORT", "8080"),
+		HTTPPort:                 strconv.Itoa(httpPort),
 		MetricsPort:              config.GetEnvInt("METRICS_PORT", httpPort+1000),
 		LogLevel:                 config.GetEnv("LOG_LEVEL", "info"),
 		LogFormat:                config.GetEnv("LOG_FORMAT", "json"),
@@ -76,7 +77,13 @@ func Load() *Config {
 		DefaultCallTimeout:       config.GetEnvDuration("DEFAULT_CALL_TIMEOUT", 5*time.Second),
 		DefaultQueryTimeout:      config.GetEnvDuration("DEFAULT_QUERY_TIMEOUT", 3*time.Second),
 		CertPath:                 config.GetEnv("CERT_PATH", ""),
+		InsecureSkipTLS:          parseBool(config.GetEnv("INSECURE_SKIP_TLS", "false")),
 		JWTSecret:                config.GetEnv("JWT_SECRET", ""),
 		CORSAllowedOrigins:       corsOrigins,
 	}
+}
+
+func parseBool(s string) bool {
+	b, _ := strconv.ParseBool(strings.ToLower(strings.TrimSpace(s)))
+	return b
 }

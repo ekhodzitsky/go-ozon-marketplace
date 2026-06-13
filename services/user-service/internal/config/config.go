@@ -1,9 +1,19 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/config"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+var (
+	ErrMissingJWTSecret   = errors.New("JWT_SECRET is required")
+	ErrJWTSecretTooShort  = errors.New("JWT_SECRET must be at least 32 characters long")
+	ErrMissingPostgresDSN = errors.New("POSTGRES_DSN is required")
+	ErrInvalidPostgresDSN = errors.New("POSTGRES_DSN is invalid")
 )
 
 type Config struct {
@@ -20,13 +30,26 @@ type Config struct {
 	DefaultQueryTimeout      time.Duration
 }
 
-func Load() *Config {
+func Load() (*Config, error) {
+	jwtSecret := config.GetEnv("JWT_SECRET", "")
+	if jwtSecret == "" {
+		return nil, ErrMissingJWTSecret
+	}
+	if len(jwtSecret) < 32 {
+		return nil, fmt.Errorf("%w: got %d characters", ErrJWTSecretTooShort, len(jwtSecret))
+	}
+
+	postgresDSN := config.GetEnv("POSTGRES_DSN", "")
+	if postgresDSN == "" {
+		return nil, ErrMissingPostgresDSN
+	}
+	if _, err := pgxpool.ParseConfig(postgresDSN); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidPostgresDSN, err)
+	}
+
 	grpcPort := config.GetEnvInt("GRPC_PORT", 50051)
 	httpPort := config.GetEnvInt("HTTP_PORT", 8080)
-	jwtSecret := config.MustGetEnv("JWT_SECRET")
-	if len(jwtSecret) < 32 {
-		panic("JWT_SECRET must be at least 32 characters long")
-	}
+
 	return &Config{
 		GRPCPort:                 grpcPort,
 		HTTPPort:                 httpPort,
@@ -34,10 +57,10 @@ func Load() *Config {
 		LogLevel:                 config.GetEnv("LOG_LEVEL", "info"),
 		LogFormat:                config.GetEnv("LOG_FORMAT", "json"),
 		OTELExporterOTLPEndpoint: config.GetEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"),
-		PostgresDSN:              config.MustGetEnv("POSTGRES_DSN"),
+		PostgresDSN:              postgresDSN,
 		JWTSecret:                jwtSecret,
 		CertPath:                 config.GetEnv("CERT_PATH", ""),
 		DefaultCallTimeout:       config.GetEnvDuration("DEFAULT_CALL_TIMEOUT", 5*time.Second),
 		DefaultQueryTimeout:      config.GetEnvDuration("DEFAULT_QUERY_TIMEOUT", 3*time.Second),
-	}
+	}, nil
 }

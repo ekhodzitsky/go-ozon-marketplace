@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/admin"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/config"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/ws"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/gqlerror"
@@ -56,8 +58,8 @@ func New(cfg *config.Config) *App {
 }
 
 func authClientInterceptor(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-	if opCtx := graphql.GetOperationContext(ctx); opCtx != nil {
-		if auth := opCtx.Headers.Get("Authorization"); auth != "" {
+	if graphql.HasOperationContext(ctx) {
+		if auth := graphql.GetOperationContext(ctx).Headers.Get("Authorization"); auth != "" {
 			ctx = metadata.AppendToOutgoingContext(ctx, "authorization", auth)
 		}
 	}
@@ -78,7 +80,7 @@ func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 			origin := r.Header.Get("Origin")
 			allowed := ""
 			for _, o := range allowedOrigins {
-				if o == "*" || o == origin {
+				if o == origin {
 					allowed = o
 					break
 				}
@@ -98,101 +100,128 @@ func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 	}
 }
 
-func clientCreds(cfg *config.Config) (credentials.TransportCredentials, error) {
+// serverNameFromAddr strips a port from a gRPC address to derive the TLS SNI hostname.
+func serverNameFromAddr(addr string) string {
+	if idx := strings.LastIndex(addr, ":"); idx != -1 {
+		return addr[:idx]
+	}
+	return addr
+}
+
+func clientCreds(cfg *config.Config, addr string) (credentials.TransportCredentials, error) {
 	if cfg.CertPath != "" {
 		return server.LoadClientMTLSCredentials(
 			filepath.Join(cfg.CertPath, "server-cert.pem"),
 			filepath.Join(cfg.CertPath, "server-key.pem"),
 			filepath.Join(cfg.CertPath, "ca-cert.pem"),
-			"",
+			serverNameFromAddr(addr),
 		)
 	}
-	return insecure.NewCredentials(), nil
+	if cfg.InsecureSkipTLS {
+		return insecure.NewCredentials(), nil
+	}
+	return nil, fmt.Errorf("no CERT_PATH configured and INSECURE_SKIP_TLS is false")
 }
 
 // Run starts the HTTP server with GraphQL playground and query endpoint.
 func (a *App) Run() error {
-	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.DefaultCallTimeout)
-	defer cancel()
-
 	log, err := logger.New(a.cfg.LogLevel, a.cfg.LogFormat)
 	if err != nil {
 		return fmt.Errorf("init logger: %w", err)
 	}
 
-	creds, err := clientCreds(a.cfg)
-	if err != nil {
-		return fmt.Errorf("load tls credentials: %w", err)
+	closeLogged := func(name string, closer interface{ Close() error }) {
+		if err := closer.Close(); err != nil {
+			log.Error("failed to close "+name, zap.Error(err))
+		}
 	}
 
 	cb := circuitbreaker.New(5, 2, 30*time.Second)
 	interceptorChain := grpc.WithChainUnaryInterceptor(authClientInterceptor, circuitBreakerClientInterceptor(cb), tracing.UnaryClientInterceptor())
 
-	userConn, err := grpc.DialContext(ctx, a.cfg.UserServiceAddr,
-		grpc.WithTransportCredentials(creds),
+	userCreds, err := clientCreds(a.cfg, a.cfg.UserServiceAddr)
+	if err != nil {
+		return fmt.Errorf("user service tls: %w", err)
+	}
+	userConn, err := grpc.NewClient(a.cfg.UserServiceAddr,
+		grpc.WithTransportCredentials(userCreds),
 		interceptorChain,
-		grpc.WithBlock(),
 	)
 	if err != nil {
 		return fmt.Errorf("dial user-service: %w", err)
 	}
-	defer userConn.Close()
+	defer func() { closeLogged("user service connection", userConn) }()
 
-	catalogConn, err := grpc.DialContext(ctx, a.cfg.CatalogServiceAddr,
-		grpc.WithTransportCredentials(creds),
+	catalogCreds, err := clientCreds(a.cfg, a.cfg.CatalogServiceAddr)
+	if err != nil {
+		return fmt.Errorf("catalog service tls: %w", err)
+	}
+	catalogConn, err := grpc.NewClient(a.cfg.CatalogServiceAddr,
+		grpc.WithTransportCredentials(catalogCreds),
 		interceptorChain,
-		grpc.WithBlock(),
 	)
 	if err != nil {
 		return fmt.Errorf("dial catalog-service: %w", err)
 	}
-	defer catalogConn.Close()
+	defer func() { closeLogged("catalog service connection", catalogConn) }()
 
-	orderConn, err := grpc.DialContext(ctx, a.cfg.OrderServiceAddr,
-		grpc.WithTransportCredentials(creds),
+	orderCreds, err := clientCreds(a.cfg, a.cfg.OrderServiceAddr)
+	if err != nil {
+		return fmt.Errorf("order service tls: %w", err)
+	}
+	orderConn, err := grpc.NewClient(a.cfg.OrderServiceAddr,
+		grpc.WithTransportCredentials(orderCreds),
 		interceptorChain,
-		grpc.WithBlock(),
 	)
 	if err != nil {
 		return fmt.Errorf("dial order-service: %w", err)
 	}
-	defer orderConn.Close()
+	defer func() { closeLogged("order service connection", orderConn) }()
 
-	inventoryConn, err := grpc.DialContext(ctx, a.cfg.InventoryServiceAddr,
-		grpc.WithTransportCredentials(creds),
+	inventoryCreds, err := clientCreds(a.cfg, a.cfg.InventoryServiceAddr)
+	if err != nil {
+		return fmt.Errorf("inventory service tls: %w", err)
+	}
+	inventoryConn, err := grpc.NewClient(a.cfg.InventoryServiceAddr,
+		grpc.WithTransportCredentials(inventoryCreds),
 		interceptorChain,
-		grpc.WithBlock(),
 	)
 	if err != nil {
 		return fmt.Errorf("dial inventory-service: %w", err)
 	}
-	defer inventoryConn.Close()
+	defer func() { closeLogged("inventory service connection", inventoryConn) }()
 
-	paymentConn, err := grpc.DialContext(ctx, a.cfg.PaymentServiceAddr,
-		grpc.WithTransportCredentials(creds),
+	paymentCreds, err := clientCreds(a.cfg, a.cfg.PaymentServiceAddr)
+	if err != nil {
+		return fmt.Errorf("payment service tls: %w", err)
+	}
+	paymentConn, err := grpc.NewClient(a.cfg.PaymentServiceAddr,
+		grpc.WithTransportCredentials(paymentCreds),
 		interceptorChain,
-		grpc.WithBlock(),
 	)
 	if err != nil {
 		return fmt.Errorf("dial payment-service: %w", err)
 	}
-	defer paymentConn.Close()
+	defer func() { closeLogged("payment service connection", paymentConn) }()
 
-	analyticsConn, err := grpc.DialContext(ctx, a.cfg.AnalyticsServiceAddr,
-		grpc.WithTransportCredentials(creds),
+	analyticsCreds, err := clientCreds(a.cfg, a.cfg.AnalyticsServiceAddr)
+	if err != nil {
+		return fmt.Errorf("analytics service tls: %w", err)
+	}
+	analyticsConn, err := grpc.NewClient(a.cfg.AnalyticsServiceAddr,
+		grpc.WithTransportCredentials(analyticsCreds),
 		interceptorChain,
-		grpc.WithBlock(),
 	)
 	if err != nil {
 		return fmt.Errorf("dial analytics-service: %w", err)
 	}
-	defer analyticsConn.Close()
+	defer func() { closeLogged("analytics service connection", analyticsConn) }()
 
 	redisClient, err := redis.NewClient(context.Background(), a.cfg.RedisAddr)
 	if err != nil {
 		return fmt.Errorf("connect redis: %w", err)
 	}
-	defer redisClient.Close()
+	defer func() { closeLogged("redis client", redisClient) }()
 
 	// Feature flags engine.
 	ffEngine := featureflags.NewEngine(redisClient)
@@ -292,7 +321,10 @@ func (a *App) Run() error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		ws.ServeWs(hub, w, r)
+		ws.ServeWs(hub, w, r, ws.Config{
+			AllowedOrigins: a.cfg.CORSAllowedOrigins,
+			JWTSecret:      a.cfg.JWTSecret,
+		})
 	})
 	mux.Handle("/", playground.Handler("GraphQL playground", "/query"))
 
@@ -308,9 +340,22 @@ func (a *App) Run() error {
 	mux.Handle("/query", gqlHandler)
 
 	// Admin API.
-	adminHandler := admin.NewHandler(ffEngine)
+	adminHandler := http.Handler(admin.NewHandler(ffEngine))
+	adminHandler = requireAdminHTTP(a.cfg.JWTSecret)(adminHandler)
 	mux.Handle("/admin/flags", adminHandler)
 	mux.Handle("/admin/flags/", adminHandler)
+
+	// Health/readiness probes.
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"healthy"}`))
+	})
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		// Connectivity is established lazily via grpc.NewClient;
+		// readiness can be extended with dependency checks later.
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ready"}`))
+	})
 
 	handler := middleware.RequestID(middleware.AccessLog(mux))
 
@@ -320,8 +365,11 @@ func (a *App) Run() error {
 	}
 
 	httpSrv := &http.Server{
-		Addr:    ":" + port,
-		Handler: handler,
+		Addr:         ":" + port,
+		Handler:      handler,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	metricsMux := http.NewServeMux()
@@ -357,4 +405,45 @@ func (a *App) Run() error {
 		log.Error("metrics server shutdown error", zap.Error(err))
 	}
 	return httpSrv.Shutdown(shutdownCtx)
+}
+
+func requireAdminHTTP(jwtSecret string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			auth := r.Header.Get("Authorization")
+			if auth == "" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			tokenStr := strings.TrimPrefix(auth, "Bearer ")
+			if tokenStr == auth {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			token, err := jwt.ParseWithClaims(tokenStr, &middleware.CustomClaims{}, func(t *jwt.Token) (interface{}, error) {
+				if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+					return nil, fmt.Errorf("unexpected signing method")
+				}
+				return []byte(jwtSecret), nil
+			})
+			if err != nil || !token.Valid {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			claims, ok := token.Claims.(*middleware.CustomClaims)
+			if !ok || claims.Subject == "" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			role := claims.Role
+			if role == "" {
+				role = string(middleware.RoleUser)
+			}
+			if middleware.Role(role) != middleware.RoleAdmin {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

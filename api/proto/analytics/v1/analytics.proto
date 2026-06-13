@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package analytics.v1;
 
+import "buf/validate/validate.proto";
+
 option go_package = "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/analytics/v1;analyticsv1";
 
 service AnalyticsService {
@@ -11,10 +13,10 @@ service AnalyticsService {
 }
 
 message TrackEventRequest {
-  string event_type = 1;
-  string aggregate_id = 2;
+  string event_type = 1 [(buf.validate.field).string.min_len = 1];
+  string aggregate_id = 2 [(buf.validate.field).string.min_len = 1];
   string payload = 3;
-  string aggregation_key = 4;
+  string aggregation_key = 4 [(buf.validate.field).string.min_len = 1];
 }
 
 message TrackEventResponse {
@@ -22,7 +24,7 @@ message TrackEventResponse {
 }
 
 message GetDailyRevenueRequest {
-  string date = 1;
+  string date = 1 [(buf.validate.field).string.min_len = 1];
 }
 
 message GetDailyRevenueResponse {
@@ -30,11 +32,11 @@ message GetDailyRevenueResponse {
 }
 
 message TrackABTestEventRequest {
-  string experiment = 1;
-  string variation = 2;
-  string user_id = 3;
+  string experiment = 1 [(buf.validate.field).string.min_len = 1];
+  string variation = 2 [(buf.validate.field).string.min_len = 1];
+  string user_id = 3 [(buf.validate.field).string.min_len = 1];
   bool conversion = 4;
-  int64 revenue_minor = 5;
+  int64 revenue_minor = 5 [(buf.validate.field).int64.gte = 0];
 }
 
 message TrackABTestEventResponse {

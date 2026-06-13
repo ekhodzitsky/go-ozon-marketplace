@@ -16,6 +16,9 @@ type Event struct {
 	EventType      EventType
 	AggregateID    string
 	Payload        string
+	Amount         float64
+	Currency       string
+	OccurredAt     time.Time
 	CreatedAt      time.Time
 	AggregationKey string
 }

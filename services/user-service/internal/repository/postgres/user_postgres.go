@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"time"
 
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/repository"
 	"github.com/google/uuid"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 )
 
 type UserPostgres struct {
@@ -30,6 +31,10 @@ func (r *UserPostgres) Create(ctx context.Context, user *domain.User) error {
 	query := `INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES ($1, $2, $3, $4, $5, $6)`
 	_, err := r.db.Exec(ctx, query, user.ID, user.Email, user.PasswordHash, user.Name, user.Role, user.CreatedAt)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
+			return fmt.Errorf("%w: user with email %s", apperrors.ErrAlreadyExists, user.Email)
+		}
 		return fmt.Errorf("insert user: %w", err)
 	}
 	return nil

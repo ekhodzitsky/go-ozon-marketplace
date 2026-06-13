@@ -47,6 +47,11 @@ func ToStatus(err error) error {
 	if err == nil {
 		return nil
 	}
+
+	if ae, ok := err.(*AppError); ok {
+		return status.Error(codeFromString(ae.Code), ae.Error())
+	}
+
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return status.Error(codes.NotFound, err.Error())
@@ -60,5 +65,30 @@ func ToStatus(err error) error {
 		return status.Error(codes.FailedPrecondition, err.Error())
 	default:
 		return status.Error(codes.Internal, "internal error")
+	}
+}
+
+func codeFromString(code string) codes.Code {
+	switch code {
+	case "not_found":
+		return codes.NotFound
+	case "already_exists":
+		return codes.AlreadyExists
+	case "invalid_argument":
+		return codes.InvalidArgument
+	case "invalid_credentials":
+		return codes.Unauthenticated
+	case "conflict", "insufficient_stock", "failed_precondition":
+		return codes.FailedPrecondition
+	case "unauthenticated":
+		return codes.Unauthenticated
+	case "permission_denied":
+		return codes.PermissionDenied
+	case "unavailable":
+		return codes.Unavailable
+	case "deadline_exceeded":
+		return codes.DeadlineExceeded
+	default:
+		return codes.Internal
 	}
 }

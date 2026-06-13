@@ -31,7 +31,7 @@ func graphqlRequestWithAuth(t *testing.T, url, query, token string) map[string]i
 	if err != nil {
 		t.Fatalf("graphql request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -46,16 +46,21 @@ func TestFullFlow(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	dsn := tests.StartPostgres(ctx, t)
+	adminDSN := tests.StartPostgres(ctx, t)
 
 	esURL, cleanupES := tests.StartElasticsearch(ctx, t)
 	defer cleanupES()
 
-	tests.RunMigrations(ctx, t, dsn,
-		"../../services/user-service/migrations",
-		"../../services/catalog-service/migrations",
-		"../../services/order-service/migrations",
-	)
+	redisAddr := tests.StartRedis(ctx, t)
+	kafkaAddr := tests.StartKafka(ctx, t)
+
+	userDSN := tests.CreateDatabase(ctx, t, adminDSN, "user_service")
+	catalogDSN := tests.CreateDatabase(ctx, t, adminDSN, "catalog_service")
+	orderDSN := tests.CreateDatabase(ctx, t, adminDSN, "order_service")
+
+	tests.RunMigrations(ctx, t, userDSN, "../../services/user-service/migrations")
+	tests.RunMigrations(ctx, t, catalogDSN, "../../services/catalog-service/migrations")
+	tests.RunMigrations(ctx, t, orderDSN, "../../services/order-service/migrations")
 
 	invAddr := startMockGRPCServer(t, func(s *grpc.Server) {
 		inventoryv1.RegisterInventoryServiceServer(s, &mockInventoryServer{})
@@ -64,39 +69,47 @@ func TestFullFlow(t *testing.T) {
 		paymentv1.RegisterPaymentServiceServer(s, &mockPaymentServer{})
 	})
 
-	jwtSecret := "test-secret"
-
 	userPort := tests.GetFreePort(t)
+	userMetricsPort := tests.GetFreePort(t)
 	tests.StartService(t, "../../services/user-service", []string{
-		"POSTGRES_DSN=" + dsn,
+		"POSTGRES_DSN=" + userDSN,
 		fmt.Sprintf("GRPC_PORT=%d", userPort),
-		"JWT_SECRET=" + jwtSecret,
+		fmt.Sprintf("METRICS_PORT=%d", userMetricsPort),
+		"JWT_SECRET=" + e2eJWTSecret,
 	})
 	userAddr := fmt.Sprintf("127.0.0.1:%d", userPort)
 	tests.WaitForGRPC(t, userAddr)
 
 	catalogPort := tests.GetFreePort(t)
+	catalogMetricsPort := tests.GetFreePort(t)
 	tests.StartService(t, "../../services/catalog-service", []string{
-		"POSTGRES_DSN=" + dsn,
+		"POSTGRES_DSN=" + catalogDSN,
 		fmt.Sprintf("GRPC_PORT=%d", catalogPort),
+		fmt.Sprintf("METRICS_PORT=%d", catalogMetricsPort),
 		"ES_URL=" + esURL,
-		"JWT_SECRET=" + jwtSecret,
+		"JWT_SECRET=" + e2eJWTSecret,
 	})
 	catalogAddr := fmt.Sprintf("127.0.0.1:%d", catalogPort)
 	tests.WaitForGRPC(t, catalogAddr)
 
 	orderPort := tests.GetFreePort(t)
+	orderMetricsPort := tests.GetFreePort(t)
 	tests.StartService(t, "../../services/order-service", []string{
-		"POSTGRES_DSN=" + dsn,
+		"POSTGRES_DSN=" + orderDSN,
 		fmt.Sprintf("GRPC_PORT=%d", orderPort),
+		fmt.Sprintf("METRICS_PORT=%d", orderMetricsPort),
 		"INVENTORY_ADDR=" + invAddr,
 		"PAYMENT_ADDR=" + payAddr,
-		"JWT_SECRET=" + jwtSecret,
+		"CATALOG_ADDR=" + catalogAddr,
+		"REDIS_ADDR=" + redisAddr,
+		"KAFKA_BROKERS=" + kafkaAddr,
+		"JWT_SECRET=" + e2eJWTSecret,
 	})
 	orderAddr := fmt.Sprintf("127.0.0.1:%d", orderPort)
 	tests.WaitForGRPC(t, orderAddr)
 
 	gatewayPort := tests.GetFreePort(t)
+	gatewayMetricsPort := tests.GetFreePort(t)
 	tests.StartService(t, "../../services/api-gateway", []string{
 		fmt.Sprintf("USER_SERVICE_ADDR=%s", userAddr),
 		fmt.Sprintf("CATALOG_SERVICE_ADDR=%s", catalogAddr),
@@ -104,7 +117,10 @@ func TestFullFlow(t *testing.T) {
 		fmt.Sprintf("INVENTORY_SERVICE_ADDR=%s", invAddr),
 		fmt.Sprintf("PAYMENT_SERVICE_ADDR=%s", payAddr),
 		fmt.Sprintf("PORT=%d", gatewayPort),
-		"JWT_SECRET=" + jwtSecret,
+		fmt.Sprintf("METRICS_PORT=%d", gatewayMetricsPort),
+		"JWT_SECRET=" + e2eJWTSecret,
+		"INSECURE_SKIP_TLS=true",
+		"REDIS_ADDR=" + redisAddr,
 	})
 	gatewayURL := fmt.Sprintf("http://127.0.0.1:%d", gatewayPort)
 	tests.WaitForHTTP(t, gatewayURL+"/query")
@@ -131,8 +147,8 @@ func TestFullFlow(t *testing.T) {
 		t.Fatalf("expected token, got: %v", data["login"])
 	}
 
-	// 3. CreateProduct
-	prodResult := graphqlRequestWithAuth(t, gatewayURL, `mutation { createProduct(name: "Flow Product", description: "A flow product", price: 49.99, categories: ["test"]) }`, token)
+	// 3. CreateProduct (requires admin role)
+	prodResult := graphqlRequestWithAuth(t, gatewayURL, `mutation { createProduct(name: "Flow Product", description: "A flow product", price: 49.99, categories: ["test"]) }`, adminToken(userID, e2eJWTSecret))
 	data, ok = prodResult["data"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("createProduct returned no data: %v", prodResult)
@@ -143,7 +159,7 @@ func TestFullFlow(t *testing.T) {
 	}
 
 	// 4. CreateOrder
-	createOrderQuery := fmt.Sprintf(`mutation { createOrder(userId: "%s", items: [{productId: "%s", quantity: 1, price: 49.99}]) }`, userID, productID)
+	createOrderQuery := fmt.Sprintf(`mutation { createOrder(items: [{productId: "%s", quantity: 1, price: 49.99}]) }`, productID)
 	orderResult := graphqlRequestWithAuth(t, gatewayURL, createOrderQuery, token)
 	data, ok = orderResult["data"].(map[string]interface{})
 	if !ok {
@@ -154,7 +170,7 @@ func TestFullFlow(t *testing.T) {
 		t.Fatalf("expected order id, got: %v", data["createOrder"])
 	}
 
-	// 5. GetOrder (проверить статус pending)
+	// 5. GetOrder (status may be pending or paid depending on saga speed)
 	getOrderQuery := fmt.Sprintf(`query { order(id: "%s") { id status } }`, orderID)
 	getResult := graphqlRequestWithAuth(t, gatewayURL, getOrderQuery, token)
 	data, ok = getResult["data"].(map[string]interface{})
@@ -166,8 +182,8 @@ func TestFullFlow(t *testing.T) {
 		t.Fatalf("expected order data, got: %v", data["order"])
 	}
 	status, ok := orderData["status"].(string)
-	if !ok || status != "pending" {
-		t.Fatalf("expected order status pending, got: %v", status)
+	if !ok || (status != "pending" && status != "paid") {
+		t.Fatalf("expected order status pending or paid, got: %v", status)
 	}
 
 	// 6. CancelOrder

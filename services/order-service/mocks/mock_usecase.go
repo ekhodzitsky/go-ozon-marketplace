@@ -57,18 +57,18 @@ func (mr *MockOrderUsecaseMockRecorder) CancelOrder(ctx, id any) *gomock.Call {
 }
 
 // CreateOrder mocks base method.
-func (m *MockOrderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items []domain.OrderItem) (uuid.UUID, error) {
+func (m *MockOrderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items []domain.OrderItem, idempotencyKey string) (uuid.UUID, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateOrder", ctx, userID, items)
+	ret := m.ctrl.Call(m, "CreateOrder", ctx, userID, items, idempotencyKey)
 	ret0, _ := ret[0].(uuid.UUID)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CreateOrder indicates an expected call of CreateOrder.
-func (mr *MockOrderUsecaseMockRecorder) CreateOrder(ctx, userID, items any) *gomock.Call {
+func (mr *MockOrderUsecaseMockRecorder) CreateOrder(ctx, userID, items, idempotencyKey any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOrder", reflect.TypeOf((*MockOrderUsecase)(nil).CreateOrder), ctx, userID, items)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOrder", reflect.TypeOf((*MockOrderUsecase)(nil).CreateOrder), ctx, userID, items, idempotencyKey)
 }
 
 // GetOrder mocks base method.
@@ -103,7 +103,7 @@ func (mr *MockOrderUsecaseMockRecorder) ListOrders(ctx, userID, page, pageSize a
 }
 
 // UpdateOrderStatus mocks base method.
-func (m *MockOrderUsecase) UpdateOrderStatus(ctx context.Context, id uuid.UUID, status string) error {
+func (m *MockOrderUsecase) UpdateOrderStatus(ctx context.Context, id uuid.UUID, status domain.OrderStatus) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateOrderStatus", ctx, id, status)
 	ret0, _ := ret[0].(error)

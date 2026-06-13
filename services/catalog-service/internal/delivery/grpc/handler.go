@@ -30,11 +30,17 @@ func (h *CatalogHandler) CreateProduct(ctx context.Context, req *catalogv1.Creat
 	if err := validation.ValidateName(req.Name); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if err := validation.ValidatePrice(req.Price); err != nil {
+	if err := validation.ValidatePriceCents(req.PriceCents); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	id, err := h.usecase.CreateProduct(ctx, req.Name, req.Description, int64(req.Price*100), req.Categories)
+	if req.IdempotencyKey == "" {
+		return nil, status.Error(codes.InvalidArgument, "idempotency_key is required")
+	}
+	id, err := h.usecase.CreateProduct(ctx, req.Name, req.Description, req.PriceCents, req.Categories, req.IdempotencyKey)
 	if err != nil {
+		if errors.Is(err, apperrors.ErrAlreadyExists) {
+			return nil, status.Error(codes.AlreadyExists, err.Error())
+		}
 		return nil, err
 	}
 	return &catalogv1.CreateProductResponse{ProductId: id.String()}, nil
@@ -93,8 +99,8 @@ func (h *CatalogHandler) UpdateProduct(ctx context.Context, req *catalogv1.Updat
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 	}
-	if req.Price != 0 {
-		if err := validation.ValidatePrice(req.Price); err != nil {
+	if req.PriceCents != 0 {
+		if err := validation.ValidatePriceCents(req.PriceCents); err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 	}
@@ -104,7 +110,7 @@ func (h *CatalogHandler) UpdateProduct(ctx context.Context, req *catalogv1.Updat
 		return nil, status.Error(codes.InvalidArgument, "invalid product_id")
 	}
 
-	if err := h.usecase.UpdateProduct(ctx, id, req.Name, req.Description, int64(req.Price*100), req.Categories); err != nil {
+	if err := h.usecase.UpdateProduct(ctx, id, req.Name, req.Description, req.PriceCents, req.Categories); err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, err.Error())
 		}
@@ -142,7 +148,7 @@ func toProtoProduct(p *domain.Product) *catalogv1.Product {
 		ProductId:   p.ID.String(),
 		Name:        p.Name,
 		Description: p.Description,
-		Price:       float64(p.Price),
+		PriceCents:  p.Price,
 		Categories:  p.Categories,
 		CreatedAt:   p.CreatedAt.Format(time.RFC3339),
 	}

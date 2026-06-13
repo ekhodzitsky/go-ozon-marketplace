@@ -1,6 +1,6 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: marketplace
+  name: marketplace-staging
   labels:
     istio-injection: enabled

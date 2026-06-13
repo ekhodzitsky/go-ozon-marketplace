@@ -83,14 +83,20 @@ func (r *Relay) poll(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, r.queryTimeout)
 	defer cancel()
 
-	events, err := r.repo.GetUnprocessed(ctx, 100)
-	if err != nil {
-		r.log.Error("failed to get unprocessed outbox events", zap.Error(err))
+	if err := r.repo.Begin(ctx); err != nil {
+		r.log.Error("failed to begin outbox transaction", zap.Error(err))
 		return
 	}
 
-	processed := make([]uuid.UUID, 0, len(events))
+	events, err := r.repo.GetUnprocessed(ctx, 100)
+	if err != nil {
+		r.log.Error("failed to get unprocessed outbox events", zap.Error(err))
+		_ = r.repo.Rollback(ctx)
+		return
+	}
+
 	now := time.Now().UTC()
+	processed := make([]uuid.UUID, 0, len(events))
 
 	for _, event := range events {
 		if err := r.producer.SendMessage(r.topic, []byte(event.AggregateID), event.Payload); err != nil {
@@ -126,7 +132,14 @@ func (r *Relay) poll(ctx context.Context) {
 	if len(processed) > 0 {
 		if err := r.repo.BatchMarkProcessed(ctx, processed); err != nil {
 			r.log.Error("failed to batch mark outbox events processed", zap.Error(err))
+			_ = r.repo.Rollback(ctx)
+			return
 		}
+	}
+
+	if err := r.repo.Commit(ctx); err != nil {
+		r.log.Error("failed to commit outbox transaction", zap.Error(err))
+		_ = r.repo.Rollback(ctx)
 	}
 }
 

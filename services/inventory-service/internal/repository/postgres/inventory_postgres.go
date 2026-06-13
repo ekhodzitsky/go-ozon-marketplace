@@ -20,6 +20,11 @@ const (
 	DefaultQueryTimeout = 3 * time.Second
 )
 
+const (
+	ledgerOpReserve = "LEDGER_OPERATION_RESERVE"
+	ledgerOpRelease = "LEDGER_OPERATION_RELEASE"
+)
+
 type InventoryPostgres struct {
 	db           *pgxpool.Pool
 	callTimeout  time.Duration
@@ -52,7 +57,7 @@ func (r *InventoryPostgres) GetStock(ctx context.Context, productID uuid.UUID) (
 	return &stock, nil
 }
 
-func (r *InventoryPostgres) Reserve(ctx context.Context, productID uuid.UUID, quantity int, orderID uuid.UUID) error {
+func (r *InventoryPostgres) Reserve(ctx context.Context, productID uuid.UUID, quantity int, orderID uuid.UUID) (err error) {
 	ctx, cancel := context.WithTimeout(ctx, r.callTimeout)
 	defer cancel()
 
@@ -64,33 +69,41 @@ func (r *InventoryPostgres) Reserve(ctx context.Context, productID uuid.UUID, qu
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		if rbErr := tx.Rollback(ctx); rbErr != nil && err == nil && !errors.Is(rbErr, pgx.ErrTxClosed) {
+			err = fmt.Errorf("rollback tx: %w", rbErr)
+		}
+	}()
 
-	// Idempotent reservation record: if already reserved for this (order, product), do nothing.
+	// Idempotent reservation record. If the same (order, product) already exists
+	// with a matching quantity and status, this retry must not deduct stock again.
 	insertSQL := `
 		INSERT INTO reservations (order_id, product_id, quantity, status)
 		VALUES ($1, $2, $3, 'reserved')
 		ON CONFLICT (order_id, product_id) DO NOTHING
 	`
-	if _, err := tx.Exec(ctx, insertSQL, orderID, productID, quantity); err != nil {
+	tag, err := tx.Exec(ctx, insertSQL, orderID, productID, quantity)
+	if err != nil {
 		return fmt.Errorf("insert reservation: %w", err)
 	}
 
-	// Verify existing reservation to detect retries, mismatches or releases.
-	var existingQty int
-	var status string
-	if err := tx.QueryRow(ctx,
-		`SELECT quantity, status FROM reservations WHERE order_id = $1 AND product_id = $2`,
-		orderID, productID,
-	).Scan(&existingQty, &status); err != nil {
-		return fmt.Errorf("select reservation: %w", err)
-	}
-
-	if status != "reserved" {
-		return fmt.Errorf("%w: reservation already %s", apperrors.ErrFailedPrecondition, status)
-	}
-	if existingQty != quantity {
-		return fmt.Errorf("%w: reservation quantity mismatch (expected %d, found %d)", apperrors.ErrConflict, quantity, existingQty)
+	if tag.RowsAffected() == 0 {
+		// Already reserved for this (order, product). Verify it matches the request.
+		var existingQty int
+		var status string
+		if err = tx.QueryRow(ctx,
+			`SELECT quantity, status FROM reservations WHERE order_id = $1 AND product_id = $2`,
+			orderID, productID,
+		).Scan(&existingQty, &status); err != nil {
+			return fmt.Errorf("select reservation: %w", err)
+		}
+		if status != "reserved" {
+			return fmt.Errorf("%w: reservation already %s", apperrors.ErrFailedPrecondition, status)
+		}
+		if existingQty != quantity {
+			return fmt.Errorf("%w: reservation quantity mismatch (expected %d, found %d)", apperrors.ErrConflict, quantity, existingQty)
+		}
+		return nil
 	}
 
 	// Atomic stock deduction with oversell protection.
@@ -99,7 +112,7 @@ func (r *InventoryPostgres) Reserve(ctx context.Context, productID uuid.UUID, qu
 		SET available = available - $1, reserved = reserved + $1
 		WHERE product_id = $2 AND available >= $1
 	`
-	tag, err := tx.Exec(ctx, updateSQL, quantity, productID)
+	tag, err = tx.Exec(ctx, updateSQL, quantity, productID)
 	if err != nil {
 		return fmt.Errorf("update stock: %w", err)
 	}
@@ -107,13 +120,21 @@ func (r *InventoryPostgres) Reserve(ctx context.Context, productID uuid.UUID, qu
 		return apperrors.ErrInsufficientStock
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	// Record the operation in the inventory ledger inside the same transaction.
+	if _, err = tx.Exec(ctx,
+		`INSERT INTO inventory_ledger (product_id, order_id, quantity_change, operation_type) VALUES ($1, $2, $3, $4)`,
+		productID, orderID, -quantity, ledgerOpReserve,
+	); err != nil {
+		return fmt.Errorf("insert ledger: %w", err)
+	}
+
+	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil
 }
 
-func (r *InventoryPostgres) Release(ctx context.Context, productID uuid.UUID, quantity int, orderID uuid.UUID) error {
+func (r *InventoryPostgres) Release(ctx context.Context, productID uuid.UUID, quantity int, orderID uuid.UUID) (err error) {
 	ctx, cancel := context.WithTimeout(ctx, r.callTimeout)
 	defer cancel()
 
@@ -125,7 +146,11 @@ func (r *InventoryPostgres) Release(ctx context.Context, productID uuid.UUID, qu
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		if rbErr := tx.Rollback(ctx); rbErr != nil && err == nil && !errors.Is(rbErr, pgx.ErrTxClosed) {
+			err = fmt.Errorf("rollback tx: %w", rbErr)
+		}
+	}()
 
 	// Bind release to the existing reservation row.
 	var reservedQty int
@@ -141,6 +166,10 @@ func (r *InventoryPostgres) Release(ctx context.Context, productID uuid.UUID, qu
 		return fmt.Errorf("select reservation: %w", err)
 	}
 
+	if status == "released" && reservedQty == quantity {
+		// Idempotent release: already released for this (order, product, quantity).
+		return nil
+	}
 	if status != "reserved" {
 		return fmt.Errorf("%w: reservation already %s", apperrors.ErrFailedPrecondition, status)
 	}
@@ -162,14 +191,22 @@ func (r *InventoryPostgres) Release(ctx context.Context, productID uuid.UUID, qu
 		return apperrors.ErrInsufficientStock
 	}
 
-	if _, err := tx.Exec(ctx,
+	if _, err = tx.Exec(ctx,
 		`UPDATE reservations SET status = 'released' WHERE order_id = $1 AND product_id = $2`,
 		orderID, productID,
 	); err != nil {
 		return fmt.Errorf("update reservation status: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
+	// Record the operation in the inventory ledger inside the same transaction.
+	if _, err = tx.Exec(ctx,
+		`INSERT INTO inventory_ledger (product_id, order_id, quantity_change, operation_type) VALUES ($1, $2, $3, $4)`,
+		productID, orderID, quantity, ledgerOpRelease,
+	); err != nil {
+		return fmt.Errorf("insert ledger: %w", err)
+	}
+
+	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit tx: %w", err)
 	}
 	return nil

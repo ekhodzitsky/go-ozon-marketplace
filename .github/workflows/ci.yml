@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
 
 permissions:
   contents: read
@@ -28,11 +28,11 @@ jobs:
           go-version: '1.26'
           cache: true
 
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@ec5d18412c0aeab7936cb16880d708ba2a64e1ae # v6.2.0
-        with:
-          version: v1.59.1
-          args: --timeout=5m
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.59.1
+
+      - name: Run golangci-lint per module
+        run: make lint
 
   proto:
     name: Proto Lint & Breaking
@@ -57,9 +57,9 @@ jobs:
       - name: buf lint
         run: cd api && buf lint
 
-      - name: buf breaking (against main)
-        if: github.ref != 'refs/heads/main'
-        run: cd api && buf breaking --against '.git#branch=main'
+      - name: buf breaking (against master)
+        if: github.ref != 'refs/heads/master'
+        run: cd api && buf breaking --against '.git#branch=master'
 
   govulncheck:
     name: govulncheck
@@ -69,11 +69,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871 # v4.2.1
 
-      - name: govulncheck
-        uses: golang/govulncheck-action@dd0578b371c987f96d1185abb54344b44352bd58 # v1.0.3
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
-          go-version-input: '1.26'
-          go-package: ./...
+          go-version: '1.26'
+          cache: true
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck per module
+        run: |
+          set -euo pipefail
+          for m in ./api ./pkg ./scripts ./services/* ./tests; do
+            echo "=== govulncheck $m ==="
+            (cd "$m" && govulncheck ./...) || exit 1
+          done
 
   test:
     name: Test
@@ -93,11 +104,14 @@ jobs:
       - name: Sync workspace
         run: go work sync
 
+      - name: Install gocovmerge
+        run: go install github.com/wadey/gocovmerge@latest
+
       - name: Run tests with coverage
         run: |
           set -euo pipefail
           coverage_files=()
-          for m in ./pkg ./services/* ./tests; do
+          for m in ./api ./pkg ./scripts ./services/* ./tests; do
             echo "=== Testing $m ==="
             covfile="coverage_$(echo "$m" | tr '/' '_').out"
             (cd "$m" && go test -race -count=1 -coverprofile="$covfile" -covermode=atomic ./...) || exit 1
@@ -106,16 +120,8 @@ jobs:
             fi
           done
           if [ ${#coverage_files[@]} -gt 0 ]; then
-            go tool covdata merge -i "$(IFS=,; echo "${coverage_files[*]}")" -o coverage.out || true
+            gocovmerge "${coverage_files[@]}" > coverage.out
           fi
-
-      - name: Run integration tests
-        run: |
-          set -euo pipefail
-          for m in ./pkg ./services/* ./tests; do
-            echo "=== Integration tests $m ==="
-            (cd "$m" && go test -race -count=1 -tags=integration ./...) || true
-          done
 
       - name: Upload coverage
         uses: codecov/codecov-action@fa9a6909dc02281d24b410b6ee3dd8c5675a2e76 # v4.3.0
@@ -129,7 +135,7 @@ jobs:
           set -euo pipefail
           total_cov=0
           count=0
-          for f in ./pkg/coverage_*.out ./services/*/coverage_*.out ./tests/coverage_*.out; do
+          for f in ./api/coverage_*.out ./pkg/coverage_*.out ./scripts/coverage_*.out ./services/*/coverage_*.out ./tests/coverage_*.out; do
             [ -f "$f" ] || continue
             cov=$(go tool cover -func="$f" | grep total | awk '{print $3}' | sed 's/%//')
             total_cov=$(python3 -c "print($total_cov + $cov)")
@@ -199,5 +205,8 @@ jobs:
           fi
           for chart in "${charts[@]}"; do
             helm lint "$chart"
-            helm template test "$chart" > /dev/null
+            helm template test "$chart" \
+              --set image.tag=ci \
+              --set secrets.jwtSecret=dummy \
+              --set secrets.postgresDSN=dummy > /dev/null
           done
