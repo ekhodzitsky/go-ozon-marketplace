@@ -35,3 +35,6 @@ Thumbs.db
 infra/docker/data/
 .omc/
 scripts/scripts
+
+# Worktrees
+.worktrees/
