@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/gorilla/websocket"
 )
 
@@ -42,7 +43,7 @@ func authenticateUpgrade(r *http.Request, jwtSecret string) (string, error) {
 	tokenStr := r.URL.Query().Get("token")
 	if tokenStr == "" {
 		auth := r.Header.Get("Authorization")
-		if len(auth) > 7 && auth[:7] == "Bearer " {
+		if strings.HasPrefix(auth, "Bearer ") {
 			tokenStr = auth[7:]
 		}
 	}
@@ -50,25 +51,11 @@ func authenticateUpgrade(r *http.Request, jwtSecret string) (string, error) {
 		return "", fmt.Errorf("missing token")
 	}
 
-	token, err := jwt.ParseWithClaims(tokenStr, &customClaims{}, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-		}
-		return []byte(jwtSecret), nil
-	})
-	if err != nil || !token.Valid {
-		return "", fmt.Errorf("invalid token")
-	}
-	claims, ok := token.Claims.(*customClaims)
-	if !ok || claims.Subject == "" {
-		return "", fmt.Errorf("invalid token claims")
+	claims, err := auth.ParseJWT(tokenStr, jwtSecret)
+	if err != nil {
+		return "", err
 	}
 	return claims.Subject, nil
-}
-
-type customClaims struct {
-	jwt.RegisteredClaims
-	Role string `json:"role"`
 }
 
 // WSMessage is the envelope broadcast to WebSocket clients.

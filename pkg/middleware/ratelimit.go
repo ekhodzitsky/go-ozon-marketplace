@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -181,9 +182,9 @@ func NewRoleRateLimiter(client *redis.Client, userLimit, adminLimit int, window 
 func (rl *RoleRateLimiter) Allow(ctx context.Context, key string) bool {
 	role, _ := GetRole(ctx)
 	switch role {
-	case RoleAdmin:
+	case auth.RoleAdmin:
 		return rl.admin.Allow(ctx, key)
-	case RoleService:
+	case auth.RoleService:
 		return rl.service.Allow(ctx, key)
 	default:
 		return rl.user.Allow(ctx, key)

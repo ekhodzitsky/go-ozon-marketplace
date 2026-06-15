@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
@@ -92,7 +93,11 @@ func TestHub_BroadcastNoSubscribers(t *testing.T) {
 func buildToken(t *testing.T, secret, subject string) string {
 	t.Helper()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Subject: subject,
+		Subject:   subject,
+		Issuer:    "go-ozon-marketplace",
+		Audience:  jwt.ClaimStrings{"api-gateway"},
+		ID:        "tok-1",
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 	})
 	s, err := token.SignedString([]byte(secret))
 	require.NoError(t, err)

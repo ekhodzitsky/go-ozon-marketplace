@@ -23,17 +23,38 @@ func redisReachable(addr string) bool {
 	return true
 }
 
-func TestNew(t *testing.T) {
-	cfg := &config.Config{
-		HTTPPort:    "8080",
-		MetricsPort: 9080,
-		JWTSecret:   testJWTSecret,
+func requireRedis(t *testing.T) {
+	t.Helper()
+	if !redisReachable("localhost:6379") {
+		t.Skip("local Redis is not reachable")
 	}
-	a := app.New(cfg)
-	require.NotNil(t, a)
 }
 
-func TestRun_MissingTLSConfig(t *testing.T) {
+func TestNew(t *testing.T) {
+	requireRedis(t)
+	cfg := &config.Config{
+		HTTPPort:             "8080",
+		MetricsPort:          9080,
+		JWTSecret:            testJWTSecret,
+		UserServiceAddr:      "localhost:50051",
+		CatalogServiceAddr:   "localhost:50052",
+		OrderServiceAddr:     "localhost:50055",
+		InventoryServiceAddr: "localhost:50053",
+		PaymentServiceAddr:   "localhost:50054",
+		AnalyticsServiceAddr: "localhost:50056",
+		RedisAddr:            "localhost:6379",
+		InsecureSkipTLS:      true,
+		DefaultCallTimeout:   5 * time.Second,
+		DefaultQueryTimeout:  3 * time.Second,
+	}
+	a, cleanup, err := app.New(cfg)
+	require.NoError(t, err)
+	require.NotNil(t, a)
+	cleanup()
+}
+
+func TestNew_MissingTLSConfig(t *testing.T) {
+	requireRedis(t)
 	cfg := &config.Config{
 		HTTPPort:             "18080",
 		MetricsPort:          19080,
@@ -49,13 +70,12 @@ func TestRun_MissingTLSConfig(t *testing.T) {
 		DefaultQueryTimeout:  3 * time.Second,
 	}
 
-	a := app.New(cfg)
-	err := a.Run()
+	_, _, err := app.New(cfg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no CERT_PATH configured")
 }
 
-func TestRun_InsecureSkipTLS_ReturnsWithoutDialErrors(t *testing.T) {
+func TestNew_InsecureSkipTLS_NoRedis(t *testing.T) {
 	if redisReachable("localhost:6379") {
 		t.Skip("local Redis is reachable; this test expects Redis to be unavailable")
 	}
@@ -76,9 +96,7 @@ func TestRun_InsecureSkipTLS_ReturnsWithoutDialErrors(t *testing.T) {
 		DefaultQueryTimeout:  3 * time.Second,
 	}
 
-	a := app.New(cfg)
-	err := a.Run()
-	// The Redis connection will fail because there is no Redis server.
+	_, _, err := app.New(cfg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "redis")
 }

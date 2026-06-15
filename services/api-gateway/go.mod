@@ -6,11 +6,14 @@ require (
 	github.com/99designs/gqlgen v0.17.71
 	github.com/ekhodzitsky/go-ozon-marketplace/api v0.0.0-00010101000000-000000000000
 	github.com/ekhodzitsky/go-ozon-marketplace/pkg v0.0.0-20260610112408-5ac3f18809d6
+	github.com/go-chi/chi/v5 v5.3.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
+	github.com/google/wire v0.7.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.7.3
+	github.com/rs/cors v1.11.1
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go/modules/redis v0.37.0
 	github.com/vektah/gqlparser/v2 v2.5.25

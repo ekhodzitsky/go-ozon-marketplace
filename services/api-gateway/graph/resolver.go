@@ -13,6 +13,7 @@ import (
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/abtesting"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/featureflags"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph/model"
@@ -129,7 +130,7 @@ func requireAuth(ctx context.Context) (string, error) {
 
 func isAdmin(ctx context.Context) bool {
 	role, _ := middleware.GetRole(ctx)
-	return role == middleware.RoleAdmin
+	return role == auth.RoleAdmin
 }
 
 func requireOwnerOrAdmin(ctx context.Context, ownerID string) error {

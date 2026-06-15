@@ -2,16 +2,16 @@ package middleware
 
 import (
 	"context"
-	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
+
+type contextKey string
 
 const contextKeyRequestID contextKey = "request_id"
 
@@ -39,41 +39,21 @@ func GetRequestID(ctx context.Context) string {
 func AuthHTTP(jwtSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			auth := r.Header.Get("Authorization")
-			if auth == "" {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			tokenStr := strings.TrimPrefix(auth, "Bearer ")
-			if tokenStr == auth {
+			claims, err := auth.ParseBearer(authHeader, jwtSecret)
+			if err != nil {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
 
-			token, err := jwt.ParseWithClaims(tokenStr, &CustomClaims{}, func(t *jwt.Token) (interface{}, error) {
-				if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-					return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-				}
-				return []byte(jwtSecret), nil
-			})
-			if err != nil || !token.Valid {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-
-			claims, ok := token.Claims.(*CustomClaims)
-			if !ok || claims.Subject == "" || claims.Issuer != "go-ozon-marketplace" || !audienceContains(claims.Audience, "api-gateway") {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-
-			ctx := context.WithValue(r.Context(), ContextKeyUserID, claims.Subject)
-			role := claims.Role
-			if role == "" {
-				role = string(RoleUser)
-			}
-			ctx = context.WithValue(ctx, ContextKeyRole, role)
+			ctx := context.WithValue(r.Context(), auth.ContextKeyUserID, claims.Subject)
+			ctx = context.WithValue(ctx, auth.ContextKeyRole, auth.Role(claims.Role))
+			ctx = context.WithValue(ctx, auth.ContextKeyAuthorizationHeader, authHeader)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
