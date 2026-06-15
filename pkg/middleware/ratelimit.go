@@ -9,6 +9,9 @@ import (
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/redis/go-redis/v9"
+	"github.com/ulule/limiter/v3"
+	"github.com/ulule/limiter/v3/drivers/store/memory"
+	redisstore "github.com/ulule/limiter/v3/drivers/store/redis"
 )
 
 // RateLimiter is the generic rate-limiter interface.
@@ -18,13 +21,11 @@ type RateLimiter interface {
 
 // RedisRateLimiter implements a sliding-window rate limiter backed by Redis.
 type RedisRateLimiter struct {
-	client *redis.Client
-	limit  int
-	window time.Duration
-	script *redis.Script
+	limiter *limiter.Limiter
 }
 
 // NewRedisRateLimiter creates a Redis-backed sliding-window rate limiter.
+// Falls back to an in-memory store when Redis is unavailable.
 func NewRedisRateLimiter(client *redis.Client, limit int, window time.Duration) *RedisRateLimiter {
 	if limit <= 0 {
 		limit = 10
@@ -32,43 +33,33 @@ func NewRedisRateLimiter(client *redis.Client, limit int, window time.Duration) 
 	if window <= 0 {
 		window = time.Second
 	}
-	lua := `
-		local key = KEYS[1]
-		local window = tonumber(ARGV[1])
-		local now = tonumber(ARGV[2])
-		local limit = tonumber(ARGV[3])
-		local expire = tonumber(ARGV[4])
-		redis.call('ZREMRANGEBYSCORE', key, 0, now - window)
-		local count = redis.call('ZCARD', key)
-		if count < limit then
-			redis.call('ZADD', key, now, now)
-			redis.call('EXPIRE', key, expire)
-			return 1
-		end
-		return 0
-	`
-	return &RedisRateLimiter{
-		client: client,
-		limit:  limit,
-		window: window,
-		script: redis.NewScript(lua),
+
+	rate := limiter.Rate{Period: window, Limit: int64(limit)}
+	store := newLimiterStore(client)
+	return &RedisRateLimiter{limiter: limiter.New(store, rate)}
+}
+
+func newLimiterStore(client *redis.Client) limiter.Store {
+	if client == nil {
+		return memory.NewStore()
 	}
+	store, err := redisstore.NewStore(client)
+	if err != nil {
+		return memory.NewStore()
+	}
+	return store
 }
 
 // Allow reports whether one request from key is allowed.
 // Redis errors are treated as fail-closed to prevent abuse when the rate-limiting backend is unavailable.
 func (rl *RedisRateLimiter) Allow(ctx context.Context, key string) bool {
-	now := time.Now().UnixMilli()
-	windowMs := rl.window.Milliseconds()
-	expireSec := int64(rl.window.Seconds())
-	if expireSec < 1 {
-		expireSec = 1
-	}
-	res, err := rl.script.Run(ctx, rl.client, []string{key}, windowMs, now, rl.limit, expireSec).Int()
+	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	limitCtx, err := rl.limiter.Get(ctx, key)
 	if err != nil {
 		return false
 	}
-	return res == 1
+	return !limitCtx.Reached
 }
 
 // ClientIP returns the client IP. It respects X-Forwarded-For only when the
