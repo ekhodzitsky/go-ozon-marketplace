@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/circuitbreaker"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/server"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/tracing"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/config"
+	"github.com/sony/gobreaker"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -20,11 +20,11 @@ import (
 // Factory creates gRPC clients with common interceptors and TLS.
 type Factory struct {
 	cfg *config.Config
-	cb  *circuitbreaker.CircuitBreaker
+	cb  *gobreaker.CircuitBreaker
 }
 
 // NewFactory creates a new gRPC client factory.
-func NewFactory(cfg *config.Config, cb *circuitbreaker.CircuitBreaker) *Factory {
+func NewFactory(cfg *config.Config, cb *gobreaker.CircuitBreaker) *Factory {
 	return &Factory{cfg: cfg, cb: cb}
 }
 
@@ -74,10 +74,11 @@ func authClientInterceptor(ctx context.Context, method string, req, reply interf
 	return invoker(ctx, method, req, reply, cc, opts...)
 }
 
-func circuitBreakerClientInterceptor(cb *circuitbreaker.CircuitBreaker) grpc.UnaryClientInterceptor {
+func circuitBreakerClientInterceptor(cb *gobreaker.CircuitBreaker) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		return cb.Call(func() error {
-			return invoker(ctx, method, req, reply, cc, opts...)
+		_, err := cb.Execute(func() (interface{}, error) {
+			return nil, invoker(ctx, method, req, reply, cc, opts...)
 		})
+		return err
 	}
 }

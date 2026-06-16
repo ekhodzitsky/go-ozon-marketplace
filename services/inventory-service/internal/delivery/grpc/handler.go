@@ -6,6 +6,7 @@ import (
 	"time"
 
 	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/validation"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/usecase"
@@ -26,7 +27,7 @@ func NewInventoryHandler(uc usecase.InventoryUsecase) *InventoryHandler {
 }
 
 func (h *InventoryHandler) Reserve(ctx context.Context, req *inventoryv1.ReserveRequest) (*inventoryv1.ReserveResponse, error) {
-	if err := middleware.RequireRole(ctx, middleware.RoleService); err != nil {
+	if err := middleware.RequireRole(ctx, auth.RoleService); err != nil {
 		return nil, err
 	}
 
@@ -52,7 +53,7 @@ func (h *InventoryHandler) Reserve(ctx context.Context, req *inventoryv1.Reserve
 }
 
 func (h *InventoryHandler) Release(ctx context.Context, req *inventoryv1.ReleaseRequest) (*inventoryv1.ReleaseResponse, error) {
-	if err := middleware.RequireRole(ctx, middleware.RoleService); err != nil {
+	if err := middleware.RequireRole(ctx, auth.RoleService); err != nil {
 		return nil, err
 	}
 

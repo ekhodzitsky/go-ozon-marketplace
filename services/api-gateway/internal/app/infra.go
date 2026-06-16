@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/circuitbreaker"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/featureflags"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
@@ -12,8 +11,9 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/clients"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/config"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/ws"
-	"go.uber.org/zap"
 	"github.com/redis/go-redis/v9"
+	"github.com/sony/gobreaker"
+	"go.uber.org/zap"
 )
 
 func provideContext() context.Context {
@@ -24,11 +24,19 @@ func provideLogger(cfg *config.Config) (*zap.Logger, error) {
 	return logger.New(cfg.LogLevel, cfg.LogFormat)
 }
 
-func provideCircuitBreaker() *circuitbreaker.CircuitBreaker {
-	return circuitbreaker.New(5, 2, 30*time.Second)
+func provideCircuitBreaker() *gobreaker.CircuitBreaker {
+	return gobreaker.NewCircuitBreaker(gobreaker.Settings{
+		Name:        "grpc-client",
+		MaxRequests: 2,
+		Interval:    0,
+		Timeout:     30 * time.Second,
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			return counts.ConsecutiveFailures >= 5
+		},
+	})
 }
 
-func provideClientFactory(cfg *config.Config, cb *circuitbreaker.CircuitBreaker) *clients.Factory {
+func provideClientFactory(cfg *config.Config, cb *gobreaker.CircuitBreaker) *clients.Factory {
 	return clients.NewFactory(cfg, cb)
 }
 

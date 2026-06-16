@@ -8,12 +8,24 @@ import (
 	"time"
 
 	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/circuitbreaker"
 	"github.com/ekhodzitsky/go-ozon-marketplace/tests"
 	"github.com/google/uuid"
+	"github.com/sony/gobreaker"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+func newTestCircuitBreaker() *gobreaker.CircuitBreaker {
+	return gobreaker.NewCircuitBreaker(gobreaker.Settings{
+		Name:        "chaos-test",
+		MaxRequests: 2,
+		Interval:    0,
+		Timeout:     30 * time.Second,
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			return counts.ConsecutiveFailures >= 5
+		},
+	})
+}
 
 func TestCircuitBreakerOpens(t *testing.T) {
 	if testing.Short() {
@@ -26,12 +38,13 @@ func TestCircuitBreakerOpens(t *testing.T) {
 	addr := "localhost:50052"
 	tests.WaitForGRPC(t, addr)
 
-	cb := circuitbreaker.New(5, 2, 30*time.Second)
-	interceptor := func(cb *circuitbreaker.CircuitBreaker) grpc.UnaryClientInterceptor {
+	cb := newTestCircuitBreaker()
+	interceptor := func(cb *gobreaker.CircuitBreaker) grpc.UnaryClientInterceptor {
 		return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-			return cb.Call(func() error {
-				return invoker(ctx, method, req, reply, cc, opts...)
+			_, err := cb.Execute(func() (interface{}, error) {
+				return nil, invoker(ctx, method, req, reply, cc, opts...)
 			})
+			return err
 		}
 	}
 
@@ -45,7 +58,7 @@ func TestCircuitBreakerOpens(t *testing.T) {
 	defer func() { _ = conn.Close() }()
 	client := inventoryv1.NewInventoryServiceClient(conn)
 
-	productID := uuid.New().String()
+	productID := uuid.NewString()
 
 	// Kill inventory-service
 	dockerKill(t, containerName("inventory-service"))
@@ -53,10 +66,8 @@ func TestCircuitBreakerOpens(t *testing.T) {
 	openSeen := false
 	for i := 0; i < 10; i++ {
 		_, err := client.GetStock(ctx, tests.NewGetStockRequestBuilder().WithProductID(productID).Build())
-		if err != nil {
-			if cb.State() == circuitbreaker.StateOpen {
-				openSeen = true
-			}
+		if err != nil && cb.State() == gobreaker.StateOpen {
+			openSeen = true
 		}
 	}
 
@@ -79,7 +90,7 @@ func TestCircuitBreakerOpens(t *testing.T) {
 		t.Fatalf("expected half-open request to succeed after service restart: %v", err)
 	}
 
-	if cb.State() != circuitbreaker.StateHalfOpen && cb.State() != circuitbreaker.StateClosed {
+	if cb.State() != gobreaker.StateHalfOpen && cb.State() != gobreaker.StateClosed {
 		t.Fatalf("expected state half-open or closed after successful request, got %v", cb.State())
 	}
 
@@ -89,7 +100,7 @@ func TestCircuitBreakerOpens(t *testing.T) {
 		t.Fatalf("expected second request to succeed: %v", err)
 	}
 
-	if cb.State() != circuitbreaker.StateClosed {
+	if cb.State() != gobreaker.StateClosed {
 		t.Fatalf("expected circuit breaker to be closed after 2 successes, got %v", cb.State())
 	}
 }

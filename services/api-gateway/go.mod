@@ -14,6 +14,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/rs/cors v1.11.1
+	github.com/sony/gobreaker v1.0.0
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go/modules/redis v0.37.0
 	github.com/vektah/gqlparser/v2 v2.5.25

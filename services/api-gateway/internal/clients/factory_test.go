@@ -10,13 +10,25 @@ import (
 	"time"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/circuitbreaker"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/config"
+	"github.com/sony/gobreaker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
+
+func testCircuitBreaker() *gobreaker.CircuitBreaker {
+	return gobreaker.NewCircuitBreaker(gobreaker.Settings{
+		Name:        "test",
+		MaxRequests: 1,
+		Interval:    0,
+		Timeout:     time.Minute,
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			return counts.ConsecutiveFailures >= 5
+		},
+	})
+}
 
 func TestServerNameFromAddr(t *testing.T) {
 	tests := []struct {
@@ -38,7 +50,7 @@ func TestServerNameFromAddr(t *testing.T) {
 
 func TestClientCreds_InsecureSkipTLS(t *testing.T) {
 	cfg := &config.Config{InsecureSkipTLS: true}
-	factory := NewFactory(cfg, circuitbreaker.New(5, 2, 30*time.Second))
+	factory := NewFactory(cfg, testCircuitBreaker())
 	creds, err := factory.clientCreds("localhost:50051")
 	require.NoError(t, err)
 	assert.NotNil(t, creds)
@@ -46,7 +58,7 @@ func TestClientCreds_InsecureSkipTLS(t *testing.T) {
 
 func TestClientCreds_MissingTLSConfig(t *testing.T) {
 	cfg := &config.Config{InsecureSkipTLS: false, CertPath: ""}
-	factory := NewFactory(cfg, circuitbreaker.New(5, 2, 30*time.Second))
+	factory := NewFactory(cfg, testCircuitBreaker())
 	_, err := factory.clientCreds("localhost:50051")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no CERT_PATH configured")
@@ -57,7 +69,7 @@ func TestClientCreds_WithCertPath(t *testing.T) {
 	generateTestCerts(t, tmp)
 
 	cfg := &config.Config{CertPath: tmp}
-	factory := NewFactory(cfg, circuitbreaker.New(5, 2, 30*time.Second))
+	factory := NewFactory(cfg, testCircuitBreaker())
 	creds, err := factory.clientCreds("localhost:50051")
 	require.NoError(t, err)
 	assert.NotNil(t, creds)
@@ -121,7 +133,7 @@ func TestAuthClientInterceptor_NoAuthorizationHeader(t *testing.T) {
 }
 
 func TestCircuitBreakerClientInterceptor(t *testing.T) {
-	cb := circuitbreaker.New(5, 2, 0)
+	cb := testCircuitBreaker()
 	interceptor := circuitBreakerClientInterceptor(cb)
 
 	invoked := false
@@ -134,7 +146,15 @@ func TestCircuitBreakerClientInterceptor(t *testing.T) {
 }
 
 func TestCircuitBreakerClientInterceptor_OpensAfterFailures(t *testing.T) {
-	cb := circuitbreaker.New(1, 1, time.Minute)
+	cb := gobreaker.NewCircuitBreaker(gobreaker.Settings{
+		Name:        "test-open",
+		MaxRequests: 1,
+		Interval:    0,
+		Timeout:     time.Minute,
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			return counts.ConsecutiveFailures >= 1
+		},
+	})
 	interceptor := circuitBreakerClientInterceptor(cb)
 
 	err := interceptor(context.Background(), "/test.Method", nil, nil, nil, func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, opts ...grpc.CallOption) error {
@@ -146,5 +166,5 @@ func TestCircuitBreakerClientInterceptor_OpensAfterFailures(t *testing.T) {
 		return nil
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "circuit breaker")
+	assert.Equal(t, gobreaker.StateOpen, cb.State())
 }

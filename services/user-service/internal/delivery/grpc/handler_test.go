@@ -7,7 +7,7 @@ import (
 
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/mocks"
@@ -155,7 +155,7 @@ func TestUserHandler_GetUser(t *testing.T) {
 	}{
 		{
 			name: "success",
-			ctx:  context.WithValue(context.Background(), middleware.ContextKeyUserID, userID.String()),
+			ctx:  context.WithValue(context.Background(), auth.ContextKeyUserID, userID.String()),
 			mock: func(m *mocks.MockUserUsecase) {
 				m.EXPECT().GetUser(gomock.Any(), userID).Return(&domain.User{
 					ID:        userID,
@@ -175,7 +175,7 @@ func TestUserHandler_GetUser(t *testing.T) {
 		},
 		{
 			name: "not_found",
-			ctx:  context.WithValue(context.Background(), middleware.ContextKeyUserID, userID.String()),
+			ctx:  context.WithValue(context.Background(), auth.ContextKeyUserID, userID.String()),
 			mock: func(m *mocks.MockUserUsecase) {
 				m.EXPECT().GetUser(gomock.Any(), userID).Return(nil, apperrors.ErrNotFound)
 			},
@@ -184,7 +184,7 @@ func TestUserHandler_GetUser(t *testing.T) {
 		},
 		{
 			name: "internal_error",
-			ctx:  context.WithValue(context.Background(), middleware.ContextKeyUserID, userID.String()),
+			ctx:  context.WithValue(context.Background(), auth.ContextKeyUserID, userID.String()),
 			mock: func(m *mocks.MockUserUsecase) {
 				m.EXPECT().GetUser(gomock.Any(), userID).Return(nil, assert.AnError)
 			},

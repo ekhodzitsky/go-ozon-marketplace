@@ -6,7 +6,7 @@ import (
 	"time"
 
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/mocks"
@@ -19,12 +19,12 @@ import (
 )
 
 func authCtx(userID string) context.Context {
-	return context.WithValue(context.Background(), middleware.ContextKeyUserID, userID)
+	return context.WithValue(context.Background(), auth.ContextKeyUserID, userID)
 }
 
-func authCtxWithRole(userID string, role middleware.Role) context.Context {
-	ctx := context.WithValue(context.Background(), middleware.ContextKeyUserID, userID)
-	return context.WithValue(ctx, middleware.ContextKeyRole, string(role))
+func authCtxWithRole(userID string, role auth.Role) context.Context {
+	ctx := context.WithValue(context.Background(), auth.ContextKeyUserID, userID)
+	return context.WithValue(ctx, auth.ContextKeyRole, string(role))
 }
 
 func newProcessPaymentRequest(orderID string, amountCents int64) *paymentv1.ProcessPaymentRequest {
@@ -186,7 +186,7 @@ func TestPaymentHandler_Refund(t *testing.T) {
 		},
 		{
 			name: "admin_can_refund_any",
-			ctx:  authCtxWithRole(validUser, middleware.RoleAdmin),
+			ctx:  authCtxWithRole(validUser, auth.RoleAdmin),
 			req:  newRefundRequest(paymentID.String()),
 			setupMock: func(m *mocks.MockPaymentUsecase) {
 				m.EXPECT().GetByID(gomock.Any(), paymentID).
@@ -279,7 +279,7 @@ func TestPaymentHandler_GetRefund(t *testing.T) {
 		},
 		{
 			name: "admin_can_get_any",
-			ctx:  authCtxWithRole(validUser, middleware.RoleAdmin),
+			ctx:  authCtxWithRole(validUser, auth.RoleAdmin),
 			setupMock: func(m *mocks.MockPaymentUsecase) {
 				m.EXPECT().GetRefund(gomock.Any(), refundID).
 					Return(&domain.Refund{ID: refundID, PaymentID: paymentID, Status: domain.StatusRefunded}, nil)

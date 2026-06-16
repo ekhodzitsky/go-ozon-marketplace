@@ -17,7 +17,7 @@ import (
 	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/ekhodzitsky/go-ozon-marketplace/tests"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -155,7 +155,7 @@ func runMigrations(t *testing.T) {
 }
 
 func authContext(ctx context.Context, userID string) context.Context {
-	claims := middleware.CustomClaims{
+	claims := auth.CustomClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
 			Issuer:    "go-ozon-marketplace",
@@ -165,7 +165,7 @@ func authContext(ctx context.Context, userID string) context.Context {
 			NotBefore: jwt.NewNumericDate(time.Now().UTC()),
 			ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(time.Hour)),
 		},
-		Role: string(middleware.RoleUser),
+		Role: string(auth.RoleUser),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenStr, _ := token.SignedString([]byte(jwtSecret))
@@ -173,7 +173,7 @@ func authContext(ctx context.Context, userID string) context.Context {
 }
 
 func serviceAuthContext(ctx context.Context) context.Context {
-	claims := middleware.CustomClaims{
+	claims := auth.CustomClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "order-service",
 			Issuer:    "go-ozon-marketplace",
@@ -181,7 +181,7 @@ func serviceAuthContext(ctx context.Context) context.Context {
 			ID:        uuid.New().String(),
 			ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(time.Hour)),
 		},
-		Role: string(middleware.RoleService),
+		Role: string(auth.RoleService),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenStr, _ := token.SignedString([]byte(jwtSecret))

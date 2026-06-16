@@ -7,8 +7,8 @@ import (
 	"time"
 
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/mocks"
@@ -21,12 +21,12 @@ import (
 )
 
 func authCtx(userID string) context.Context {
-	return context.WithValue(context.Background(), middleware.ContextKeyUserID, userID)
+	return context.WithValue(context.Background(), auth.ContextKeyUserID, userID)
 }
 
-func authCtxWithRole(userID string, role middleware.Role) context.Context {
-	ctx := context.WithValue(context.Background(), middleware.ContextKeyUserID, userID)
-	return context.WithValue(ctx, middleware.ContextKeyRole, string(role))
+func authCtxWithRole(userID string, role auth.Role) context.Context {
+	ctx := context.WithValue(context.Background(), auth.ContextKeyUserID, userID)
+	return context.WithValue(ctx, auth.ContextKeyRole, string(role))
 }
 
 func newOrderItem(productID string, quantity int32, priceCents int64) *orderv1.OrderItem {
@@ -184,7 +184,7 @@ func TestOrderHandler_GetOrder(t *testing.T) {
 		},
 		{
 			name: "success_admin",
-			ctx:  authCtxWithRole(uuid.New().String(), middleware.RoleAdmin),
+			ctx:  authCtxWithRole(uuid.New().String(), auth.RoleAdmin),
 			req:  &orderv1.GetOrderRequest{OrderId: orderID.String()},
 			setupMock: func(m *mocks.MockOrderUsecase) {
 				m.EXPECT().GetOrder(gomock.Any(), gomock.Any()).Return(&domain.Order{
@@ -339,7 +339,7 @@ func TestOrderHandler_CancelOrder(t *testing.T) {
 		},
 		{
 			name: "success_admin",
-			ctx:  authCtxWithRole(uuid.New().String(), middleware.RoleAdmin),
+			ctx:  authCtxWithRole(uuid.New().String(), auth.RoleAdmin),
 			req:  &orderv1.CancelOrderRequest{OrderId: orderID.String()},
 			setupMock: func(m *mocks.MockOrderUsecase) {
 				m.EXPECT().GetOrder(gomock.Any(), orderID).Return(&domain.Order{
@@ -471,7 +471,7 @@ func TestOrderHandler_UpdateOrderStatus(t *testing.T) {
 	}{
 		{
 			name: "success_admin",
-			ctx:  authCtxWithRole(validUser, middleware.RoleAdmin),
+			ctx:  authCtxWithRole(validUser, auth.RoleAdmin),
 			req:  &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: orderv1.OrderStatus_ORDER_STATUS_SHIPPED},
 			setupMock: func(m *mocks.MockOrderUsecase) {
 				m.EXPECT().UpdateOrderStatus(gomock.Any(), orderID, domain.OrderStatusShipped).Return(nil)
@@ -481,7 +481,7 @@ func TestOrderHandler_UpdateOrderStatus(t *testing.T) {
 		},
 		{
 			name: "success_service",
-			ctx:  authCtxWithRole(validUser, middleware.RoleService),
+			ctx:  authCtxWithRole(validUser, auth.RoleService),
 			req:  &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: orderv1.OrderStatus_ORDER_STATUS_SHIPPED},
 			setupMock: func(m *mocks.MockOrderUsecase) {
 				m.EXPECT().UpdateOrderStatus(gomock.Any(), orderID, domain.OrderStatusShipped).Return(nil)
@@ -505,21 +505,21 @@ func TestOrderHandler_UpdateOrderStatus(t *testing.T) {
 		},
 		{
 			name:     "invalid_order_id",
-			ctx:      authCtxWithRole(validUser, middleware.RoleAdmin),
+			ctx:      authCtxWithRole(validUser, auth.RoleAdmin),
 			req:      &orderv1.UpdateOrderStatusRequest{OrderId: "bad", Status: orderv1.OrderStatus_ORDER_STATUS_SHIPPED},
 			wantCode: codes.InvalidArgument,
 			wantErr:  true,
 		},
 		{
 			name:     "unspecified_status",
-			ctx:      authCtxWithRole(validUser, middleware.RoleAdmin),
+			ctx:      authCtxWithRole(validUser, auth.RoleAdmin),
 			req:      &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: orderv1.OrderStatus_ORDER_STATUS_UNSPECIFIED},
 			wantCode: codes.InvalidArgument,
 			wantErr:  true,
 		},
 		{
 			name: "invalid_argument_from_usecase",
-			ctx:  authCtxWithRole(validUser, middleware.RoleAdmin),
+			ctx:  authCtxWithRole(validUser, auth.RoleAdmin),
 			req:  &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: orderv1.OrderStatus_ORDER_STATUS_SHIPPED},
 			setupMock: func(m *mocks.MockOrderUsecase) {
 				m.EXPECT().UpdateOrderStatus(gomock.Any(), orderID, domain.OrderStatusShipped).Return(apperrors.ErrInvalidArgument)
@@ -529,7 +529,7 @@ func TestOrderHandler_UpdateOrderStatus(t *testing.T) {
 		},
 		{
 			name: "internal_error",
-			ctx:  authCtxWithRole(validUser, middleware.RoleAdmin),
+			ctx:  authCtxWithRole(validUser, auth.RoleAdmin),
 			req:  &orderv1.UpdateOrderStatusRequest{OrderId: orderID.String(), Status: orderv1.OrderStatus_ORDER_STATUS_SHIPPED},
 			setupMock: func(m *mocks.MockOrderUsecase) {
 				m.EXPECT().UpdateOrderStatus(gomock.Any(), orderID, domain.OrderStatusShipped).Return(errors.New("boom"))

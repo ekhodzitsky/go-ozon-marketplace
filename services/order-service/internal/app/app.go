@@ -10,6 +10,7 @@ import (
 	"time"
 
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	pkgpostgres "github.com/ekhodzitsky/go-ozon-marketplace/pkg/postgres"
@@ -68,7 +69,7 @@ func clientCreds(cfg *config.Config, addr string) (credentials.TransportCredenti
 
 func serviceAuthInterceptor(jwtSecret string) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, middleware.CustomClaims{
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.CustomClaims{
 			RegisteredClaims: jwt.RegisteredClaims{
 				Subject:   "order-service",
 				Issuer:    "go-ozon-marketplace",
@@ -76,7 +77,7 @@ func serviceAuthInterceptor(jwtSecret string) grpc.UnaryClientInterceptor {
 				ID:        uuid.New().String(),
 				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 			},
-			Role: string(middleware.RoleService),
+			Role: string(auth.RoleService),
 		})
 		tokenStr, err := token.SignedString([]byte(jwtSecret))
 		if err != nil {

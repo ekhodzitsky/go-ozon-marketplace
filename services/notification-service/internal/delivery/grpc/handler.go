@@ -6,6 +6,7 @@ import (
 	"net/mail"
 
 	notificationv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/notification/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/notification-service/internal/usecase"
 
@@ -22,7 +23,7 @@ func NewNotificationHandler(uc usecase.NotificationUsecase) *NotificationHandler
 }
 
 func (h *NotificationHandler) SendEmail(ctx context.Context, req *notificationv1.SendEmailRequest) (*notificationv1.SendEmailResponse, error) {
-	if err := middleware.RequireRole(ctx, middleware.RoleService); err != nil {
+	if err := middleware.RequireRole(ctx, auth.RoleService); err != nil {
 		return nil, err
 	}
 

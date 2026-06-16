@@ -8,7 +8,7 @@ import (
 	"time"
 
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/repository"
 	"github.com/golang-jwt/jwt/v5"
@@ -115,7 +115,7 @@ func (u *userUsecase) Register(ctx context.Context, email, password, name string
 		Email:        email,
 		PasswordHash: string(hash),
 		Name:         name,
-		Role:         string(middleware.RoleUser),
+		Role:         string(auth.RoleUser),
 		CreatedAt:    time.Now().UTC(),
 	}
 
@@ -147,9 +147,9 @@ func (u *userUsecase) Login(ctx context.Context, email, password string) (string
 	now := time.Now()
 	role := user.Role
 	if role == "" {
-		role = string(middleware.RoleUser)
+		role = string(auth.RoleUser)
 	}
-	claims := middleware.CustomClaims{
+	claims := auth.CustomClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   user.ID.String(),
 			Issuer:    "go-ozon-marketplace",

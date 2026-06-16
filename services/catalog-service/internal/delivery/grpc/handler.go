@@ -6,6 +6,7 @@ import (
 	"time"
 
 	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/validation"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/domain"
@@ -90,7 +91,7 @@ func (h *CatalogHandler) SearchProducts(ctx context.Context, req *catalogv1.Sear
 }
 
 func (h *CatalogHandler) UpdateProduct(ctx context.Context, req *catalogv1.UpdateProductRequest) (*catalogv1.UpdateProductResponse, error) {
-	if err := middleware.RequireRole(ctx, middleware.RoleAdmin); err != nil {
+	if err := middleware.RequireRole(ctx, auth.RoleAdmin); err != nil {
 		return nil, err
 	}
 
@@ -121,7 +122,7 @@ func (h *CatalogHandler) UpdateProduct(ctx context.Context, req *catalogv1.Updat
 }
 
 func (h *CatalogHandler) DeleteProduct(ctx context.Context, req *catalogv1.DeleteProductRequest) (*catalogv1.DeleteProductResponse, error) {
-	if err := middleware.RequireRole(ctx, middleware.RoleAdmin); err != nil {
+	if err := middleware.RequireRole(ctx, auth.RoleAdmin); err != nil {
 		return nil, err
 	}
 

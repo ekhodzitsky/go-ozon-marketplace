@@ -6,6 +6,7 @@ import (
 	"time"
 
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/validation"
@@ -92,7 +93,7 @@ func (h *OrderHandler) GetOrder(ctx context.Context, req *orderv1.GetOrderReques
 	}
 
 	role, _ := middleware.GetRole(ctx)
-	if order.UserID.String() != authUserID && role != middleware.RoleAdmin {
+	if order.UserID.String() != authUserID && role != auth.RoleAdmin {
 		return nil, status.Error(codes.PermissionDenied, "order does not belong to user")
 	}
 
@@ -160,7 +161,7 @@ func (h *OrderHandler) CancelOrder(ctx context.Context, req *orderv1.CancelOrder
 	}
 
 	role, _ := middleware.GetRole(ctx)
-	if order.UserID.String() != authUserID && role != middleware.RoleAdmin {
+	if order.UserID.String() != authUserID && role != auth.RoleAdmin {
 		return nil, status.Error(codes.PermissionDenied, "order does not belong to user")
 	}
 
@@ -183,7 +184,7 @@ func (h *OrderHandler) UpdateOrderStatus(ctx context.Context, req *orderv1.Updat
 	}
 
 	role, _ := middleware.GetRole(ctx)
-	if role != middleware.RoleAdmin && role != middleware.RoleService {
+	if role != auth.RoleAdmin && role != auth.RoleService {
 		return nil, status.Error(codes.PermissionDenied, "only admin or service can update order status")
 	}
 
