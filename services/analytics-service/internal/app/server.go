@@ -26,9 +26,15 @@ func registerServers(lc fx.Lifecycle, handler *grpcdelivery.AnalyticsHandler, cf
 		return
 	}
 
+	protoValidateInterceptor, err := middleware.ProtoValidateInterceptor()
+	if err != nil {
+		log.Fatal("create protovalidate interceptor", zap.Error(err))
+	}
+
 	interceptors := []grpc.UnaryServerInterceptor{
 		middleware.LoggingUnaryInterceptor,
 		middleware.MetricsUnaryInterceptor,
+		protoValidateInterceptor,
 		tracing.UnaryServerInterceptor(),
 		middleware.AuthUnaryInterceptor(cfg.JWTSecret),
 	}
