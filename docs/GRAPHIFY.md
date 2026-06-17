@@ -7,7 +7,6 @@
 - Интерактивная визуализация зависимостей между сервисами, пакетами и proto-контрактами.
 - `graph.json` для программного доступа к графу.
 - `GRAPH_REPORT.md` с кратким обзором ключевых узлов и неожиданных связей.
-- `wiki/` — markdown-вики по сообществам в графе (при генерации с `--wiki`).
 
 ## Быстрый старт
 
@@ -37,7 +36,7 @@ ls graphify-out/
 
 ## CI
 
-- На PR: smoke-test helper-скрипта и проверка синтаксиса `.graphifyignore`.
+- На PR: smoke-test helper-скрипта и проверка правил `.graphifyignore` через `git check-ignore`.
 - На push в `main`: offline-генерация графа (`graphify extract .`) и загрузка артефактов в workflow `graphify`.
 
 ## Ограничения

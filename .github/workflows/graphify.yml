@@ -40,7 +40,7 @@ jobs:
 
       - name: Validate .graphifyignore syntax
         run: |
-          git check-ignore -v graphify-out/graph.json .graphify/cache/state.json .idea/misc.xml vendor/foo.go
+          git -c core.excludesfile=.graphifyignore check-ignore -v graphify-out/graph.json api/gen/go/example.go vendor/foo.go .idea/misc.xml
 
   generate:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
