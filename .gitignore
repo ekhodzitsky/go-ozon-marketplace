@@ -41,3 +41,4 @@ scripts/scripts
 # Graphify
 graphify-out/
 .graphify/cache/
+.graphify/venv/

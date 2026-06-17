@@ -6,10 +6,10 @@ dist/
 *.dll
 *.so
 *.dylib
+scripts/scripts
 
 # Dependencies
 vendor/
-node_modules/
 
 # VCS / git metadata
 .git/
@@ -39,7 +39,7 @@ Thumbs.db
 *.out
 coverage.html
 coverage.out
-**/*_test.go
+*_test.go
 
 # Docker data
 infra/docker/data/
