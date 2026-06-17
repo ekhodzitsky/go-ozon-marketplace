@@ -18,12 +18,17 @@ require_python() {
 }
 
 install_graphify() {
-    echo "Graphify not found. Installing into ${VENV_DIR}..."
+    echo "Graphify not found. Installing into ${VENV_DIR}..." >&2
     mkdir -p "$(dirname "$VENV_DIR")"
     python3 -m venv "$VENV_DIR"
     "$VENV_DIR/bin/pip" install --upgrade pip
     # Pin a known-good version to reduce breakage from rapid upstream releases.
     "$VENV_DIR/bin/pip" install "graphifyy>=0.8.0,<0.9.0"
+
+    if [[ ! -x "${VENV_DIR}/bin/graphify" ]]; then
+        echo "Error: Graphify installation completed but binary is not executable: ${VENV_DIR}/bin/graphify" >&2
+        exit 1
+    fi
 }
 
 ensure_graphify() {
