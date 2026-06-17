@@ -6,6 +6,7 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	pkgpostgres "github.com/ekhodzitsky/go-ozon-marketplace/pkg/postgres"
 	pkgredis "github.com/ekhodzitsky/go-ozon-marketplace/pkg/redis"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/txmanager"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/config"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/infrastructure/grpcclient"
@@ -16,6 +17,7 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/unitofwork"
 	postgresuow "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/unitofwork/postgres"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/usecase"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/fx"
@@ -44,8 +46,10 @@ func New() *fx.App {
 				lc.Append(fx.Hook{OnStop: func(ctx context.Context) error { return client.Close() }})
 				return client, nil
 			},
-			func(pool *pgxpool.Pool) func() unitofwork.UnitOfWork {
-				return func() unitofwork.UnitOfWork { return postgresuow.NewUnitOfWork(pool) }
+			func(pool *pgxpool.Pool) *txmanager.Manager[unitofwork.UnitOfWork] {
+				return txmanager.New(pool, func(tx pgx.Tx) unitofwork.UnitOfWork {
+					return postgresuow.NewUnitOfWork(tx)
+				})
 			},
 			func(pool *pgxpool.Pool) *postgres.OrderPostgres { return postgres.NewOrderPostgres(pool) },
 			func(r *postgres.OrderPostgres) repository.OrderRepository { return r },
@@ -69,7 +73,7 @@ func New() *fx.App {
 				return saga.NewOrchestrator(orderRepo, sagaRepo, invClient, payClient, log, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
 			},
 			func(
-				uowFactory func() unitofwork.UnitOfWork,
+				txm *txmanager.Manager[unitofwork.UnitOfWork],
 				orderRepo repository.OrderRepository,
 				outboxRepo repository.OutboxRepository,
 				sagaRepo repository.SagaRepository,
@@ -80,7 +84,7 @@ func New() *fx.App {
 				redisClient *redis.Client,
 				cfg *config.Config,
 			) usecase.OrderUsecase {
-				return usecase.NewOrderUsecase(uowFactory, orderRepo, outboxRepo, sagaRepo, orchestrator, invClient, payClient, catalogClient, redisClient, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
+				return usecase.NewOrderUsecase(txm, orderRepo, outboxRepo, sagaRepo, orchestrator, invClient, payClient, catalogClient, redisClient, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
 			},
 			grpcdelivery.NewOrderHandler,
 			func(cfg *config.Config, lc fx.Lifecycle) (outbox.Producer, error) {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	pkgpostgres "github.com/ekhodzitsky/go-ozon-marketplace/pkg/postgres"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/txmanager"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/config"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/outbox"
@@ -53,19 +54,17 @@ func New() *fx.App {
 				return postgres.NewOutboxPostgres(pool)
 			},
 			func(r *postgres.OutboxPostgres) repository.OutboxRepository { return r },
-			func(pool *pgxpool.Pool) func() unitofwork.UnitOfWork {
-				return func() unitofwork.UnitOfWork {
-					return postgresuow.NewUnitOfWork(pool)
-				}
+			func(pool *pgxpool.Pool) *txmanager.Manager[unitofwork.UnitOfWork] {
+				return txmanager.New(pool, postgresuow.NewUnitOfWork)
 			},
 			elasticsearch.NewProductES,
 			func(
-				uowFactory func() unitofwork.UnitOfWork,
+				txm *txmanager.Manager[unitofwork.UnitOfWork],
 				productRepo repository.ProductRepository,
 				searchRepo repository.ProductSearchRepository,
 				cfg *config.Config,
 			) usecase.CatalogUsecase {
-				return usecase.NewCatalogUsecase(uowFactory, productRepo, searchRepo, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
+				return usecase.NewCatalogUsecase(txm, productRepo, searchRepo, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
 			},
 			grpcdelivery.NewCatalogHandler,
 			func(outboxRepo repository.OutboxRepository, searchRepo repository.ProductSearchRepository, log *zap.Logger, cfg *config.Config) *outbox.Relay {

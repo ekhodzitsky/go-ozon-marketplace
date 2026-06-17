@@ -4,6 +4,7 @@ package postgres_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,10 +15,12 @@ import (
 
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	pkgpostgres "github.com/ekhodzitsky/go-ozon-marketplace/pkg/postgres"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/txmanager"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository/postgres"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/unitofwork"
 	postgresuow "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/unitofwork/postgres"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -589,51 +592,65 @@ func TestSagaPostgres_ListIncomplete(t *testing.T) {
 
 func TestUnitOfWork_CommitAndRollback(t *testing.T) {
 	pool := newTestPool(t)
-	uowFactory := func() unitofwork.UnitOfWork { return postgresuow.NewUnitOfWork(pool) }
+	txm := txmanager.New(pool, func(tx pgx.Tx) unitofwork.UnitOfWork {
+		return postgresuow.NewUnitOfWork(tx)
+	})
 	ctx := context.Background()
 
-	uow := uowFactory()
-	require.NoError(t, uow.Begin(ctx))
+	var createdOrderID uuid.UUID
+	err := txm.Run(ctx, func(uow unitofwork.UnitOfWork) error {
+		orderRepo := uow.OrderRepo()
+		outboxRepo := uow.OutboxRepo()
+		require.NotNil(t, orderRepo)
+		require.NotNil(t, outboxRepo)
 
-	orderRepo := uow.OrderRepo()
-	outboxRepo := uow.OutboxRepo()
-	require.NotNil(t, orderRepo)
-	require.NotNil(t, outboxRepo)
-
-	order := newOrder(uuid.New(), []domain.OrderItem{newOrderItem(uuid.New(), 1, 100)})
-	require.NoError(t, orderRepo.Create(ctx, order))
-	require.NoError(t, uow.Rollback(ctx))
+		order := newOrder(uuid.New(), []domain.OrderItem{newOrderItem(uuid.New(), 1, 100)})
+		if err := orderRepo.Create(ctx, order); err != nil {
+			return err
+		}
+		createdOrderID = order.ID
+		return errors.New("force rollback")
+	})
+	require.Error(t, err)
 
 	standalone := postgres.NewOrderPostgres(pool)
-	_, err := standalone.GetByID(ctx, order.ID)
+	_, err = standalone.GetByID(ctx, createdOrderID)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
 func TestUnitOfWork_Commit(t *testing.T) {
 	pool := newTestPool(t)
-	uowFactory := func() unitofwork.UnitOfWork { return postgresuow.NewUnitOfWork(pool) }
+	txm := txmanager.New(pool, func(tx pgx.Tx) unitofwork.UnitOfWork {
+		return postgresuow.NewUnitOfWork(tx)
+	})
 	ctx := context.Background()
 
-	uow := uowFactory()
-	require.NoError(t, uow.Begin(ctx))
+	var createdOrderID uuid.UUID
+	err := txm.Run(ctx, func(uow unitofwork.UnitOfWork) error {
+		order := newOrder(uuid.New(), []domain.OrderItem{newOrderItem(uuid.New(), 1, 100)})
+		if err := uow.OrderRepo().Create(ctx, order); err != nil {
+			return err
+		}
 
-	order := newOrder(uuid.New(), []domain.OrderItem{newOrderItem(uuid.New(), 1, 100)})
-	require.NoError(t, uow.OrderRepo().Create(ctx, order))
-
-	event := &domain.OutboxEvent{
-		ID:            uuid.New(),
-		AggregateType: "order",
-		AggregateID:   order.ID.String(),
-		EventType:     "OrderCreated",
-		Payload:       []byte(`{}`),
-		CreatedAt:     time.Now().UTC(),
-		NextRetryAt:   time.Now().UTC().Add(-time.Hour),
-	}
-	require.NoError(t, uow.OutboxRepo().Create(ctx, event))
-	require.NoError(t, uow.Commit(ctx))
+		event := &domain.OutboxEvent{
+			ID:            uuid.New(),
+			AggregateType: "order",
+			AggregateID:   order.ID.String(),
+			EventType:     "OrderCreated",
+			Payload:       []byte(`{}`),
+			CreatedAt:     time.Now().UTC(),
+			NextRetryAt:   time.Now().UTC().Add(-time.Hour),
+		}
+		if err := uow.OutboxRepo().Create(ctx, event); err != nil {
+			return err
+		}
+		createdOrderID = order.ID
+		return nil
+	})
+	require.NoError(t, err)
 
 	standalone := postgres.NewOrderPostgres(pool)
-	got, err := standalone.GetByID(ctx, order.ID)
+	got, err := standalone.GetByID(ctx, createdOrderID)
 	require.NoError(t, err)
-	assert.Equal(t, order.ID, got.ID)
+	assert.Equal(t, createdOrderID, got.ID)
 }

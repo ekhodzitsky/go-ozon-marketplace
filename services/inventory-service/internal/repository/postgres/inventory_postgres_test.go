@@ -14,7 +14,7 @@ import (
 	"time"
 
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
-	"github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/repository"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/usecase"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -96,7 +96,7 @@ func runMigrations(t *testing.T, dsn string) {
 	}
 }
 
-func newTestRepository(t *testing.T) (repository.InventoryRepository, *pgxpool.Pool) {
+func newTestUsecase(t *testing.T) (usecase.InventoryUsecase, *pgxpool.Pool) {
 	t.Helper()
 
 	dsn := startSharedPostgres(t)
@@ -106,7 +106,9 @@ func newTestRepository(t *testing.T) (repository.InventoryRepository, *pgxpool.P
 	require.NoError(t, err)
 	t.Cleanup(func() { pool.Close() })
 
-	return NewInventoryPostgres(pool, 5*time.Second, 3*time.Second), pool
+	repo := NewInventoryPostgres(pool)
+	txm := NewInventoryTxManager(pool, repo)
+	return usecase.NewInventoryUsecase(repo, txm, nil, 5*time.Second, 3*time.Second), pool
 }
 
 func TestMain(m *testing.M) {
@@ -128,19 +130,19 @@ func seedProduct(t *testing.T, pool *pgxpool.Pool, productID uuid.UUID, availabl
 }
 
 func TestInventoryPostgres_GetStock_NotFound(t *testing.T) {
-	repo, _ := newTestRepository(t)
+	uc, _ := newTestUsecase(t)
 
-	_, err := repo.GetStock(context.Background(), uuid.New())
+	_, err := uc.GetStock(context.Background(), uuid.New())
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrNotFound))
 }
 
 func TestInventoryPostgres_GetStock_Success(t *testing.T) {
-	repo, pool := newTestRepository(t)
+	uc, pool := newTestUsecase(t)
 	productID := uuid.New()
 	seedProduct(t, pool, productID, 100)
 
-	stock, err := repo.GetStock(context.Background(), productID)
+	stock, err := uc.GetStock(context.Background(), productID)
 	require.NoError(t, err)
 	assert.Equal(t, productID, stock.ProductID)
 	assert.Equal(t, 100, stock.Available)
@@ -148,72 +150,72 @@ func TestInventoryPostgres_GetStock_Success(t *testing.T) {
 }
 
 func TestInventoryPostgres_Reserve_Success(t *testing.T) {
-	repo, pool := newTestRepository(t)
+	uc, pool := newTestUsecase(t)
 	productID := uuid.New()
 	orderID := uuid.New()
 	seedProduct(t, pool, productID, 10)
 
-	err := repo.Reserve(context.Background(), productID, 5, orderID)
+	err := uc.Reserve(context.Background(), productID, 5, orderID.String())
 	require.NoError(t, err)
 
-	stock, err := repo.GetStock(context.Background(), productID)
+	stock, err := uc.GetStock(context.Background(), productID)
 	require.NoError(t, err)
 	assert.Equal(t, 5, stock.Available)
 	assert.Equal(t, 5, stock.Reserved)
 }
 
 func TestInventoryPostgres_Reserve_InsufficientStock(t *testing.T) {
-	repo, pool := newTestRepository(t)
+	uc, pool := newTestUsecase(t)
 	productID := uuid.New()
 	orderID := uuid.New()
 	seedProduct(t, pool, productID, 3)
 
-	err := repo.Reserve(context.Background(), productID, 5, orderID)
+	err := uc.Reserve(context.Background(), productID, 5, orderID.String())
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrInsufficientStock))
 }
 
 func TestInventoryPostgres_Reserve_InvalidQuantity(t *testing.T) {
-	repo, _ := newTestRepository(t)
+	uc, _ := newTestUsecase(t)
 
-	err := repo.Reserve(context.Background(), uuid.New(), 0, uuid.New())
+	err := uc.Reserve(context.Background(), uuid.New(), 0, uuid.New().String())
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrInvalidArgument))
 }
 
 func TestInventoryPostgres_Reserve_Idempotent(t *testing.T) {
-	repo, pool := newTestRepository(t)
+	uc, pool := newTestUsecase(t)
 	productID := uuid.New()
 	orderID := uuid.New()
 	seedProduct(t, pool, productID, 10)
 
 	// First reservation.
-	require.NoError(t, repo.Reserve(context.Background(), productID, 5, orderID))
+	require.NoError(t, uc.Reserve(context.Background(), productID, 5, orderID.String()))
 
 	// Second reservation with same parameters is idempotent.
-	require.NoError(t, repo.Reserve(context.Background(), productID, 5, orderID))
+	require.NoError(t, uc.Reserve(context.Background(), productID, 5, orderID.String()))
 
-	stock, err := repo.GetStock(context.Background(), productID)
+	stock, err := uc.GetStock(context.Background(), productID)
 	require.NoError(t, err)
 	assert.Equal(t, 5, stock.Available)
 	assert.Equal(t, 5, stock.Reserved)
 }
 
 func TestInventoryPostgres_Reserve_IdempotentQuantityMismatch(t *testing.T) {
-	repo, pool := newTestRepository(t)
+	uc, pool := newTestUsecase(t)
 	productID := uuid.New()
 	orderID := uuid.New()
 	seedProduct(t, pool, productID, 10)
 
-	require.NoError(t, repo.Reserve(context.Background(), productID, 5, orderID))
+	require.NoError(t, uc.Reserve(context.Background(), productID, 5, orderID.String()))
 
-	err := repo.Reserve(context.Background(), productID, 3, orderID)
+	err := uc.Reserve(context.Background(), productID, 3, orderID.String())
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrConflict))
 }
 
 func TestInventoryPostgres_Reserve_Concurrent(t *testing.T) {
-	repo, pool := newTestRepository(t)
+	uc, pool := newTestUsecase(t)
 	productID := uuid.New()
 	seedProduct(t, pool, productID, 10)
 
@@ -227,7 +229,7 @@ func TestInventoryPostgres_Reserve_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := repo.Reserve(context.Background(), productID, quantity, uuid.New())
+			err := uc.Reserve(context.Background(), productID, quantity, uuid.New().String())
 			successes <- err == nil
 		}()
 	}
@@ -245,96 +247,96 @@ func TestInventoryPostgres_Reserve_Concurrent(t *testing.T) {
 	// Only floor(10/3) = 3 reservations can succeed without overselling.
 	assert.Equal(t, 3, successCount)
 
-	stock, err := repo.GetStock(context.Background(), productID)
+	stock, err := uc.GetStock(context.Background(), productID)
 	require.NoError(t, err)
 	assert.Equal(t, 1, stock.Available)
 	assert.Equal(t, 9, stock.Reserved)
 }
 
 func TestInventoryPostgres_Release_Success(t *testing.T) {
-	repo, pool := newTestRepository(t)
+	uc, pool := newTestUsecase(t)
 	productID := uuid.New()
 	orderID := uuid.New()
 	seedProduct(t, pool, productID, 10)
 
-	require.NoError(t, repo.Reserve(context.Background(), productID, 5, orderID))
-	require.NoError(t, repo.Release(context.Background(), productID, 5, orderID))
+	require.NoError(t, uc.Reserve(context.Background(), productID, 5, orderID.String()))
+	require.NoError(t, uc.Release(context.Background(), productID, 5, orderID.String()))
 
-	stock, err := repo.GetStock(context.Background(), productID)
+	stock, err := uc.GetStock(context.Background(), productID)
 	require.NoError(t, err)
 	assert.Equal(t, 10, stock.Available)
 	assert.Equal(t, 0, stock.Reserved)
 }
 
 func TestInventoryPostgres_Release_Idempotent(t *testing.T) {
-	repo, pool := newTestRepository(t)
+	uc, pool := newTestUsecase(t)
 	productID := uuid.New()
 	orderID := uuid.New()
 	seedProduct(t, pool, productID, 10)
 
-	require.NoError(t, repo.Reserve(context.Background(), productID, 5, orderID))
-	require.NoError(t, repo.Release(context.Background(), productID, 5, orderID))
-	require.NoError(t, repo.Release(context.Background(), productID, 5, orderID))
+	require.NoError(t, uc.Reserve(context.Background(), productID, 5, orderID.String()))
+	require.NoError(t, uc.Release(context.Background(), productID, 5, orderID.String()))
+	require.NoError(t, uc.Release(context.Background(), productID, 5, orderID.String()))
 
-	stock, err := repo.GetStock(context.Background(), productID)
+	stock, err := uc.GetStock(context.Background(), productID)
 	require.NoError(t, err)
 	assert.Equal(t, 10, stock.Available)
 	assert.Equal(t, 0, stock.Reserved)
 }
 
 func TestInventoryPostgres_Release_ReservationNotFound(t *testing.T) {
-	repo, _ := newTestRepository(t)
+	uc, _ := newTestUsecase(t)
 
-	err := repo.Release(context.Background(), uuid.New(), 1, uuid.New())
+	err := uc.Release(context.Background(), uuid.New(), 1, uuid.New().String())
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrNotFound))
 }
 
 func TestInventoryPostgres_Release_AlreadyReleased(t *testing.T) {
-	repo, pool := newTestRepository(t)
+	uc, pool := newTestUsecase(t)
 	productID := uuid.New()
 	orderID := uuid.New()
 	seedProduct(t, pool, productID, 10)
 
-	require.NoError(t, repo.Reserve(context.Background(), productID, 5, orderID))
-	require.NoError(t, repo.Release(context.Background(), productID, 5, orderID))
+	require.NoError(t, uc.Reserve(context.Background(), productID, 5, orderID.String()))
+	require.NoError(t, uc.Release(context.Background(), productID, 5, orderID.String()))
 
-	err := repo.Reserve(context.Background(), productID, 5, orderID)
+	err := uc.Reserve(context.Background(), productID, 5, orderID.String())
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrFailedPrecondition))
 }
 
 func TestInventoryPostgres_Release_QuantityMismatch(t *testing.T) {
-	repo, pool := newTestRepository(t)
+	uc, pool := newTestUsecase(t)
 	productID := uuid.New()
 	orderID := uuid.New()
 	seedProduct(t, pool, productID, 10)
 
-	require.NoError(t, repo.Reserve(context.Background(), productID, 5, orderID))
+	require.NoError(t, uc.Reserve(context.Background(), productID, 5, orderID.String()))
 
-	err := repo.Release(context.Background(), productID, 3, orderID)
+	err := uc.Release(context.Background(), productID, 3, orderID.String())
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrConflict))
 }
 
 func TestInventoryPostgres_Release_InvalidQuantity(t *testing.T) {
-	repo, _ := newTestRepository(t)
+	uc, _ := newTestUsecase(t)
 
-	err := repo.Release(context.Background(), uuid.New(), 0, uuid.New())
+	err := uc.Release(context.Background(), uuid.New(), 0, uuid.New().String())
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrInvalidArgument))
 }
 
 func TestInventoryPostgres_GetLedger(t *testing.T) {
-	repo, pool := newTestRepository(t)
+	uc, pool := newTestUsecase(t)
 	productID := uuid.New()
 	orderID := uuid.New()
 	seedProduct(t, pool, productID, 10)
 
-	require.NoError(t, repo.Reserve(context.Background(), productID, 5, orderID))
-	require.NoError(t, repo.Release(context.Background(), productID, 5, orderID))
+	require.NoError(t, uc.Reserve(context.Background(), productID, 5, orderID.String()))
+	require.NoError(t, uc.Release(context.Background(), productID, 5, orderID.String()))
 
-	entries, err := repo.GetLedger(context.Background(), productID)
+	entries, err := uc.GetLedger(context.Background(), productID)
 	require.NoError(t, err)
 	require.Len(t, entries, 2)
 

@@ -24,8 +24,13 @@ type OrderOrchestrator interface {
 	ProcessOrder(ctx context.Context, order *domain.Order, idempotencyKey string) error
 }
 
+// TxManager runs business logic inside a transactional UnitOfWork.
+type TxManager interface {
+	Run(ctx context.Context, fn func(unitofwork.UnitOfWork) error) error
+}
+
 type orderUsecase struct {
-	uowFactory    func() unitofwork.UnitOfWork
+	txm           TxManager
 	orderRepo     repository.OrderRepository
 	outboxRepo    repository.OutboxRepository
 	sagaRepo      repository.SagaRepository
@@ -39,7 +44,7 @@ type orderUsecase struct {
 }
 
 func NewOrderUsecase(
-	uowFactory func() unitofwork.UnitOfWork,
+	txm TxManager,
 	orderRepo repository.OrderRepository,
 	outboxRepo repository.OutboxRepository,
 	sagaRepo repository.SagaRepository,
@@ -58,7 +63,7 @@ func NewOrderUsecase(
 		queryTimeout = 3 * time.Second
 	}
 	return &orderUsecase{
-		uowFactory:    uowFactory,
+		txm:           txm,
 		orderRepo:     orderRepo,
 		outboxRepo:    outboxRepo,
 		sagaRepo:      sagaRepo,
@@ -139,38 +144,38 @@ func (u *orderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items 
 		order.Items[i].OrderID = order.ID
 	}
 
-	uow := u.uowFactory()
 	txCtx, cancel := context.WithTimeout(ctx, u.queryTimeout)
 	defer cancel()
-	if err := uow.Begin(txCtx); err != nil {
-		return uuid.Nil, fmt.Errorf("begin uow: %w", err)
-	}
-	defer func() { _ = uow.Rollback(txCtx) }()
 
-	if err := uow.OrderRepo().Create(txCtx, order); err != nil {
-		return uuid.Nil, fmt.Errorf("create order: %w", err)
-	}
+	var createdID uuid.UUID
+	err := u.txm.Run(txCtx, func(uow unitofwork.UnitOfWork) error {
+		if err := uow.OrderRepo().Create(txCtx, order); err != nil {
+			return fmt.Errorf("create order: %w", err)
+		}
 
-	payload, err := json.Marshal(order)
+		payload, err := json.Marshal(order)
+		if err != nil {
+			return fmt.Errorf("marshal outbox payload: %w", err)
+		}
+
+		event := &domain.OutboxEvent{
+			ID:            uuid.New(),
+			AggregateType: "order",
+			AggregateID:   order.ID.String(),
+			EventType:     "OrderCreated",
+			Payload:       payload,
+			CreatedAt:     time.Now().UTC(),
+		}
+
+		if err := uow.OutboxRepo().Create(txCtx, event); err != nil {
+			return fmt.Errorf("create outbox event: %w", err)
+		}
+
+		createdID = order.ID
+		return nil
+	})
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("marshal outbox payload: %w", err)
-	}
-
-	event := &domain.OutboxEvent{
-		ID:            uuid.New(),
-		AggregateType: "order",
-		AggregateID:   order.ID.String(),
-		EventType:     "OrderCreated",
-		Payload:       payload,
-		CreatedAt:     time.Now().UTC(),
-	}
-
-	if err := uow.OutboxRepo().Create(txCtx, event); err != nil {
-		return uuid.Nil, fmt.Errorf("create outbox event: %w", err)
-	}
-
-	if err := uow.Commit(txCtx); err != nil {
-		return uuid.Nil, fmt.Errorf("commit uow: %w", err)
+		return uuid.Nil, err
 	}
 
 	u.publishOrderEvent(ctx, order.ID.String(), string(order.Status), order.UserID.String())
@@ -178,10 +183,10 @@ func (u *orderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items 
 	sagaCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
 	defer cancel()
 	if err := u.orchestrator.ProcessOrder(sagaCtx, order, idempotencyKey); err != nil {
-		return order.ID, fmt.Errorf("saga process order: %w", err)
+		return createdID, fmt.Errorf("saga process order: %w", err)
 	}
 
-	return order.ID, nil
+	return createdID, nil
 }
 
 func (u *orderUsecase) GetOrder(ctx context.Context, id uuid.UUID) (*domain.Order, error) {

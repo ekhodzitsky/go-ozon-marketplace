@@ -10,7 +10,6 @@
 package mocks
 
 import (
-	context "context"
 	reflect "reflect"
 
 	repository "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
@@ -41,34 +40,6 @@ func (m *MockUnitOfWork) EXPECT() *MockUnitOfWorkMockRecorder {
 	return m.recorder
 }
 
-// Begin mocks base method.
-func (m *MockUnitOfWork) Begin(ctx context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Begin", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Begin indicates an expected call of Begin.
-func (mr *MockUnitOfWorkMockRecorder) Begin(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Begin", reflect.TypeOf((*MockUnitOfWork)(nil).Begin), ctx)
-}
-
-// Commit mocks base method.
-func (m *MockUnitOfWork) Commit(ctx context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Commit", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Commit indicates an expected call of Commit.
-func (mr *MockUnitOfWorkMockRecorder) Commit(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Commit", reflect.TypeOf((*MockUnitOfWork)(nil).Commit), ctx)
-}
-
 // OrderRepo mocks base method.
 func (m *MockUnitOfWork) OrderRepo() repository.OrderRepository {
 	m.ctrl.T.Helper()
@@ -95,18 +66,4 @@ func (m *MockUnitOfWork) OutboxRepo() repository.OutboxRepository {
 func (mr *MockUnitOfWorkMockRecorder) OutboxRepo() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OutboxRepo", reflect.TypeOf((*MockUnitOfWork)(nil).OutboxRepo))
-}
-
-// Rollback mocks base method.
-func (m *MockUnitOfWork) Rollback(ctx context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Rollback", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Rollback indicates an expected call of Rollback.
-func (mr *MockUnitOfWorkMockRecorder) Rollback(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rollback", reflect.TypeOf((*MockUnitOfWork)(nil).Rollback), ctx)
 }

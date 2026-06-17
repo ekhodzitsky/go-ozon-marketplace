@@ -39,11 +39,13 @@ func New() *fx.App {
 				lc.Append(fx.Hook{OnStop: func(ctx context.Context) error { return client.Close() }})
 				return client, nil
 			},
-			func(cfg *config.Config, db *pgxpool.Pool) repository.InventoryRepository {
-				return postgres.NewInventoryPostgres(db, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
+			func(db *pgxpool.Pool) postgres.Querier {
+				return db
 			},
-			func(repo repository.InventoryRepository, redisClient *redis.Client, cfg *config.Config) usecase.InventoryUsecase {
-				return usecase.NewInventoryUsecase(repo, redisClient, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
+			postgres.NewInventoryPostgres,
+			postgres.NewInventoryTxManager,
+			func(repo repository.InventoryRepository, txm repository.TxManager, redisClient *redis.Client, cfg *config.Config) usecase.InventoryUsecase {
+				return usecase.NewInventoryUsecase(repo, txm, redisClient, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
 			},
 			grpcdelivery.NewInventoryHandler,
 		),
