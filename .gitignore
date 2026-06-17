@@ -38,3 +38,8 @@ scripts/scripts
 
 # Worktrees
 .worktrees/
+
+# Graphify
+graphify-out/
+.graphify/cache/
+
