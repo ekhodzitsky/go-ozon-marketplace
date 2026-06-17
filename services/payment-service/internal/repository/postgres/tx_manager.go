@@ -2,34 +2,25 @@ package postgres
 
 import (
 	"context"
-	"fmt"
 
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/txmanager"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/repository"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type PaymentTxManager struct {
-	db   *pgxpool.Pool
-	repo repository.PaymentRepository
+type paymentTxManager struct {
+	tm *txmanager.Manager[repository.PaymentRepository]
 }
 
+// NewPaymentTxManager creates a transaction manager that runs callbacks with a repository bound to the transaction.
 func NewPaymentTxManager(db *pgxpool.Pool, repo repository.PaymentRepository) repository.TxManager {
-	return &PaymentTxManager{db: db, repo: repo}
+	tm := txmanager.New(db, func(tx pgx.Tx) repository.PaymentRepository {
+		return repo.WithTx(tx)
+	})
+	return &paymentTxManager{tm: tm}
 }
 
-func (tm *PaymentTxManager) Run(ctx context.Context, fn func(repo repository.PaymentRepository) error) error {
-	tx, err := tm.db.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	repoTx := tm.repo.WithTx(tx)
-	if err := fn(repoTx); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit tx: %w", err)
-	}
-	return nil
+func (tm *paymentTxManager) Run(ctx context.Context, fn func(repo repository.PaymentRepository) error) error {
+	return tm.tm.Run(ctx, fn)
 }
