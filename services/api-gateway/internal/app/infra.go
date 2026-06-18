@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/featureflags"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/grpcclient"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	pkgredis "github.com/ekhodzitsky/go-ozon-marketplace/pkg/redis"
@@ -36,7 +37,7 @@ func provideCircuitBreaker() *gobreaker.CircuitBreaker {
 	})
 }
 
-func provideClientFactory(cfg *config.Config, cb *gobreaker.CircuitBreaker) *clients.Factory {
+func provideClientFactory(cfg *config.Config, cb *gobreaker.CircuitBreaker) *grpcclient.Factory {
 	return clients.NewFactory(cfg, cb)
 }
 

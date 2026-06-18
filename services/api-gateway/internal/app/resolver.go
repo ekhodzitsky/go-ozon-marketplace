@@ -12,8 +12,8 @@ import (
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/abtesting"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/featureflags"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/grpcclient"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph"
-	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/clients"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/config"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/ws"
 	"github.com/redis/go-redis/v9"
@@ -46,7 +46,7 @@ func closeConn(conn *grpc.ClientConn) {
 
 func provideResolver(
 	ctx context.Context,
-	factory *clients.Factory,
+	factory *grpcclient.Factory,
 	ffEngine *featureflags.Engine,
 	hub *ws.Hub,
 	redisClient *redis.Client,
