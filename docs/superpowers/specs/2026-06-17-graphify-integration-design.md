@@ -96,7 +96,7 @@ project-root/
 
 5. **CI validation.** The GitHub Actions workflow installs Graphify, validates `.graphifyignore` syntax on PRs and generates the graph artifact on pushes to `main` using the offline `graphify extract .` command. The workflow is pinned by SHA and uses Python 3.12.
 
-5. **Documentation.** `docs/GRAPHIFY.md` explains: what Graphify is, how to install it, how to run the helper script, how to read the outputs, and how the CI job works. It is linked from the main README under the documentation index.
+6. **Documentation.** `docs/GRAPHIFY.md` explains: what Graphify is, how to install it, how to run the helper script, how to read the outputs, and how the CI job works. It is linked from the main README under the documentation index.
 
 ## Success criteria
 
