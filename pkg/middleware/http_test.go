@@ -17,7 +17,8 @@ import (
 func TestAuthHTTP_NoAuth_AllowsPublic(t *testing.T) {
 	t.Parallel()
 
-	handler := AuthHTTP("secret")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	verifier := auth.NewJWTVerifier("secret")
+	handler := AuthHTTP(verifier)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -31,7 +32,8 @@ func TestAuthHTTP_NoAuth_AllowsPublic(t *testing.T) {
 func TestAuthHTTP_InvalidAuth_Rejects(t *testing.T) {
 	t.Parallel()
 
-	handler := AuthHTTP("secret")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	verifier := auth.NewJWTVerifier("secret")
+	handler := AuthHTTP(verifier)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("next handler must not be called for invalid auth")
 	}))
 
@@ -74,7 +76,8 @@ func TestAuthHTTP_ValidAuth_SetsContext(t *testing.T) {
 
 	var userID string
 	var role auth.Role
-	handler := AuthHTTP(secret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	verifier := auth.NewJWTVerifier(secret)
+	handler := AuthHTTP(verifier)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		userID, _ = GetUserID(r.Context())
 		role, _ = GetRole(r.Context())
 		w.WriteHeader(http.StatusOK)
