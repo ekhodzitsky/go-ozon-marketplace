@@ -120,3 +120,94 @@ func (mr *MockPaymentClientMockRecorder) Refund(ctx, paymentID, idempotencyKey a
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Refund", reflect.TypeOf((*MockPaymentClient)(nil).Refund), ctx, paymentID, idempotencyKey)
 }
+
+// MockLocker is a mock of Locker interface.
+type MockLocker struct {
+	ctrl     *gomock.Controller
+	recorder *MockLockerMockRecorder
+	isgomock struct{}
+}
+
+// MockLockerMockRecorder is the mock recorder for MockLocker.
+type MockLockerMockRecorder struct {
+	mock *MockLocker
+}
+
+// NewMockLocker creates a new mock instance.
+func NewMockLocker(ctrl *gomock.Controller) *MockLocker {
+	mock := &MockLocker{ctrl: ctrl}
+	mock.recorder = &MockLockerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockLocker) EXPECT() *MockLockerMockRecorder {
+	return m.recorder
+}
+
+// TryLock mocks base method.
+func (m *MockLocker) TryLock(ctx context.Context, key string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TryLock", ctx, key)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TryLock indicates an expected call of TryLock.
+func (mr *MockLockerMockRecorder) TryLock(ctx, key any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryLock", reflect.TypeOf((*MockLocker)(nil).TryLock), ctx, key)
+}
+
+// Unlock mocks base method.
+func (m *MockLocker) Unlock(ctx context.Context, key string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Unlock", ctx, key)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Unlock indicates an expected call of Unlock.
+func (mr *MockLockerMockRecorder) Unlock(ctx, key any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unlock", reflect.TypeOf((*MockLocker)(nil).Unlock), ctx, key)
+}
+
+// MockRecoverer is a mock of Recoverer interface.
+type MockRecoverer struct {
+	ctrl     *gomock.Controller
+	recorder *MockRecovererMockRecorder
+	isgomock struct{}
+}
+
+// MockRecovererMockRecorder is the mock recorder for MockRecoverer.
+type MockRecovererMockRecorder struct {
+	mock *MockRecoverer
+}
+
+// NewMockRecoverer creates a new mock instance.
+func NewMockRecoverer(ctrl *gomock.Controller) *MockRecoverer {
+	mock := &MockRecoverer{ctrl: ctrl}
+	mock.recorder = &MockRecovererMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockRecoverer) EXPECT() *MockRecovererMockRecorder {
+	return m.recorder
+}
+
+// Recover mocks base method.
+func (m *MockRecoverer) Recover(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Recover", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Recover indicates an expected call of Recover.
+func (mr *MockRecovererMockRecorder) Recover(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Recover", reflect.TypeOf((*MockRecoverer)(nil).Recover), ctx)
+}
