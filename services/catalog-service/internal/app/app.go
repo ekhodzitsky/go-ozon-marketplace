@@ -68,7 +68,7 @@ func New() *fx.App {
 			},
 			grpcdelivery.NewCatalogHandler,
 			func(outboxRepo repository.OutboxRepository, searchRepo repository.ProductSearchRepository, log *zap.Logger, cfg *config.Config) *outbox.Relay {
-				return outbox.NewRelay(outboxRepo, searchRepo, log, cfg.DefaultQueryTimeout)
+				return outbox.NewRelay(outboxRepo, outbox.NewESHandler(searchRepo), log, cfg.DefaultQueryTimeout)
 			},
 		),
 		fx.Invoke(registerServers),
