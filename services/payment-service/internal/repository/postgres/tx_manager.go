@@ -1,26 +1,17 @@
 package postgres
 
 import (
-	"context"
-
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/txmanager"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/repository"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type paymentTxManager struct {
-	tm *txmanager.Manager[repository.PaymentRepository]
-}
-
-// NewPaymentTxManager creates a transaction manager that runs callbacks with a repository bound to the transaction.
+// NewPaymentTxManager constructs a thin seam over pkg/txmanager.Manager.
+// It leverages the generic manager so the payment module does not need
+// its own wrapper type to adapt a transactional repository.
 func NewPaymentTxManager(db *pgxpool.Pool, repo repository.PaymentRepository) repository.TxManager {
-	tm := txmanager.New(db, func(tx pgx.Tx) repository.PaymentRepository {
-		return repo.WithTx(tx)
-	})
-	return &paymentTxManager{tm: tm}
+	return txmanager.New(db, repo.WithTx)
 }
 
-func (tm *paymentTxManager) Run(ctx context.Context, fn func(repo repository.PaymentRepository) error) error {
-	return tm.tm.Run(ctx, fn)
-}
+// Compile-time seam check: the generic manager is exactly the local TxManager interface.
+var _ repository.TxManager = (*txmanager.Manager[repository.PaymentRepository])(nil)
