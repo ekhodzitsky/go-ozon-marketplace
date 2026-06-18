@@ -44,11 +44,11 @@ install_graphify() {
     if command -v uv >/dev/null 2>&1; then
         uv venv --python "$PYTHON_CMD" "$VENV_DIR"
         uv pip install --python "$VENV_DIR/bin/python" --upgrade pip
-        uv pip install --python "$VENV_DIR/bin/python" "graphifyy>=0.8.0,<0.9.0"
+        uv pip install --python "$VENV_DIR/bin/python" "graphifyy[mcp]>=0.8.0,<0.9.0"
     else
         "$PYTHON_CMD" -m venv "$VENV_DIR"
         "$VENV_DIR/bin/pip" install --upgrade pip
-        "$VENV_DIR/bin/pip" install "graphifyy>=0.8.0,<0.9.0"
+        "$VENV_DIR/bin/pip" install "graphifyy[mcp]>=0.8.0,<0.9.0"
     fi
 
     if [[ ! -x "${VENV_DIR}/bin/graphify" ]]; then

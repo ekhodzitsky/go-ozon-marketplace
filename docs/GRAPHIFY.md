@@ -34,10 +34,37 @@ ls graphify-out/
 
 Синтаксис совпадает с `.gitignore`.
 
+## Git hooks
+
+Чтобы граф пересобирался автоматически после коммитов и переключений веток:
+
+```bash
+./scripts/install-graphify-hook.sh
+```
+
+Хуки устанавливаются локально (в `.git/hooks`) и не коммитятся.
+
+## MCP server
+
+Если ваш ассистент поддерживает MCP, подключите Graphify как stdio-сервер:
+
+- Конфигурация для Claude Code уже в `.mcp.json`.
+- Скрипт запуска: `./scripts/graphify-mcp.sh`.
+- Требуется предварительно сгенерированный `graphify-out/graph.json`.
+
+Доступные инструменты: `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `graph_stats`.
+
+Для Cursor добавьте аналогичную конфигурацию в `.cursor/mcp.json` или настройки IDE.
+
+## Правила для AI-ассистентов
+
+- `.cursorrules` — правила для Cursor.
+- `AGENTS.md` — инструкции для Claude Code / Codex / Gemini CLI и других ассистентов, читающих `AGENTS.md`.
+
 ## CI
 
 - На PR: smoke-test helper-скрипта и проверка правил `.graphifyignore` через `git check-ignore`.
-- На push в `master`: offline-генерация графа (`graphify extract .`) и загрузка артефактов в workflow `graphify`.
+- На push в `master`: offline-генерация графа (`graphify update . --force`) и загрузка артефактов в workflow `graphify`.
 
 ## Ограничения
 
