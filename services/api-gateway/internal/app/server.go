@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/featureflags"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph"
@@ -14,7 +15,11 @@ import (
 )
 
 func provideAdminHandler(ffEngine *featureflags.Engine, cfg *config.Config) http.Handler {
-	return admin.NewRouter(admin.NewHandler(ffEngine), cfg.JWTSecret)
+	var verifier auth.Verifier
+	if cfg.JWTSecret != "" {
+		verifier = auth.NewJWTVerifier(cfg.JWTSecret)
+	}
+	return admin.NewRouter(admin.NewHandler(ffEngine), verifier)
 }
 
 func provideHTTPServer(

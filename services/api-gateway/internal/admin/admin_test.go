@@ -17,7 +17,7 @@ func setupRouter() http.Handler {
 	engine := featureflags.NewEngine(nil)
 	engine.Register(&featureflags.Flag{Name: "new-checkout-flow", Enabled: false, Strategy: "default"})
 	engine.Register(&featureflags.Flag{Name: "fast-search", Enabled: false, Strategy: "default"})
-	return admin.NewRouter(admin.NewHandler(engine), "")
+	return admin.NewRouter(admin.NewHandler(engine), nil)
 }
 
 func TestListFlags(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/server"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/tracing"
@@ -20,12 +21,13 @@ func registerServers(lc fx.Lifecycle, handler *grpcdelivery.CatalogHandler, cfg 
 		log.Fatal("create protovalidate interceptor", zap.Error(err))
 	}
 
+	verifier := auth.NewJWTVerifier(cfg.JWTSecret)
 	interceptors := []grpc.UnaryServerInterceptor{
 		middleware.LoggingUnaryInterceptor,
 		middleware.MetricsUnaryInterceptor,
 		protoValidateInterceptor,
 		tracing.UnaryServerInterceptor(),
-		middleware.AuthUnaryInterceptor(cfg.JWTSecret),
+		middleware.AuthUnaryInterceptor(verifier),
 	}
 
 	grpcServer, metricsServer, err := server.StartService(server.ServiceConfig{

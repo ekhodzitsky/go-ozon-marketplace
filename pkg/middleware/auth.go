@@ -2,52 +2,26 @@ package middleware
 
 import (
 	"context"
-	"strings"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
-// AuthUnaryInterceptor validates JWT bearer token from gRPC metadata.
-func AuthUnaryInterceptor(jwtSecret string) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		if isPublicEndpoint(info.FullMethod) {
-			return handler(ctx, req)
-		}
-
-		md, ok := metadata.FromIncomingContext(ctx)
-		if !ok {
-			return nil, status.Error(codes.Unauthenticated, "missing metadata")
-		}
-
-		authHeader := md.Get("authorization")
-		if len(authHeader) == 0 {
-			return nil, status.Error(codes.Unauthenticated, "missing authorization header")
-		}
-
-		tokenStr := strings.TrimPrefix(authHeader[0], "Bearer ")
-		claims, err := auth.ParseJWT(tokenStr, jwtSecret)
-		if err != nil {
-			return nil, status.Errorf(codes.Unauthenticated, "invalid token: %v", err)
-		}
-
-		ctx = context.WithValue(ctx, auth.ContextKeyUserID, claims.Subject)
-		ctx = context.WithValue(ctx, auth.ContextKeyRole, auth.Role(claims.Role))
-		return handler(ctx, req)
-	}
-}
-
 // GetUserID extracts user_id from context.
 func GetUserID(ctx context.Context) (string, bool) {
+	if id, ok := auth.IdentityFromContext(ctx); ok {
+		return id.UserID, true
+	}
 	v, ok := ctx.Value(auth.ContextKeyUserID).(string)
 	return v, ok
 }
 
 // GetRole extracts role from context.
 func GetRole(ctx context.Context) (auth.Role, bool) {
+	if id, ok := auth.IdentityFromContext(ctx); ok {
+		return id.Role, true
+	}
 	v := ctx.Value(auth.ContextKeyRole)
 	if v == nil {
 		return auth.RoleUser, false

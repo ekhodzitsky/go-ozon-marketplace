@@ -18,6 +18,7 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	pkgmiddleware "github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/config"
@@ -55,14 +56,18 @@ func NewHTTP(
 	r.Use(c.Handler)
 
 	if cfg.JWTSecret != "" {
-		r.Use(pkgmiddleware.AuthHTTP(cfg.JWTSecret))
+		verifier := auth.NewJWTVerifier(cfg.JWTSecret)
+		r.Use(pkgmiddleware.AuthHTTP(verifier))
 	}
 
 	r.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		ws.ServeWs(hub, w, r, ws.Config{
+		wsCfg := ws.Config{
 			AllowedOrigins: cfg.CORSAllowedOrigins,
-			JWTSecret:      cfg.JWTSecret,
-		})
+		}
+		if cfg.JWTSecret != "" {
+			wsCfg.Verifier = auth.NewJWTVerifier(cfg.JWTSecret)
+		}
+		ws.ServeWs(hub, w, r, wsCfg)
 	})
 	r.Get("/", playground.Handler("GraphQL playground", "/query"))
 	r.Handle("/query", srv)

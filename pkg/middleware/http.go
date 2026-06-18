@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -32,31 +31,6 @@ func RequestID(next http.Handler) http.Handler {
 func GetRequestID(ctx context.Context) string {
 	v, _ := ctx.Value(contextKeyRequestID).(string)
 	return v
-}
-
-// AuthHTTP parses JWT from Authorization header and injects user_id/role into request context.
-// If an Authorization header is present but invalid, the request is rejected with 401.
-func AuthHTTP(jwtSecret string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			claims, err := auth.ParseBearer(authHeader, jwtSecret)
-			if err != nil {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-
-			ctx := context.WithValue(r.Context(), auth.ContextKeyUserID, claims.Subject)
-			ctx = context.WithValue(ctx, auth.ContextKeyRole, auth.Role(claims.Role))
-			ctx = context.WithValue(ctx, auth.ContextKeyAuthorizationHeader, authHeader)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
 }
 
 type responseWriter struct {

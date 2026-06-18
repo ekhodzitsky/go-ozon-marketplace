@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,16 +37,16 @@ func TestOriginAllowed_EmptyOrigin(t *testing.T) {
 	assert.True(t, originAllowed(req, []string{"https://app.example.com"}))
 }
 
-func TestAuthenticateUpgrade_NoSecret(t *testing.T) {
+func TestAuthenticateUpgrade_NoVerifier(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
-	userID, err := authenticateUpgrade(req, "")
+	userID, err := authenticateUpgrade(req, nil)
 	assert.NoError(t, err)
 	assert.Empty(t, userID)
 }
 
 func TestAuthenticateUpgrade_MissingToken(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
-	_, err := authenticateUpgrade(req, "secret")
+	_, err := authenticateUpgrade(req, auth.NewJWTVerifier("secret"))
 	assert.Error(t, err)
 }
 
@@ -54,7 +55,7 @@ func TestAuthenticateUpgrade_ValidQueryToken(t *testing.T) {
 	token := buildToken(t, secret, "user-1")
 	req := httptest.NewRequest(http.MethodGet, "/ws?token="+token, nil)
 
-	userID, err := authenticateUpgrade(req, secret)
+	userID, err := authenticateUpgrade(req, auth.NewJWTVerifier(secret))
 	assert.NoError(t, err)
 	assert.Equal(t, "user-1", userID)
 }
@@ -65,14 +66,14 @@ func TestAuthenticateUpgrade_ValidHeaderToken(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	userID, err := authenticateUpgrade(req, secret)
+	userID, err := authenticateUpgrade(req, auth.NewJWTVerifier(secret))
 	assert.NoError(t, err)
 	assert.Equal(t, "user-1", userID)
 }
 
 func TestAuthenticateUpgrade_InvalidToken(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/ws?token=invalid-token", nil)
-	_, err := authenticateUpgrade(req, "secret")
+	_, err := authenticateUpgrade(req, auth.NewJWTVerifier("secret"))
 	assert.Error(t, err)
 }
 

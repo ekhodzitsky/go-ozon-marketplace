@@ -7,8 +7,6 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 )
 
 // ServiceTokenIssuer signs short-lived JWTs for service-to-service calls.
@@ -28,7 +26,7 @@ func NewServiceTokenIssuer(secret, subject, audience string) *ServiceTokenIssuer
 }
 
 // Issue returns a signed Bearer token valid for 1 hour.
-func (i *ServiceTokenIssuer) Issue() (string, error) {
+func (i *ServiceTokenIssuer) Issue(ctx context.Context) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, CustomClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   i.subject,
@@ -44,16 +42,4 @@ func (i *ServiceTokenIssuer) Issue() (string, error) {
 		return "", fmt.Errorf("sign service token: %w", err)
 	}
 	return "Bearer " + signed, nil
-}
-
-// ServiceAuthInterceptor attaches a fresh service token to outgoing gRPC calls.
-func ServiceAuthInterceptor(issuer *ServiceTokenIssuer) func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		token, err := issuer.Issue()
-		if err != nil {
-			return err
-		}
-		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", token)
-		return invoker(ctx, method, req, reply, cc, opts...)
-	}
 }
