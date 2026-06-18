@@ -42,3 +42,4 @@ scripts/scripts
 graphify-out/
 .graphify/cache/
 .graphify/venv/
+services/*/main
