@@ -13,10 +13,12 @@ type PostgresAdvisoryLock struct {
 	pool *pgxpool.Pool
 }
 
+// NewPostgresAdvisoryLock creates a Locker adapter from a pgx connection pool.
 func NewPostgresAdvisoryLock(pool *pgxpool.Pool) *PostgresAdvisoryLock {
 	return &PostgresAdvisoryLock{pool: pool}
 }
 
+// TryLock attempts to acquire a PostgreSQL advisory lock for key.
 func (l *PostgresAdvisoryLock) TryLock(ctx context.Context, key string) (bool, error) {
 	lockID := advisoryLockID(key)
 	var acquired bool
@@ -26,6 +28,7 @@ func (l *PostgresAdvisoryLock) TryLock(ctx context.Context, key string) (bool, e
 	return acquired, nil
 }
 
+// Unlock releases a PostgreSQL advisory lock for key.
 func (l *PostgresAdvisoryLock) Unlock(ctx context.Context, key string) error {
 	lockID := advisoryLockID(key)
 	_, err := l.pool.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockID)
