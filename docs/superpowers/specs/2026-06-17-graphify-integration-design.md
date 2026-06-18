@@ -94,7 +94,7 @@ project-root/
 
 4. **Helper script.** `scripts/graphify.sh` checks for the `graphify` CLI, offers to install it via `pip install graphifyy`, then runs Graphify with project-local ignore rules. This ensures every developer uses the same settings.
 
-5. **CI validation.** The GitHub Actions workflow installs Graphify, validates `.graphifyignore` syntax on PRs and generates the graph artifact on pushes to `main` using the offline `graphify extract .` command. The workflow is pinned by SHA and uses Python 3.12.
+5. **CI validation.** The GitHub Actions workflow installs Graphify, validates `.graphifyignore` syntax on PRs and generates the graph artifact on pushes to `master` using the offline `graphify extract .` command. The workflow is pinned by SHA and uses Python 3.12.
 
 6. **Documentation.** `docs/GRAPHIFY.md` explains: what Graphify is, how to install it, how to run the helper script, how to read the outputs, and how the CI job works. It is linked from the main README under the documentation index.
 
@@ -103,7 +103,7 @@ project-root/
 - `.graphifyignore` exists and excludes generated/noise directories.
 - `scripts/graphify.sh` runs successfully on a clean machine with Python 3.10+ and produces `graphify-out/graph.json`.
 - The generated graph contains nodes for all 8 microservices and key shared packages.
-- CI workflow passes on PRs and uploads artifacts on `main`.
+- CI workflow passes on PRs and uploads artifacts on `master`.
 - `graphify-out/` is ignored by git.
 - `docs/GRAPHIFY.md` is added to the docs index.
 

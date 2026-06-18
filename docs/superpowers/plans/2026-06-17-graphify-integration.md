@@ -331,7 +331,7 @@ on:
       - 'scripts/graphify_test.sh'
       - '.github/workflows/graphify.yml'
   push:
-    branches: [main]
+    branches: [master]
 
 jobs:
   validate:
@@ -359,7 +359,7 @@ jobs:
           git check-ignore -v graphify-out/graph.json .graphify/cache/state.json .idea/misc.xml vendor/foo.go
 
   generate:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 15
