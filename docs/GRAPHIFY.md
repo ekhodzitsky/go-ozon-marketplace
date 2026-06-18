@@ -64,13 +64,9 @@ ls graphify-out/
 
 ### Kimi Code CLI
 
-В текущей версии Kimi Code CLI (`kimi --version` → `0.17.1`) нативная команда `kimi mcp` отсутствует. Поэтому MCP server для Kimi подключить пока нельзя. Как только `kimi mcp add` станет доступна:
-
-```bash
-kimi mcp add --transport stdio graphify -- ./scripts/graphify-mcp.sh
-```
-
-А пока Kimi будет автоматически подхватывать project skill из `.kimi-code/skills/graphify/SKILL.md`.
+- Project-level skill: `.kimi-code/skills/graphify/SKILL.md` подхватывается автоматически.
+- Project-level MCP config: `.kimi-code/mcp.json` подключает Graphify MCP server при запуске `kimi` из корня проекта.
+- В TUI можно управлять MCP через `/mcp-config` и `/mcp`.
 
 ## CI
 
