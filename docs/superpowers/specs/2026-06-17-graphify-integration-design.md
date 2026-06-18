@@ -75,6 +75,9 @@ project-root/
 ├── .graphifyignore          # exclude generated/noise files from graph extraction
 ├── .gitignore               # ignore graphify-out/
 ├── .mcp.json                # Claude Code MCP server config
+├── .kimi-code/
+│   ├── mcp.json             # Kimi Code CLI project-level MCP config
+│   └── skills/graphify/SKILL.md  # Kimi Code CLI skill
 ├── .cursorrules             # Cursor assistant rules
 ├── AGENTS.md                # Generic AI agent instructions
 ├── scripts/
@@ -105,7 +108,7 @@ project-root/
 
 7. **Git hooks.** `scripts/install-graphify-hook.sh` installs Graphify's `hook install` command into the local clone. Hooks are local-only and rebuild the graph in the background after commits and branch switches.
 
-8. **MCP server.** `scripts/graphify-mcp.sh` and `.mcp.json` expose the generated graph as an MCP stdio server for Claude Code. The package is installed with the `[mcp]` extra so the server is available immediately. Cursor users can configure the equivalent `.cursor/mcp.json` manually.
+8. **MCP server.** `scripts/graphify-mcp.sh`, `.mcp.json` and `.kimi-code/mcp.json` expose the generated graph as an MCP stdio server for Claude Code and Kimi Code CLI. The package is installed with the `[mcp]` extra so the server is available immediately. Cursor users can configure the equivalent `.cursor/mcp.json` manually.
 
 9. **AI assistant rules.** `.cursorrules` and `AGENTS.md` give Cursor, Claude Code, Codex and Gemini CLI concise guidance on when and how to use Graphify during development. A dedicated Kimi Code CLI skill lives in `.kimi-code/skills/graphify/SKILL.md` for the same purpose in Kimi sessions.
 
@@ -117,7 +120,7 @@ project-root/
 - CI workflow passes on PRs and uploads artifacts on `master`.
 - `graphify-out/` is ignored by git.
 - `docs/GRAPHIFY.md` is added to the docs index.
-- `scripts/install-graphify-hook.sh`, `scripts/graphify-mcp.sh`, `.mcp.json`, `.cursorrules`, `AGENTS.md` and `.kimi-code/skills/graphify/SKILL.md` exist and are documented.
+- `scripts/install-graphify-hook.sh`, `scripts/graphify-mcp.sh`, `.mcp.json`, `.kimi-code/mcp.json`, `.cursorrules`, `AGENTS.md` and `.kimi-code/skills/graphify/SKILL.md` exist and are documented.
 
 ## Risks
 
