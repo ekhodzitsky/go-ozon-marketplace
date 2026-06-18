@@ -107,7 +107,7 @@ project-root/
 
 8. **MCP server.** `scripts/graphify-mcp.sh` and `.mcp.json` expose the generated graph as an MCP stdio server for Claude Code. The package is installed with the `[mcp]` extra so the server is available immediately. Cursor users can configure the equivalent `.cursor/mcp.json` manually.
 
-9. **AI assistant rules.** `.cursorrules` and `AGENTS.md` give Cursor, Claude Code, Codex and Gemini CLI concise guidance on when and how to use Graphify during development.
+9. **AI assistant rules.** `.cursorrules` and `AGENTS.md` give Cursor, Claude Code, Codex and Gemini CLI concise guidance on when and how to use Graphify during development. A dedicated Kimi Code CLI skill lives in `.kimi-code/skills/graphify/SKILL.md` for the same purpose in Kimi sessions.
 
 ## Success criteria
 
@@ -117,7 +117,7 @@ project-root/
 - CI workflow passes on PRs and uploads artifacts on `master`.
 - `graphify-out/` is ignored by git.
 - `docs/GRAPHIFY.md` is added to the docs index.
-- `scripts/install-graphify-hook.sh`, `scripts/graphify-mcp.sh`, `.mcp.json`, `.cursorrules` and `AGENTS.md` exist and are documented.
+- `scripts/install-graphify-hook.sh`, `scripts/graphify-mcp.sh`, `.mcp.json`, `.cursorrules`, `AGENTS.md` and `.kimi-code/skills/graphify/SKILL.md` exist and are documented.
 
 ## Risks
 
