@@ -41,7 +41,7 @@ Add a `.graphifyignore` tuned for this Go monorepo and a `docs/GRAPHIFY.md` usag
 
 ### 2. Recommended: ignore rules + helper script + CI validation
 
-Add `.graphifyignore`, a `scripts/graphify.sh` wrapper, update `.gitignore` for `graphify-out/`, and a lightweight CI job that validates the ignore rules and optionally generates the graph on `main` (artifacts only, no commits).
+Add `.graphifyignore`, a `scripts/graphify.sh` wrapper, update `.gitignore` for `graphify-out/`, and a lightweight CI job that validates the ignore rules and optionally generates the graph on `master` (artifacts only, no commits).
 
 **Pros:**
 - Reproducible invocation across machines.

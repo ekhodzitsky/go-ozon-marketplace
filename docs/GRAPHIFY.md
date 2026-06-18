@@ -37,7 +37,7 @@ ls graphify-out/
 ## CI
 
 - На PR: smoke-test helper-скрипта и проверка правил `.graphifyignore` через `git check-ignore`.
-- На push в `main`: offline-генерация графа (`graphify extract .`) и загрузка артефактов в workflow `graphify`.
+- На push в `master`: offline-генерация графа (`graphify extract .`) и загрузка артефактов в workflow `graphify`.
 
 ## Ограничения
 

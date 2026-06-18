@@ -4,7 +4,7 @@
 
 **Goal:** Add Graphify (code-intelligence knowledge-graph tool) configuration, helper script, CI validation and documentation to the marketplace repository.
 
-**Architecture:** A project-local `.graphifyignore` file excludes noise directories; `scripts/graphify.sh` provides a reproducible install-and-run wrapper; a GitHub Actions workflow validates ignore rules on PRs and uploads generated graph artifacts on `main`; `docs/GRAPHIFY.md` documents usage for the team.
+**Architecture:** A project-local `.graphifyignore` file excludes noise directories; `scripts/graphify.sh` provides a reproducible install-and-run wrapper; a GitHub Actions workflow validates ignore rules on PRs and uploads generated graph artifacts on `master`; `docs/GRAPHIFY.md` documents usage for the team.
 
 **Tech Stack:** Graphify (Python package `graphifyy`), Bash, GitHub Actions.
 
@@ -17,7 +17,7 @@
 | `.graphifyignore` | Exclude generated code, dependencies, caches, VCS, IDE files and tests from graph extraction (gitignore syntax). |
 | `.gitignore` | Ignore `graphify-out/` and Graphify cache/venv so generated artifacts never enter git. |
 | `scripts/graphify.sh` | Convenience wrapper: check/install Graphify, create venv if needed, run offline `graphify extract .` or assistant-driven `graphify .`. |
-| `.github/workflows/graphify.yml` | CI job: install Python/Graphify, validate `.graphifyignore`, generate graph artifact on `main`. |
+| `.github/workflows/graphify.yml` | CI job: install Python/Graphify, validate `.graphifyignore`, generate graph artifact on `master`. |
 | `docs/GRAPHIFY.md` | Team guide: what Graphify is, how to run locally, how CI works, how to read outputs. |
 | `docs/INDEX.md` | Add Graphify guide to the documentation index. |
 | `scripts/graphify_test.sh` | Minimal shell test that verifies the helper script is executable and handles missing CLI gracefully. |
@@ -456,7 +456,7 @@ ls graphify-out/
 ## CI
 
 - На PR: smoke-test helper-скрипта и проверка синтаксиса `.graphifyignore`.
-- На push в `main`: offline-генерация графа (`graphify extract .`) и загрузка артефактов в workflow `graphify`.
+- На push в `master`: offline-генерация графа (`graphify extract .`) и загрузка артефактов в workflow `graphify`.
 
 ## Ограничения
 
