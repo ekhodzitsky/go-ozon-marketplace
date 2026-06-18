@@ -8,30 +8,29 @@ import (
 	"go.uber.org/zap"
 )
 
-// Locker is a distributed lock used to ensure only one recovery worker runs at a time.
-type Locker interface {
-	TryLock(ctx context.Context, key string) (bool, error)
-	Unlock(ctx context.Context, key string) error
-}
-
+// RecoveryWorker periodically invokes the Recoverer seam to continue
+// incomplete sagas. It uses Locker to ensure only one worker runs at a time.
 type RecoveryWorker struct {
-	orchestrator *Orchestrator
-	interval     time.Duration
-	lock         Locker
-	lockKey      string
-	log          *zap.Logger
-	stop         chan struct{}
-	wg           sync.WaitGroup
-	mu           sync.Mutex
-	started      bool
+	recoverer Recoverer
+	interval  time.Duration
+	lock      Locker
+	lockKey   string
+	log       *zap.Logger
+	stop      chan struct{}
+	wg        sync.WaitGroup
+	mu        sync.Mutex
+	started   bool
 }
 
-func NewRecoveryWorker(orchestrator *Orchestrator, log *zap.Logger, opts ...RecoveryWorkerOption) *RecoveryWorker {
+// NewRecoveryWorker builds a worker that depends on the Recoverer seam rather
+// than the concrete Orchestrator. *Orchestrator satisfies Recoverer, so the
+// public call site remains unchanged.
+func NewRecoveryWorker(recoverer Recoverer, log *zap.Logger, opts ...RecoveryWorkerOption) *RecoveryWorker {
 	w := &RecoveryWorker{
-		orchestrator: orchestrator,
-		interval:     5 * time.Second,
-		lockKey:      "saga-recovery-worker",
-		log:          log,
+		recoverer: recoverer,
+		interval:  5 * time.Second,
+		lockKey:   "saga-recovery-worker",
+		log:       log,
 	}
 	for _, opt := range opts {
 		opt(w)
@@ -39,20 +38,24 @@ func NewRecoveryWorker(orchestrator *Orchestrator, log *zap.Logger, opts ...Reco
 	return w
 }
 
+// RecoveryWorkerOption configures a RecoveryWorker.
 type RecoveryWorkerOption func(*RecoveryWorker)
 
+// WithLocker injects a distributed lock into the worker.
 func WithLocker(lock Locker) RecoveryWorkerOption {
 	return func(w *RecoveryWorker) {
 		w.lock = lock
 	}
 }
 
+// WithRecoveryInterval sets the polling interval.
 func WithRecoveryInterval(interval time.Duration) RecoveryWorkerOption {
 	return func(w *RecoveryWorker) {
 		w.interval = interval
 	}
 }
 
+// Start begins the recovery loop. It is idempotent.
 func (w *RecoveryWorker) Start(ctx context.Context) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -68,6 +71,7 @@ func (w *RecoveryWorker) Start(ctx context.Context) {
 	go w.loop(ctx)
 }
 
+// Stop halts the recovery loop. It is idempotent.
 func (w *RecoveryWorker) Stop() {
 	w.mu.Lock()
 	if !w.started {
@@ -114,7 +118,7 @@ func (w *RecoveryWorker) recoverOnce(ctx context.Context) {
 		}()
 	}
 
-	if err := w.orchestrator.Recover(ctx); err != nil {
+	if err := w.recoverer.Recover(ctx); err != nil {
 		w.log.Error("saga recovery failed", zap.Error(err))
 	}
 }
