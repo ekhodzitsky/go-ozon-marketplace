@@ -2,7 +2,6 @@ package outbox
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -16,142 +15,137 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestRelay_Poll_CreatedEvent(t *testing.T) {
+type stubHandler struct {
+	handleFunc func(context.Context, domain.OutboxEvent) error
+}
+
+func (s *stubHandler) Handle(ctx context.Context, e domain.OutboxEvent) error {
+	return s.handleFunc(ctx, e)
+}
+
+func TestRelay_Poll_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	outboxRepo := mocks.NewMockOutboxRepository(ctrl)
-	searchRepo := mocks.NewMockProductSearchRepository(ctrl)
 	log := zap.NewNop()
 
-	product := domain.Product{ID: uuid.New(), Name: "P", Price: 1000}
-	payload, _ := json.Marshal(product)
-	event := domain.OutboxEvent{ID: uuid.New(), EventType: "ProductCreated", Payload: payload}
+	event := domain.OutboxEvent{ID: uuid.New(), EventType: "ProductCreated", Payload: []byte("{}")}
 
+	outboxRepo.EXPECT().Begin(gomock.Any()).Return(nil)
 	outboxRepo.EXPECT().GetUnprocessed(gomock.Any(), 100).Return([]domain.OutboxEvent{event}, nil)
-	searchRepo.EXPECT().Index(gomock.Any(), &product).Return(nil)
 	outboxRepo.EXPECT().BatchMarkProcessed(gomock.Any(), []uuid.UUID{event.ID}).Return(nil)
+	outboxRepo.EXPECT().Commit(gomock.Any()).Return(nil)
 
-	r := NewRelay(outboxRepo, searchRepo, log, 5*time.Second)
+	handler := &stubHandler{handleFunc: func(context.Context, domain.OutboxEvent) error { return nil }}
+	r := NewRelay(outboxRepo, handler, log, 5*time.Second)
 	r.poll(context.Background())
 }
 
-func TestRelay_Poll_UpdatedEvent(t *testing.T) {
+func TestRelay_Poll_HandlerErrorRetries(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	outboxRepo := mocks.NewMockOutboxRepository(ctrl)
-	searchRepo := mocks.NewMockProductSearchRepository(ctrl)
 	log := zap.NewNop()
 
-	product := domain.Product{ID: uuid.New(), Name: "P", Price: 2000}
-	payload, _ := json.Marshal(product)
-	event := domain.OutboxEvent{ID: uuid.New(), EventType: "ProductUpdated", Payload: payload}
+	event := domain.OutboxEvent{ID: uuid.New(), EventType: "ProductCreated", Payload: []byte("{}"), RetryCount: 0}
 
+	outboxRepo.EXPECT().Begin(gomock.Any()).Return(nil)
 	outboxRepo.EXPECT().GetUnprocessed(gomock.Any(), 100).Return([]domain.OutboxEvent{event}, nil)
-	searchRepo.EXPECT().Index(gomock.Any(), &product).Return(nil)
-	outboxRepo.EXPECT().BatchMarkProcessed(gomock.Any(), []uuid.UUID{event.ID}).Return(nil)
+	outboxRepo.EXPECT().IncrementRetryAndSetError(gomock.Any(), event.ID, "es down", gomock.Any()).Return(nil)
+	outboxRepo.EXPECT().Commit(gomock.Any()).Return(nil)
 
-	r := NewRelay(outboxRepo, searchRepo, log, 5*time.Second)
+	handler := &stubHandler{handleFunc: func(context.Context, domain.OutboxEvent) error { return errors.New("es down") }}
+	r := NewRelay(outboxRepo, handler, log, 5*time.Second)
 	r.poll(context.Background())
 }
 
-func TestRelay_Poll_DeletedEvent(t *testing.T) {
+func TestRelay_Poll_HandlerErrorMaxRetriesMovesToDLQ(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	outboxRepo := mocks.NewMockOutboxRepository(ctrl)
-	searchRepo := mocks.NewMockProductSearchRepository(ctrl)
 	log := zap.NewNop()
 
-	id := uuid.New()
-	payload, _ := json.Marshal(map[string]string{"product_id": id.String()})
-	event := domain.OutboxEvent{ID: uuid.New(), EventType: "ProductDeleted", Payload: payload}
+	event := domain.OutboxEvent{ID: uuid.New(), EventType: "ProductCreated", Payload: []byte("{}"), RetryCount: 4}
 
+	outboxRepo.EXPECT().Begin(gomock.Any()).Return(nil)
 	outboxRepo.EXPECT().GetUnprocessed(gomock.Any(), 100).Return([]domain.OutboxEvent{event}, nil)
-	searchRepo.EXPECT().Delete(gomock.Any(), id).Return(nil)
-	outboxRepo.EXPECT().BatchMarkProcessed(gomock.Any(), []uuid.UUID{event.ID}).Return(nil)
+	outboxRepo.EXPECT().MoveToDLQ(gomock.Any(), gomock.Any(), gomock.Any(), "es down").Return(nil)
+	outboxRepo.EXPECT().Commit(gomock.Any()).Return(nil)
 
-	r := NewRelay(outboxRepo, searchRepo, log, 5*time.Second)
+	handler := &stubHandler{handleFunc: func(context.Context, domain.OutboxEvent) error { return errors.New("es down") }}
+	r := NewRelay(outboxRepo, handler, log, 5*time.Second)
 	r.poll(context.Background())
 }
 
-func TestRelay_Poll_UnknownEventMarkedPoison(t *testing.T) {
+func TestRelay_Poll_PoisonMovesToDLQ(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	outboxRepo := mocks.NewMockOutboxRepository(ctrl)
-	searchRepo := mocks.NewMockProductSearchRepository(ctrl)
 	log := zap.NewNop()
 
-	event := domain.OutboxEvent{ID: uuid.New(), EventType: "Unknown"}
+	event := domain.OutboxEvent{ID: uuid.New(), EventType: "Unknown", RetryCount: 0}
 
+	outboxRepo.EXPECT().Begin(gomock.Any()).Return(nil)
 	outboxRepo.EXPECT().GetUnprocessed(gomock.Any(), 100).Return([]domain.OutboxEvent{event}, nil)
-	outboxRepo.EXPECT().BatchMarkProcessed(gomock.Any(), []uuid.UUID{event.ID}).Return(nil)
+	outboxRepo.EXPECT().MoveToDLQ(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+	outboxRepo.EXPECT().Commit(gomock.Any()).Return(nil)
 
-	r := NewRelay(outboxRepo, searchRepo, log, 5*time.Second)
-	r.poll(context.Background())
-}
-
-func TestRelay_Poll_UnmarshalPoison(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	outboxRepo := mocks.NewMockOutboxRepository(ctrl)
-	searchRepo := mocks.NewMockProductSearchRepository(ctrl)
-	log := zap.NewNop()
-
-	event := domain.OutboxEvent{ID: uuid.New(), EventType: "ProductCreated", Payload: []byte("not-json")}
-
-	outboxRepo.EXPECT().GetUnprocessed(gomock.Any(), 100).Return([]domain.OutboxEvent{event}, nil)
-	outboxRepo.EXPECT().BatchMarkProcessed(gomock.Any(), []uuid.UUID{event.ID}).Return(nil)
-
-	r := NewRelay(outboxRepo, searchRepo, log, 5*time.Second)
-	r.poll(context.Background())
-}
-
-func TestRelay_Poll_InvalidProductIDInDelete(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	outboxRepo := mocks.NewMockOutboxRepository(ctrl)
-	searchRepo := mocks.NewMockProductSearchRepository(ctrl)
-	log := zap.NewNop()
-
-	payload, _ := json.Marshal(map[string]string{"product_id": "not-a-uuid"})
-	event := domain.OutboxEvent{ID: uuid.New(), EventType: "ProductDeleted", Payload: payload}
-
-	outboxRepo.EXPECT().GetUnprocessed(gomock.Any(), 100).Return([]domain.OutboxEvent{event}, nil)
-	outboxRepo.EXPECT().BatchMarkProcessed(gomock.Any(), []uuid.UUID{event.ID}).Return(nil)
-
-	r := NewRelay(outboxRepo, searchRepo, log, 5*time.Second)
-	r.poll(context.Background())
-}
-
-func TestRelay_Poll_IndexErrorContinues(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	outboxRepo := mocks.NewMockOutboxRepository(ctrl)
-	searchRepo := mocks.NewMockProductSearchRepository(ctrl)
-	log := zap.NewNop()
-
-	product := domain.Product{ID: uuid.New(), Name: "P"}
-	payload, _ := json.Marshal(product)
-	event := domain.OutboxEvent{ID: uuid.New(), EventType: "ProductCreated", Payload: payload}
-
-	outboxRepo.EXPECT().GetUnprocessed(gomock.Any(), 100).Return([]domain.OutboxEvent{event}, nil)
-	searchRepo.EXPECT().Index(gomock.Any(), &product).Return(errors.New("es down"))
-
-	r := NewRelay(outboxRepo, searchRepo, log, 5*time.Second)
+	handler := &stubHandler{handleFunc: func(context.Context, domain.OutboxEvent) error { return ErrPoison }}
+	r := NewRelay(outboxRepo, handler, log, 5*time.Second)
 	r.poll(context.Background())
 }
 
 func TestRelay_Poll_GetUnprocessedError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	outboxRepo := mocks.NewMockOutboxRepository(ctrl)
-	searchRepo := mocks.NewMockProductSearchRepository(ctrl)
 	log := zap.NewNop()
 
+	outboxRepo.EXPECT().Begin(gomock.Any()).Return(nil)
 	outboxRepo.EXPECT().GetUnprocessed(gomock.Any(), 100).Return(nil, errors.New("db down"))
+	outboxRepo.EXPECT().Rollback(gomock.Any()).Return(nil)
 
-	r := NewRelay(outboxRepo, searchRepo, log, 5*time.Second)
+	handler := &stubHandler{handleFunc: func(context.Context, domain.OutboxEvent) error { return nil }}
+	r := NewRelay(outboxRepo, handler, log, 5*time.Second)
+	r.poll(context.Background())
+}
+
+func TestRelay_Poll_BatchMarkProcessedError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	outboxRepo := mocks.NewMockOutboxRepository(ctrl)
+	log := zap.NewNop()
+
+	event := domain.OutboxEvent{ID: uuid.New(), EventType: "ProductCreated", Payload: []byte("{}")}
+
+	outboxRepo.EXPECT().Begin(gomock.Any()).Return(nil)
+	outboxRepo.EXPECT().GetUnprocessed(gomock.Any(), 100).Return([]domain.OutboxEvent{event}, nil)
+	outboxRepo.EXPECT().BatchMarkProcessed(gomock.Any(), []uuid.UUID{event.ID}).Return(errors.New("db down"))
+	outboxRepo.EXPECT().Rollback(gomock.Any()).Return(nil)
+
+	handler := &stubHandler{handleFunc: func(context.Context, domain.OutboxEvent) error { return nil }}
+	r := NewRelay(outboxRepo, handler, log, 5*time.Second)
+	r.poll(context.Background())
+}
+
+func TestRelay_Poll_CommitError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	outboxRepo := mocks.NewMockOutboxRepository(ctrl)
+	log := zap.NewNop()
+
+	event := domain.OutboxEvent{ID: uuid.New(), EventType: "ProductCreated", Payload: []byte("{}")}
+
+	outboxRepo.EXPECT().Begin(gomock.Any()).Return(nil)
+	outboxRepo.EXPECT().GetUnprocessed(gomock.Any(), 100).Return([]domain.OutboxEvent{event}, nil)
+	outboxRepo.EXPECT().BatchMarkProcessed(gomock.Any(), []uuid.UUID{event.ID}).Return(nil)
+	outboxRepo.EXPECT().Commit(gomock.Any()).Return(errors.New("commit failed"))
+	outboxRepo.EXPECT().Rollback(gomock.Any()).Return(nil)
+
+	handler := &stubHandler{handleFunc: func(context.Context, domain.OutboxEvent) error { return nil }}
+	r := NewRelay(outboxRepo, handler, log, 5*time.Second)
 	r.poll(context.Background())
 }
 
 func TestRelay_StartStop(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	outboxRepo := mocks.NewMockOutboxRepository(ctrl)
-	searchRepo := mocks.NewMockProductSearchRepository(ctrl)
 	log := zap.NewNop()
 
-	r := NewRelay(outboxRepo, searchRepo, log, 5*time.Second)
+	r := NewRelay(outboxRepo, &stubHandler{}, log, 5*time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -166,10 +160,9 @@ func TestRelay_StartStop(t *testing.T) {
 func TestRelay_StartStop_Idempotent(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	outboxRepo := mocks.NewMockOutboxRepository(ctrl)
-	searchRepo := mocks.NewMockProductSearchRepository(ctrl)
 	log := zap.NewNop()
 
-	r := NewRelay(outboxRepo, searchRepo, log, 5*time.Second)
+	r := NewRelay(outboxRepo, &stubHandler{}, log, 5*time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

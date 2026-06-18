@@ -2,19 +2,19 @@ package outbox
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"sync"
 	"time"
 
-	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/repository"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
+// Relay polls the outbox table and delegates events to a Handler.
 type Relay struct {
 	outboxRepo   repository.OutboxRepository
-	searchRepo   repository.ProductSearchRepository
+	handler      Handler
 	log          *zap.Logger
 	ticker       *time.Ticker
 	stop         chan struct{}
@@ -22,14 +22,21 @@ type Relay struct {
 	mu           sync.Mutex
 	started      bool
 	queryTimeout time.Duration
+	maxRetries   int
+	baseBackoff  time.Duration
+	maxBackoff   time.Duration
 }
 
-func NewRelay(outboxRepo repository.OutboxRepository, searchRepo repository.ProductSearchRepository, log *zap.Logger, queryTimeout time.Duration) *Relay {
+// NewRelay constructs a catalog outbox relay.
+func NewRelay(outboxRepo repository.OutboxRepository, handler Handler, log *zap.Logger, queryTimeout time.Duration) *Relay {
 	return &Relay{
 		outboxRepo:   outboxRepo,
-		searchRepo:   searchRepo,
+		handler:      handler,
 		log:          log,
 		queryTimeout: queryTimeout,
+		maxRetries:   5,
+		baseBackoff:  500 * time.Millisecond,
+		maxBackoff:   30 * time.Second,
 	}
 }
 
@@ -76,68 +83,72 @@ func (r *Relay) loop(ctx context.Context) {
 func (r *Relay) poll(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, r.queryTimeout)
 	defer cancel()
-	events, err := r.outboxRepo.GetUnprocessed(ctx, 100)
-	if err != nil {
-		r.log.Error("failed to get unprocessed outbox events", zap.Error(err))
+
+	if err := r.outboxRepo.Begin(ctx); err != nil {
+		r.log.Error("failed to begin outbox transaction", zap.Error(err))
 		return
 	}
 
-	var successIDs []uuid.UUID
-	var poisonIDs []uuid.UUID
+	events, err := r.outboxRepo.GetUnprocessed(ctx, 100)
+	if err != nil {
+		r.log.Error("failed to get unprocessed outbox events", zap.Error(err))
+		_ = r.outboxRepo.Rollback(ctx)
+		return
+	}
+
+	now := time.Now().UTC()
+	processed := make([]uuid.UUID, 0, len(events))
 
 	for _, event := range events {
-		switch event.EventType {
-		case "ProductCreated", "ProductUpdated":
-			var product domain.Product
-			if err := json.Unmarshal(event.Payload, &product); err != nil {
-				r.log.Error("failed to unmarshal outbox payload", zap.Error(err), zap.String("event_id", event.ID.String()))
-				poisonIDs = append(poisonIDs, event.ID)
+		if err := r.handler.Handle(ctx, event); err != nil {
+			r.log.Error("failed to handle outbox event",
+				zap.Error(err),
+				zap.String("event_id", event.ID.String()),
+				zap.Int("retry_count", event.RetryCount),
+			)
+
+			if errors.Is(err, ErrPoison) || event.RetryCount+1 >= r.maxRetries {
+				if dlqErr := r.outboxRepo.MoveToDLQ(ctx, &event, now, err.Error()); dlqErr != nil {
+					r.log.Error("failed to move outbox event to DLQ",
+						zap.Error(dlqErr),
+						zap.String("event_id", event.ID.String()),
+					)
+				}
 				continue
 			}
 
-			if err := r.searchRepo.Index(ctx, &product); err != nil {
-				r.log.Error("failed to index product in ES", zap.Error(err), zap.String("event_id", event.ID.String()), zap.String("product_id", product.ID.String()))
-				continue
+			nextRetry := r.calculateNextRetry(event.RetryCount)
+			if retryErr := r.outboxRepo.IncrementRetryAndSetError(ctx, event.ID, err.Error(), nextRetry); retryErr != nil {
+				r.log.Error("failed to increment outbox retry",
+					zap.Error(retryErr),
+					zap.String("event_id", event.ID.String()),
+				)
 			}
-
-			successIDs = append(successIDs, event.ID)
-		case "ProductDeleted":
-			var payload struct {
-				ProductID string `json:"product_id"`
-			}
-			if err := json.Unmarshal(event.Payload, &payload); err != nil {
-				r.log.Error("failed to unmarshal delete payload", zap.Error(err), zap.String("event_id", event.ID.String()))
-				poisonIDs = append(poisonIDs, event.ID)
-				continue
-			}
-
-			id, err := uuid.Parse(payload.ProductID)
-			if err != nil {
-				r.log.Error("invalid product id in delete payload", zap.Error(err), zap.String("event_id", event.ID.String()))
-				poisonIDs = append(poisonIDs, event.ID)
-				continue
-			}
-
-			if err := r.searchRepo.Delete(ctx, id); err != nil {
-				r.log.Error("failed to delete product from ES", zap.Error(err), zap.String("event_id", event.ID.String()), zap.String("product_id", id.String()))
-				continue
-			}
-
-			successIDs = append(successIDs, event.ID)
-		default:
-			r.log.Warn("unknown outbox event type", zap.String("event_type", event.EventType), zap.String("event_id", event.ID.String()))
-			poisonIDs = append(poisonIDs, event.ID)
+			continue
 		}
+
+		processed = append(processed, event.ID)
 	}
 
-	if len(poisonIDs) > 0 {
-		if err := r.outboxRepo.BatchMarkProcessed(ctx, poisonIDs); err != nil {
-			r.log.Error("failed to mark poison outbox events processed", zap.Error(err))
-		}
-	}
-	if len(successIDs) > 0 {
-		if err := r.outboxRepo.BatchMarkProcessed(ctx, successIDs); err != nil {
+	if len(processed) > 0 {
+		if err := r.outboxRepo.BatchMarkProcessed(ctx, processed); err != nil {
 			r.log.Error("failed to batch mark outbox events processed", zap.Error(err))
+			_ = r.outboxRepo.Rollback(ctx)
+			return
 		}
 	}
+
+	if err := r.outboxRepo.Commit(ctx); err != nil {
+		r.log.Error("failed to commit outbox transaction", zap.Error(err))
+		_ = r.outboxRepo.Rollback(ctx)
+	}
+}
+
+func (r *Relay) calculateNextRetry(retryCount int) time.Time {
+	factor := time.Duration(1) << min(retryCount, 10)
+	backoff := r.baseBackoff * factor
+	if backoff > r.maxBackoff {
+		backoff = r.maxBackoff
+	}
+	return time.Now().UTC().Add(backoff)
 }
