@@ -60,6 +60,17 @@ ls graphify-out/
 
 - `.cursorrules` — правила для Cursor.
 - `AGENTS.md` — инструкции для Claude Code / Codex / Gemini CLI и других ассистентов, читающих `AGENTS.md`.
+- `.kimi-code/skills/graphify/SKILL.md` — skill для Kimi Code CLI с инструкциями по использованию Graphify в этом проекте.
+
+### Kimi Code CLI
+
+В текущей версии Kimi Code CLI (`kimi --version` → `0.17.1`) нативная команда `kimi mcp` отсутствует. Поэтому MCP server для Kimi подключить пока нельзя. Как только `kimi mcp add` станет доступна:
+
+```bash
+kimi mcp add --transport stdio graphify -- ./scripts/graphify-mcp.sh
+```
+
+А пока Kimi будет автоматически подхватывать project skill из `.kimi-code/skills/graphify/SKILL.md`.
 
 ## CI
 
