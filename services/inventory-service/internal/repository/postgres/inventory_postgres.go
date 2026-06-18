@@ -15,11 +15,6 @@ import (
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 )
 
-const (
-	ledgerOpReserve = "LEDGER_OPERATION_RESERVE"
-	ledgerOpRelease = "LEDGER_OPERATION_RELEASE"
-)
-
 // Querier is the subset of pgx database operations used by the repository.
 type Querier interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)

@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"errors"
+	"net/http"
 
 	analyticsv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/analytics/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
@@ -55,7 +57,7 @@ func registerServers(lc fx.Lifecycle, handler *grpcdelivery.AnalyticsHandler, cf
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			go func() {
-				if err := metricsServer.Start(); err != nil {
+				if err := metricsServer.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 					log.Fatal("metrics server error", zap.Error(err))
 				}
 			}()

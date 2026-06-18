@@ -31,24 +31,24 @@ func provideClientFactory(cfg *config.Config, cb *gobreaker.CircuitBreaker) *pkg
 	}, cb)
 }
 
-func provideInventoryClient(ctx context.Context, factory *pkggrpcclient.Factory, cfg *config.Config) (saga.InventoryClient, error) {
-	conn, err := factory.NewClient(ctx, cfg.InventoryAddr)
+func provideInventoryClient(factory *pkggrpcclient.Factory, cfg *config.Config) (saga.InventoryClient, error) {
+	conn, err := factory.NewClient(context.Background(), cfg.InventoryAddr)
 	if err != nil {
 		return nil, err
 	}
 	return grpcclient.NewInventoryClient(conn, cfg.DefaultCallTimeout), nil
 }
 
-func providePaymentClient(ctx context.Context, factory *pkggrpcclient.Factory, cfg *config.Config) (saga.PaymentClient, error) {
-	conn, err := factory.NewClient(ctx, cfg.PaymentAddr)
+func providePaymentClient(factory *pkggrpcclient.Factory, cfg *config.Config) (saga.PaymentClient, error) {
+	conn, err := factory.NewClient(context.Background(), cfg.PaymentAddr)
 	if err != nil {
 		return nil, err
 	}
 	return grpcclient.NewPaymentClient(conn, cfg.DefaultCallTimeout), nil
 }
 
-func provideCatalogClient(ctx context.Context, factory *pkggrpcclient.Factory, cfg *config.Config) (grpcclient.CatalogClient, error) {
-	conn, err := factory.NewClient(ctx, cfg.CatalogAddr)
+func provideCatalogClient(factory *pkggrpcclient.Factory, cfg *config.Config) (grpcclient.CatalogClient, error) {
+	conn, err := factory.NewClient(context.Background(), cfg.CatalogAddr)
 	if err != nil {
 		return nil, err
 	}
