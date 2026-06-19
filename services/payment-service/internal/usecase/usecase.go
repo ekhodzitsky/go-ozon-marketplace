@@ -38,10 +38,6 @@ func NewPaymentUsecase(repo repository.PaymentRepository, txm repository.TxManag
 }
 
 func (u *paymentUsecase) ProcessPayment(ctx context.Context, orderID, userID uuid.UUID, amountCents int64) (*domain.Payment, error) {
-	if amountCents <= 0 {
-		return nil, fmt.Errorf("%w: amount_cents must be greater than 0", apperrors.ErrInvalidArgument)
-	}
-
 	// simulate processing result deterministically
 	randVal := rand.Float64()
 	if u.randGen != nil {

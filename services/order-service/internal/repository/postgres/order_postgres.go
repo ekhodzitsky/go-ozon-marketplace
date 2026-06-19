@@ -6,6 +6,7 @@ import (
 
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -22,7 +23,7 @@ type OrderPostgres struct {
 	db Querier
 }
 
-func NewOrderPostgres(db Querier) *OrderPostgres {
+func NewOrderPostgres(db Querier) repository.OrderRepository {
 	return &OrderPostgres{db: db}
 }
 

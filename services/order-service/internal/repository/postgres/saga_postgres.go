@@ -8,6 +8,7 @@ import (
 
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -16,7 +17,7 @@ type SagaPostgres struct {
 	db Querier
 }
 
-func NewSagaPostgres(db Querier) *SagaPostgres {
+func NewSagaPostgres(db Querier) repository.SagaRepository {
 	return &SagaPostgres{db: db}
 }
 

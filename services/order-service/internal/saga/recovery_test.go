@@ -3,9 +3,11 @@ package saga_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
+	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/saga"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/mocks"
@@ -116,8 +118,8 @@ func TestRecoveryWorker_ProcessesIncompleteSagas(t *testing.T) {
 
 	orderRepo := mocks.NewMockOrderRepository(ctrl)
 	sagaRepo := mocks.NewMockSagaRepository(ctrl)
-	invClient := mocks.NewMockInventoryClient(ctrl)
-	payClient := mocks.NewMockPaymentClient(ctrl)
+	invClient := mocks.NewMockInventoryServiceClient(ctrl)
+	payClient := mocks.NewMockPaymentServiceClient(ctrl)
 	log := zap.NewNop()
 
 	orchestrator := saga.NewOrchestrator(orderRepo, sagaRepo, invClient, payClient, log, 100*time.Millisecond, 100*time.Millisecond)
@@ -140,7 +142,11 @@ func TestRecoveryWorker_ProcessesIncompleteSagas(t *testing.T) {
 	sagaRepo.EXPECT().GetByOrderID(gomock.Any(), orderID).Return(&incompleteSaga, nil).AnyTimes()
 	// ProcessOrder from Reserved state will transition to Paying, Paid, Confirming, Confirmed
 	sagaRepo.EXPECT().Save(gomock.Any(), gomock.Any()).AnyTimes()
-	payClient.EXPECT().ProcessPayment(gomock.Any(), orderID.String(), order.TotalAmount, gomock.Any()).Return("pay-001", nil).AnyTimes()
+	payClient.EXPECT().ProcessPayment(gomock.Any(), &paymentv1.ProcessPaymentRequest{
+		OrderId:        orderID.String(),
+		AmountCents:    order.TotalAmount,
+		IdempotencyKey: fmt.Sprintf("payment:recovery:%s", orderID.String()),
+	}).Return(&paymentv1.ProcessPaymentResponse{PaymentId: "pay-001"}, nil).AnyTimes()
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), orderID, domain.OrderStatusPaid).Return(nil).AnyTimes()
 
 	w := saga.NewRecoveryWorker(orchestrator, log, saga.WithLocker(&fakeLocker{}), saga.WithRecoveryInterval(50*time.Millisecond))

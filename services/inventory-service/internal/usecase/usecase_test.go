@@ -209,14 +209,6 @@ func TestInventoryUsecase_Reserve_InvalidOrderID(t *testing.T) {
 	assert.ErrorContains(t, err, "invalid order_id")
 }
 
-func TestInventoryUsecase_Reserve_InvalidQuantity(t *testing.T) {
-	uc := newTestUsecase(t, &mockInventoryRepository{}, nil)
-
-	err := uc.Reserve(context.Background(), uuid.New(), 0, uuid.New().String())
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "quantity must be positive")
-}
-
 func TestInventoryUsecase_Reserve_RepositoryError(t *testing.T) {
 	productID := uuid.New()
 	orderID := uuid.New()
@@ -285,14 +277,6 @@ func TestInventoryUsecase_Release_InvalidOrderID(t *testing.T) {
 	err := uc.Release(context.Background(), uuid.New(), 1, "not-a-uuid")
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "invalid order_id")
-}
-
-func TestInventoryUsecase_Release_InvalidQuantity(t *testing.T) {
-	uc := newTestUsecase(t, &mockInventoryRepository{}, nil)
-
-	err := uc.Release(context.Background(), uuid.New(), 0, uuid.New().String())
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "quantity must be positive")
 }
 
 func TestInventoryUsecase_Release_RepositoryError(t *testing.T) {

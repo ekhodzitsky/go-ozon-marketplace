@@ -8,7 +8,6 @@ import (
 	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/validation"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/usecase"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
@@ -22,20 +21,13 @@ type InventoryHandler struct {
 	usecase usecase.InventoryUsecase
 }
 
-func NewInventoryHandler(uc usecase.InventoryUsecase) *InventoryHandler {
+func NewInventoryHandler(uc usecase.InventoryUsecase) inventoryv1.InventoryServiceServer {
 	return &InventoryHandler{usecase: uc}
 }
 
 func (h *InventoryHandler) Reserve(ctx context.Context, req *inventoryv1.ReserveRequest) (*inventoryv1.ReserveResponse, error) {
 	if err := middleware.RequireRole(ctx, auth.RoleService); err != nil {
 		return nil, err
-	}
-
-	if err := validation.ValidateQuantity(req.Quantity); err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	if req.IdempotencyKey == "" {
-		return nil, status.Error(codes.InvalidArgument, "missing idempotency_key")
 	}
 
 	productID, err := uuid.Parse(req.ProductId)
@@ -55,13 +47,6 @@ func (h *InventoryHandler) Reserve(ctx context.Context, req *inventoryv1.Reserve
 func (h *InventoryHandler) Release(ctx context.Context, req *inventoryv1.ReleaseRequest) (*inventoryv1.ReleaseResponse, error) {
 	if err := middleware.RequireRole(ctx, auth.RoleService); err != nil {
 		return nil, err
-	}
-
-	if err := validation.ValidateQuantity(req.Quantity); err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	if req.IdempotencyKey == "" {
-		return nil, status.Error(codes.InvalidArgument, "missing idempotency_key")
 	}
 
 	productID, err := uuid.Parse(req.ProductId)

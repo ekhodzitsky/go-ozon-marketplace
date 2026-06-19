@@ -6,13 +6,15 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoad_Defaults(t *testing.T) {
 	t.Setenv("POSTGRES_DSN", "postgres://localhost/test")
 	t.Setenv("JWT_SECRET", "super-secret-at-least-32-bytes-long")
 
-	cfg := Load()
+	cfg, err := Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, 50053, cfg.GRPCPort)
 	assert.Equal(t, 51053, cfg.MetricsPort)
@@ -38,7 +40,8 @@ func TestLoad_CustomValues(t *testing.T) {
 	t.Setenv("DEFAULT_QUERY_TIMEOUT", "7s")
 	t.Setenv("CERT_PATH", "/certs")
 
-	cfg := Load()
+	cfg, err := Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, 8080, cfg.GRPCPort)
 	assert.Equal(t, 9080, cfg.MetricsPort)
@@ -58,7 +61,8 @@ func TestLoad_MetricsPortDefaultBasedOnGRPCPort(t *testing.T) {
 	t.Setenv("POSTGRES_DSN", "postgres://localhost/test")
 	t.Setenv("JWT_SECRET", "super-secret-at-least-32-bytes-long")
 
-	cfg := Load()
+	cfg, err := Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, 9090, cfg.GRPCPort)
 	assert.Equal(t, 10090, cfg.MetricsPort)
@@ -68,14 +72,16 @@ func TestLoad_MissingPostgresDSN(t *testing.T) {
 	_ = os.Unsetenv("POSTGRES_DSN")
 	t.Setenv("JWT_SECRET", "super-secret-at-least-32-bytes-long")
 
-	assert.Panics(t, func() { Load() })
+	_, err := Load()
+	assert.Error(t, err)
 }
 
 func TestLoad_MissingJWTSecret(t *testing.T) {
 	t.Setenv("POSTGRES_DSN", "postgres://localhost/test")
 	_ = os.Unsetenv("JWT_SECRET")
 
-	assert.Panics(t, func() { Load() })
+	_, err := Load()
+	assert.Error(t, err)
 }
 
 func TestLoad_InvalidGRPCPortFallsBack(t *testing.T) {
@@ -83,7 +89,8 @@ func TestLoad_InvalidGRPCPortFallsBack(t *testing.T) {
 	t.Setenv("POSTGRES_DSN", "postgres://localhost/test")
 	t.Setenv("JWT_SECRET", "super-secret-at-least-32-bytes-long")
 
-	cfg := Load()
+	cfg, err := Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, 50053, cfg.GRPCPort)
 }
@@ -94,7 +101,8 @@ func TestLoad_InvalidDurationFallsBack(t *testing.T) {
 	t.Setenv("POSTGRES_DSN", "postgres://localhost/test")
 	t.Setenv("JWT_SECRET", "super-secret-at-least-32-bytes-long")
 
-	cfg := Load()
+	cfg, err := Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, 5*time.Second, cfg.DefaultCallTimeout)
 	assert.Equal(t, 3*time.Second, cfg.DefaultQueryTimeout)

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/kafka"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -12,7 +13,7 @@ import (
 
 type Relay struct {
 	repo         repository.OutboxRepository
-	producer     Producer
+	producer     kafka.Producer
 	log          *zap.Logger
 	ticker       *time.Ticker
 	stop         chan struct{}
@@ -26,7 +27,7 @@ type Relay struct {
 	maxBackoff   time.Duration
 }
 
-func NewRelay(repo repository.OutboxRepository, producer Producer, log *zap.Logger, queryTimeout time.Duration, topic string) *Relay {
+func NewRelay(repo repository.OutboxRepository, producer kafka.Producer, log *zap.Logger, queryTimeout time.Duration, topic string) *Relay {
 	return &Relay{
 		repo:         repo,
 		producer:     producer,

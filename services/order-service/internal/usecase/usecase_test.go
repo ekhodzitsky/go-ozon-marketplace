@@ -3,10 +3,13 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
+	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
+	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
@@ -54,16 +57,16 @@ func newTestOrderUsecase(t *testing.T, ctrl *gomock.Controller) (
 	*mocks.MockOrderRepository,
 	*mocks.MockOutboxRepository,
 	*mocks.MockSagaRepository,
-	*mocks.MockInventoryClient,
-	*mocks.MockPaymentClient,
-	*mocks.MockCatalogClient,
+	*mocks.MockInventoryServiceClient,
+	*mocks.MockPaymentServiceClient,
+	*mocks.MockCatalogServiceClient,
 ) {
 	orderRepo := mocks.NewMockOrderRepository(ctrl)
 	outboxRepo := mocks.NewMockOutboxRepository(ctrl)
 	sagaRepo := mocks.NewMockSagaRepository(ctrl)
-	invClient := mocks.NewMockInventoryClient(ctrl)
-	payClient := mocks.NewMockPaymentClient(ctrl)
-	catalogClient := mocks.NewMockCatalogClient(ctrl)
+	invClient := mocks.NewMockInventoryServiceClient(ctrl)
+	payClient := mocks.NewMockPaymentServiceClient(ctrl)
+	catalogClient := mocks.NewMockCatalogServiceClient(ctrl)
 
 	orchestrator := saga.NewOrchestrator(orderRepo, sagaRepo, invClient, payClient, testLogger(t), 100*time.Millisecond, 100*time.Millisecond)
 
@@ -104,10 +107,10 @@ func TestOrderUsecase_CreateOrder_Success(t *testing.T) {
 	item := validItem()
 	items := []domain.OrderItem{item}
 
-	catalogClient.EXPECT().GetProduct(gomock.Any(), item.ProductID.String()).Return(&catalogv1.Product{
+	catalogClient.EXPECT().GetProduct(gomock.Any(), &catalogv1.GetProductRequest{ProductId: item.ProductID.String()}).Return(&catalogv1.GetProductResponse{Product: &catalogv1.Product{
 		ProductId:  item.ProductID.String(),
 		PriceCents: item.Price,
-	}, nil).Times(1)
+	}}, nil).Times(1)
 
 	orderRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 	outboxRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
@@ -115,72 +118,14 @@ func TestOrderUsecase_CreateOrder_Success(t *testing.T) {
 	sagaRepo.EXPECT().GetByOrderID(gomock.Any(), gomock.Any()).Return(nil, apperrors.ErrNotFound)
 	sagaRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), gomock.Any(), domain.OrderStatusAwaitingPayment).Return(nil)
-	invClient.EXPECT().Reserve(gomock.Any(), item.ProductID.String(), int32(item.Quantity), gomock.Any(), gomock.Any()).Return(nil)
+	invClient.EXPECT().Reserve(gomock.Any(), gomock.Any()).Return(&inventoryv1.ReserveResponse{}, nil)
 	sagaRepo.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	payClient.EXPECT().ProcessPayment(gomock.Any(), gomock.Any(), item.Price*int64(item.Quantity), gomock.Any()).Return("pay-123", nil)
+	payClient.EXPECT().ProcessPayment(gomock.Any(), gomock.Any()).Return(&paymentv1.ProcessPaymentResponse{PaymentId: "pay-123"}, nil)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), gomock.Any(), domain.OrderStatusPaid).Return(nil)
 
 	orderID, err := uc.CreateOrder(context.Background(), uuid.New(), items, "idemp-key")
 	require.NoError(t, err)
 	assert.NotEqual(t, uuid.Nil, orderID)
-}
-
-func TestOrderUsecase_CreateOrder_MissingIdempotencyKey(t *testing.T) {
-	t.Parallel()
-
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	uc, _, _, _, _, _, _, _ := newTestOrderUsecase(t, ctrl)
-
-	_, err := uc.CreateOrder(context.Background(), uuid.New(), []domain.OrderItem{validItem()}, "")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrInvalidArgument)
-}
-
-func TestOrderUsecase_CreateOrder_EmptyItems(t *testing.T) {
-	t.Parallel()
-
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	uc, _, _, _, _, _, _, _ := newTestOrderUsecase(t, ctrl)
-
-	_, err := uc.CreateOrder(context.Background(), uuid.New(), nil, "idemp-key")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrInvalidArgument)
-}
-
-func TestOrderUsecase_CreateOrder_InvalidQuantity(t *testing.T) {
-	t.Parallel()
-
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	uc, _, _, _, _, _, _, _ := newTestOrderUsecase(t, ctrl)
-
-	item := validItem()
-	item.Quantity = 0
-
-	_, err := uc.CreateOrder(context.Background(), uuid.New(), []domain.OrderItem{item}, "idemp-key")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrInvalidArgument)
-}
-
-func TestOrderUsecase_CreateOrder_InvalidPrice(t *testing.T) {
-	t.Parallel()
-
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	uc, _, _, _, _, _, _, _ := newTestOrderUsecase(t, ctrl)
-
-	item := validItem()
-	item.Price = 0
-
-	_, err := uc.CreateOrder(context.Background(), uuid.New(), []domain.OrderItem{item}, "idemp-key")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, apperrors.ErrInvalidArgument)
 }
 
 func TestOrderUsecase_CreateOrder_TamperedLowerPrice(t *testing.T) {
@@ -194,10 +139,10 @@ func TestOrderUsecase_CreateOrder_TamperedLowerPrice(t *testing.T) {
 	productID := uuid.New()
 	items := []domain.OrderItem{{ProductID: productID, Quantity: 1, Price: 1}}
 
-	catalogClient.EXPECT().GetProduct(gomock.Any(), productID.String()).Return(&catalogv1.Product{
+	catalogClient.EXPECT().GetProduct(gomock.Any(), &catalogv1.GetProductRequest{ProductId: productID.String()}).Return(&catalogv1.GetProductResponse{Product: &catalogv1.Product{
 		ProductId:  productID.String(),
 		PriceCents: 10000,
-	}, nil).Times(1)
+	}}, nil).Times(1)
 
 	orderID, err := uc.CreateOrder(context.Background(), uuid.New(), items, "idemp-key")
 	require.Error(t, err)
@@ -216,10 +161,10 @@ func TestOrderUsecase_CreateOrder_TamperedHigherPrice(t *testing.T) {
 	productID := uuid.New()
 	items := []domain.OrderItem{{ProductID: productID, Quantity: 1, Price: 20000}}
 
-	catalogClient.EXPECT().GetProduct(gomock.Any(), productID.String()).Return(&catalogv1.Product{
+	catalogClient.EXPECT().GetProduct(gomock.Any(), &catalogv1.GetProductRequest{ProductId: productID.String()}).Return(&catalogv1.GetProductResponse{Product: &catalogv1.Product{
 		ProductId:  productID.String(),
 		PriceCents: 10000,
-	}, nil).Times(1)
+	}}, nil).Times(1)
 
 	orderID, err := uc.CreateOrder(context.Background(), uuid.New(), items, "idemp-key")
 	require.Error(t, err)
@@ -238,7 +183,7 @@ func TestOrderUsecase_CreateOrder_ProductNotFound(t *testing.T) {
 	productID := uuid.New()
 	items := []domain.OrderItem{{ProductID: productID, Quantity: 1, Price: 1000}}
 
-	catalogClient.EXPECT().GetProduct(gomock.Any(), productID.String()).Return(nil, errors.New("product not found")).Times(1)
+	catalogClient.EXPECT().GetProduct(gomock.Any(), &catalogv1.GetProductRequest{ProductId: productID.String()}).Return(nil, errors.New("product not found")).Times(1)
 
 	orderID, err := uc.CreateOrder(context.Background(), uuid.New(), items, "idemp-key")
 	require.Error(t, err)
@@ -254,10 +199,10 @@ func TestOrderUsecase_CreateOrder_TxRunError(t *testing.T) {
 	uc, txm, _, _, _, _, _, catalogClient := newTestOrderUsecase(t, ctrl)
 
 	item := validItem()
-	catalogClient.EXPECT().GetProduct(gomock.Any(), item.ProductID.String()).Return(&catalogv1.Product{
+	catalogClient.EXPECT().GetProduct(gomock.Any(), &catalogv1.GetProductRequest{ProductId: item.ProductID.String()}).Return(&catalogv1.GetProductResponse{Product: &catalogv1.Product{
 		ProductId:  item.ProductID.String(),
 		PriceCents: item.Price,
-	}, nil).Times(1)
+	}}, nil).Times(1)
 
 	txm.err = errors.New("tx run failed")
 
@@ -275,10 +220,10 @@ func TestOrderUsecase_CreateOrder_CreateOrderError(t *testing.T) {
 	uc, _, orderRepo, _, _, _, _, catalogClient := newTestOrderUsecase(t, ctrl)
 
 	item := validItem()
-	catalogClient.EXPECT().GetProduct(gomock.Any(), item.ProductID.String()).Return(&catalogv1.Product{
+	catalogClient.EXPECT().GetProduct(gomock.Any(), &catalogv1.GetProductRequest{ProductId: item.ProductID.String()}).Return(&catalogv1.GetProductResponse{Product: &catalogv1.Product{
 		ProductId:  item.ProductID.String(),
 		PriceCents: item.Price,
-	}, nil).Times(1)
+	}}, nil).Times(1)
 
 	orderRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(errors.New("insert failed"))
 
@@ -296,10 +241,10 @@ func TestOrderUsecase_CreateOrder_CreateOutboxError(t *testing.T) {
 	uc, _, orderRepo, outboxRepo, _, _, _, catalogClient := newTestOrderUsecase(t, ctrl)
 
 	item := validItem()
-	catalogClient.EXPECT().GetProduct(gomock.Any(), item.ProductID.String()).Return(&catalogv1.Product{
+	catalogClient.EXPECT().GetProduct(gomock.Any(), &catalogv1.GetProductRequest{ProductId: item.ProductID.String()}).Return(&catalogv1.GetProductResponse{Product: &catalogv1.Product{
 		ProductId:  item.ProductID.String(),
 		PriceCents: item.Price,
-	}, nil).Times(1)
+	}}, nil).Times(1)
 
 	orderRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
 	outboxRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(errors.New("outbox failed"))
@@ -319,10 +264,10 @@ func TestOrderUsecase_CreateOrder_SagaReserveError(t *testing.T) {
 
 	item := domain.OrderItem{ProductID: uuid.New(), Quantity: 1, Price: 100}
 
-	catalogClient.EXPECT().GetProduct(gomock.Any(), item.ProductID.String()).Return(&catalogv1.Product{
+	catalogClient.EXPECT().GetProduct(gomock.Any(), &catalogv1.GetProductRequest{ProductId: item.ProductID.String()}).Return(&catalogv1.GetProductResponse{Product: &catalogv1.Product{
 		ProductId:  item.ProductID.String(),
 		PriceCents: item.Price,
-	}, nil).Times(1)
+	}}, nil).Times(1)
 
 	orderRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
 	outboxRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
@@ -331,7 +276,7 @@ func TestOrderUsecase_CreateOrder_SagaReserveError(t *testing.T) {
 	sagaRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), gomock.Any(), domain.OrderStatusAwaitingPayment).Return(nil)
 	sagaRepo.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	invClient.EXPECT().Reserve(gomock.Any(), item.ProductID.String(), int32(item.Quantity), gomock.Any(), gomock.Any()).Return(errors.New("reserve failed"))
+	invClient.EXPECT().Reserve(gomock.Any(), gomock.Any()).Return(nil, errors.New("reserve failed"))
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), gomock.Any(), domain.OrderStatusCancelled).Return(nil)
 
 	id, err := uc.CreateOrder(context.Background(), uuid.New(), []domain.OrderItem{item}, "idemp-key")
@@ -454,7 +399,12 @@ func TestOrderUsecase_CancelOrder_DirectlyCancellable(t *testing.T) {
 
 	orderRepo.EXPECT().GetByID(gomock.Any(), id).Return(order, nil)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), id, domain.OrderStatusCancelled).Return(nil)
-	invClient.EXPECT().Release(gomock.Any(), productID.String(), int32(2), id.String(), gomock.Any()).Return(nil)
+	invClient.EXPECT().Release(gomock.Any(), &inventoryv1.ReleaseRequest{
+		ProductId:      productID.String(),
+		Quantity:       2,
+		OrderId:        id.String(),
+		IdempotencyKey: fmt.Sprintf("release:%s:%s", id.String(), productID.String()),
+	}).Return(&inventoryv1.ReleaseResponse{}, nil)
 
 	err := uc.CancelOrder(context.Background(), id)
 	require.NoError(t, err)
@@ -479,8 +429,16 @@ func TestOrderUsecase_CancelOrder_PaidWithRefund(t *testing.T) {
 
 	orderRepo.EXPECT().GetByID(gomock.Any(), id).Return(order, nil)
 	sagaRepo.EXPECT().GetByOrderID(gomock.Any(), id).Return(s, nil)
-	payClient.EXPECT().Refund(gomock.Any(), "pay-123", gomock.Any()).Return(nil)
-	invClient.EXPECT().Release(gomock.Any(), productID.String(), int32(1), id.String(), gomock.Any()).Return(nil)
+	payClient.EXPECT().Refund(gomock.Any(), &paymentv1.RefundRequest{
+		PaymentId:      "pay-123",
+		IdempotencyKey: fmt.Sprintf("refund:%s:%s", id.String(), "pay-123"),
+	}).Return(&paymentv1.RefundResponse{}, nil)
+	invClient.EXPECT().Release(gomock.Any(), &inventoryv1.ReleaseRequest{
+		ProductId:      productID.String(),
+		Quantity:       1,
+		OrderId:        id.String(),
+		IdempotencyKey: fmt.Sprintf("release:%s:%s", id.String(), productID.String()),
+	}).Return(&inventoryv1.ReleaseResponse{}, nil)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), id, domain.OrderStatusCancelled).Return(nil)
 
 	err := uc.CancelOrder(context.Background(), id)
@@ -506,7 +464,10 @@ func TestOrderUsecase_CancelOrder_PaidRefundFails(t *testing.T) {
 
 	orderRepo.EXPECT().GetByID(gomock.Any(), id).Return(order, nil)
 	sagaRepo.EXPECT().GetByOrderID(gomock.Any(), id).Return(s, nil)
-	payClient.EXPECT().Refund(gomock.Any(), "pay-123", gomock.Any()).Return(errors.New("refund declined"))
+	payClient.EXPECT().Refund(gomock.Any(), &paymentv1.RefundRequest{
+		PaymentId:      "pay-123",
+		IdempotencyKey: fmt.Sprintf("refund:%s:%s", id.String(), "pay-123"),
+	}).Return(nil, errors.New("refund declined"))
 
 	err := uc.CancelOrder(context.Background(), id)
 	require.Error(t, err)

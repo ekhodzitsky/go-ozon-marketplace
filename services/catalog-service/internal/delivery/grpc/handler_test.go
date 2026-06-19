@@ -48,18 +48,6 @@ func TestCatalogHandler_CreateProduct(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			name: "missing_idempotency_key",
-			req: &catalogv1.CreateProductRequest{
-				Name:       "PP",
-				PriceCents: 1000,
-			},
-			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
-				return mocks.NewMockCatalogUsecase(ctrl)
-			},
-			wantCode: codes.InvalidArgument,
-			wantErr:  true,
-		},
-		{
 			name: "usecase_error",
 			req: &catalogv1.CreateProductRequest{
 				Name:           "PP",

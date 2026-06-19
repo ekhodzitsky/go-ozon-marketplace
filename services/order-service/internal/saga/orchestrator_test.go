@@ -3,10 +3,13 @@ package saga_test
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
+	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
+	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/saga"
@@ -33,14 +36,47 @@ func newTestOrder() *domain.Order {
 
 func newTestOrchestrator(
 	ctrl *gomock.Controller,
-) (*saga.Orchestrator, *mocks.MockOrderRepository, *mocks.MockSagaRepository, *mocks.MockInventoryClient, *mocks.MockPaymentClient) {
+) (*saga.Orchestrator, *mocks.MockOrderRepository, *mocks.MockSagaRepository, *mocks.MockInventoryServiceClient, *mocks.MockPaymentServiceClient) {
 	orderRepo := mocks.NewMockOrderRepository(ctrl)
 	sagaRepo := mocks.NewMockSagaRepository(ctrl)
-	invClient := mocks.NewMockInventoryClient(ctrl)
-	payClient := mocks.NewMockPaymentClient(ctrl)
+	invClient := mocks.NewMockInventoryServiceClient(ctrl)
+	payClient := mocks.NewMockPaymentServiceClient(ctrl)
 	log := zap.NewNop()
 	o := saga.NewOrchestrator(orderRepo, sagaRepo, invClient, payClient, log, 100*time.Millisecond, 100*time.Millisecond)
 	return o, orderRepo, sagaRepo, invClient, payClient
+}
+
+func expectedReserveRequest(idempKey string, item domain.OrderItem, orderID string) *inventoryv1.ReserveRequest {
+	return &inventoryv1.ReserveRequest{
+		ProductId:      item.ProductID.String(),
+		Quantity:       int32(item.Quantity),
+		OrderId:        orderID,
+		IdempotencyKey: fmt.Sprintf("reserve:%s:%s", idempKey, item.ProductID.String()),
+	}
+}
+
+func expectedReleaseRequest(item domain.SagaReservedItem, orderID string) *inventoryv1.ReleaseRequest {
+	return &inventoryv1.ReleaseRequest{
+		ProductId:      item.ProductID,
+		Quantity:       item.Quantity,
+		OrderId:        orderID,
+		IdempotencyKey: fmt.Sprintf("release:%s:%s", orderID, item.ProductID),
+	}
+}
+
+func expectedPaymentRequest(idempKey string, order *domain.Order) *paymentv1.ProcessPaymentRequest {
+	return &paymentv1.ProcessPaymentRequest{
+		OrderId:        order.ID.String(),
+		AmountCents:    order.TotalAmount,
+		IdempotencyKey: fmt.Sprintf("payment:%s", idempKey),
+	}
+}
+
+func expectedRefundRequest(idempKey, paymentID string) *paymentv1.RefundRequest {
+	return &paymentv1.RefundRequest{
+		PaymentId:      paymentID,
+		IdempotencyKey: fmt.Sprintf("refund:%s:%s", idempKey, paymentID),
+	}
 }
 
 type sagaTransition struct {
@@ -85,9 +121,9 @@ func TestOrchestrator_ProcessOrder_HappyPath(t *testing.T) {
 	}).Times(1)
 
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), order.ID, domain.OrderStatusAwaitingPayment).Return(nil).Times(1)
-	invClient.EXPECT().Reserve(gomock.Any(), order.Items[0].ProductID.String(), int32(order.Items[0].Quantity), order.ID.String(), gomock.Any()).Return(nil).Times(1)
-	invClient.EXPECT().Reserve(gomock.Any(), order.Items[1].ProductID.String(), int32(order.Items[1].Quantity), order.ID.String(), gomock.Any()).Return(nil).Times(1)
-	payClient.EXPECT().ProcessPayment(gomock.Any(), order.ID.String(), order.TotalAmount, gomock.Any()).Return("pay-123", nil).Times(1)
+	invClient.EXPECT().Reserve(gomock.Any(), expectedReserveRequest(idempKey, order.Items[0], order.ID.String())).Return(&inventoryv1.ReserveResponse{}, nil).Times(1)
+	invClient.EXPECT().Reserve(gomock.Any(), expectedReserveRequest(idempKey, order.Items[1], order.ID.String())).Return(&inventoryv1.ReserveResponse{}, nil).Times(1)
+	payClient.EXPECT().ProcessPayment(gomock.Any(), expectedPaymentRequest(idempKey, order)).Return(&paymentv1.ProcessPaymentResponse{PaymentId: "pay-123"}, nil).Times(1)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), order.ID, domain.OrderStatusPaid).Return(nil).Times(1)
 
 	mu, transitions := collectTransitions(sagaRepo)
@@ -173,9 +209,9 @@ func TestOrchestrator_ProcessOrder_ReserveFailsOnSecondItem(t *testing.T) {
 	sagaRepo.EXPECT().GetByOrderID(gomock.Any(), order.ID).Return(nil, apperrors.ErrNotFound)
 	sagaRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), order.ID, domain.OrderStatusAwaitingPayment).Return(nil).Times(1)
-	invClient.EXPECT().Reserve(gomock.Any(), order.Items[0].ProductID.String(), int32(order.Items[0].Quantity), order.ID.String(), gomock.Any()).Return(nil).Times(1)
-	invClient.EXPECT().Reserve(gomock.Any(), order.Items[1].ProductID.String(), int32(order.Items[1].Quantity), order.ID.String(), gomock.Any()).Return(reserveErr).Times(3) // retry
-	invClient.EXPECT().Release(gomock.Any(), order.Items[0].ProductID.String(), int32(order.Items[0].Quantity), order.ID.String(), gomock.Any()).Return(nil).Times(1)
+	invClient.EXPECT().Reserve(gomock.Any(), expectedReserveRequest(idempKey, order.Items[0], order.ID.String())).Return(&inventoryv1.ReserveResponse{}, nil).Times(1)
+	invClient.EXPECT().Reserve(gomock.Any(), expectedReserveRequest(idempKey, order.Items[1], order.ID.String())).Return(nil, reserveErr).Times(3) // retry
+	invClient.EXPECT().Release(gomock.Any(), expectedReleaseRequest(domain.SagaReservedItem{ProductID: order.Items[0].ProductID.String(), Quantity: int32(order.Items[0].Quantity)}, order.ID.String())).Return(&inventoryv1.ReleaseResponse{}, nil).Times(1)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), order.ID, domain.OrderStatusCancelled).Return(nil).Times(1)
 
 	mu, transitions := collectTransitions(sagaRepo)
@@ -208,11 +244,11 @@ func TestOrchestrator_ProcessOrder_PaymentFails(t *testing.T) {
 	sagaRepo.EXPECT().GetByOrderID(gomock.Any(), order.ID).Return(nil, apperrors.ErrNotFound)
 	sagaRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), order.ID, domain.OrderStatusAwaitingPayment).Return(nil).Times(1)
-	invClient.EXPECT().Reserve(gomock.Any(), order.Items[0].ProductID.String(), int32(order.Items[0].Quantity), order.ID.String(), gomock.Any()).Return(nil).Times(1)
-	invClient.EXPECT().Reserve(gomock.Any(), order.Items[1].ProductID.String(), int32(order.Items[1].Quantity), order.ID.String(), gomock.Any()).Return(nil).Times(1)
-	payClient.EXPECT().ProcessPayment(gomock.Any(), order.ID.String(), order.TotalAmount, gomock.Any()).Return("", payErr).Times(3) // retry
-	invClient.EXPECT().Release(gomock.Any(), order.Items[0].ProductID.String(), int32(order.Items[0].Quantity), order.ID.String(), gomock.Any()).Return(nil).Times(1)
-	invClient.EXPECT().Release(gomock.Any(), order.Items[1].ProductID.String(), int32(order.Items[1].Quantity), order.ID.String(), gomock.Any()).Return(nil).Times(1)
+	invClient.EXPECT().Reserve(gomock.Any(), expectedReserveRequest(idempKey, order.Items[0], order.ID.String())).Return(&inventoryv1.ReserveResponse{}, nil).Times(1)
+	invClient.EXPECT().Reserve(gomock.Any(), expectedReserveRequest(idempKey, order.Items[1], order.ID.String())).Return(&inventoryv1.ReserveResponse{}, nil).Times(1)
+	payClient.EXPECT().ProcessPayment(gomock.Any(), expectedPaymentRequest(idempKey, order)).Return(nil, payErr).Times(3) // retry
+	invClient.EXPECT().Release(gomock.Any(), expectedReleaseRequest(domain.SagaReservedItem{ProductID: order.Items[0].ProductID.String(), Quantity: int32(order.Items[0].Quantity)}, order.ID.String())).Return(&inventoryv1.ReleaseResponse{}, nil).Times(1)
+	invClient.EXPECT().Release(gomock.Any(), expectedReleaseRequest(domain.SagaReservedItem{ProductID: order.Items[1].ProductID.String(), Quantity: int32(order.Items[1].Quantity)}, order.ID.String())).Return(&inventoryv1.ReleaseResponse{}, nil).Times(1)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), order.ID, domain.OrderStatusCancelled).Return(nil).Times(1)
 
 	mu, transitions := collectTransitions(sagaRepo)
@@ -244,13 +280,13 @@ func TestOrchestrator_ProcessOrder_ConfirmFails(t *testing.T) {
 	sagaRepo.EXPECT().GetByOrderID(gomock.Any(), order.ID).Return(nil, apperrors.ErrNotFound)
 	sagaRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), order.ID, domain.OrderStatusAwaitingPayment).Return(nil).Times(1)
-	invClient.EXPECT().Reserve(gomock.Any(), order.Items[0].ProductID.String(), int32(order.Items[0].Quantity), order.ID.String(), gomock.Any()).Return(nil).Times(1)
-	invClient.EXPECT().Reserve(gomock.Any(), order.Items[1].ProductID.String(), int32(order.Items[1].Quantity), order.ID.String(), gomock.Any()).Return(nil).Times(1)
-	payClient.EXPECT().ProcessPayment(gomock.Any(), order.ID.String(), order.TotalAmount, gomock.Any()).Return("pay-456", nil).Times(1)
+	invClient.EXPECT().Reserve(gomock.Any(), expectedReserveRequest(idempKey, order.Items[0], order.ID.String())).Return(&inventoryv1.ReserveResponse{}, nil).Times(1)
+	invClient.EXPECT().Reserve(gomock.Any(), expectedReserveRequest(idempKey, order.Items[1], order.ID.String())).Return(&inventoryv1.ReserveResponse{}, nil).Times(1)
+	payClient.EXPECT().ProcessPayment(gomock.Any(), expectedPaymentRequest(idempKey, order)).Return(&paymentv1.ProcessPaymentResponse{PaymentId: "pay-456"}, nil).Times(1)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), order.ID, domain.OrderStatusPaid).Return(confirmErr).Times(3) // retry
-	payClient.EXPECT().Refund(gomock.Any(), "pay-456", gomock.Any()).Return(nil).Times(1)
-	invClient.EXPECT().Release(gomock.Any(), order.Items[0].ProductID.String(), int32(order.Items[0].Quantity), order.ID.String(), gomock.Any()).Return(nil).Times(1)
-	invClient.EXPECT().Release(gomock.Any(), order.Items[1].ProductID.String(), int32(order.Items[1].Quantity), order.ID.String(), gomock.Any()).Return(nil).Times(1)
+	payClient.EXPECT().Refund(gomock.Any(), expectedRefundRequest(idempKey, "pay-456")).Return(&paymentv1.RefundResponse{}, nil).Times(1)
+	invClient.EXPECT().Release(gomock.Any(), expectedReleaseRequest(domain.SagaReservedItem{ProductID: order.Items[0].ProductID.String(), Quantity: int32(order.Items[0].Quantity)}, order.ID.String())).Return(&inventoryv1.ReleaseResponse{}, nil).Times(1)
+	invClient.EXPECT().Release(gomock.Any(), expectedReleaseRequest(domain.SagaReservedItem{ProductID: order.Items[1].ProductID.String(), Quantity: int32(order.Items[1].Quantity)}, order.ID.String())).Return(&inventoryv1.ReleaseResponse{}, nil).Times(1)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), order.ID, domain.OrderStatusCancelled).Return(nil).Times(1)
 
 	mu, transitions := collectTransitions(sagaRepo)
@@ -289,7 +325,7 @@ func TestOrchestrator_ProcessOrder_ResumeFromReserved(t *testing.T) {
 	idempKey := "test-key"
 
 	sagaRepo.EXPECT().GetByOrderID(gomock.Any(), order.ID).Return(existingSaga, nil)
-	payClient.EXPECT().ProcessPayment(gomock.Any(), order.ID.String(), order.TotalAmount, gomock.Any()).Return("pay-789", nil).Times(1)
+	payClient.EXPECT().ProcessPayment(gomock.Any(), expectedPaymentRequest(idempKey, order)).Return(&paymentv1.ProcessPaymentResponse{PaymentId: "pay-789"}, nil).Times(1)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), order.ID, domain.OrderStatusPaid).Return(nil).Times(1)
 
 	mu, transitions := collectTransitions(sagaRepo)
@@ -328,7 +364,7 @@ func TestOrchestrator_Recover(t *testing.T) {
 	sagaRepo.EXPECT().ListIncomplete(gomock.Any(), 100).Return([]domain.Saga{incompleteSaga}, nil)
 	orderRepo.EXPECT().GetByID(gomock.Any(), order.ID).Return(order, nil)
 	sagaRepo.EXPECT().GetByOrderID(gomock.Any(), order.ID).Return(&incompleteSaga, nil)
-	payClient.EXPECT().ProcessPayment(gomock.Any(), order.ID.String(), order.TotalAmount, gomock.Any()).Return("pay-rec", nil).Times(1)
+	payClient.EXPECT().ProcessPayment(gomock.Any(), expectedPaymentRequest(fmt.Sprintf("recovery:%s", order.ID.String()), order)).Return(&paymentv1.ProcessPaymentResponse{PaymentId: "pay-rec"}, nil).Times(1)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), order.ID, domain.OrderStatusPaid).Return(nil).Times(1)
 
 	mu, transitions := collectTransitions(sagaRepo)

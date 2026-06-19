@@ -76,13 +76,6 @@ func TestInventoryHandler_Reserve(t *testing.T) {
 			wantErr:  true,
 		},
 		{
-			name:     "missing_idempotency_key",
-			ctx:      authCtxWithRole(auth.RoleService),
-			req:      &inventoryv1.ReserveRequest{ProductId: validProduct, OrderId: validOrder, Quantity: 1},
-			wantCode: codes.InvalidArgument,
-			wantErr:  true,
-		},
-		{
 			name: "usecase_error",
 			ctx:  authCtxWithRole(auth.RoleService),
 			req:  &inventoryv1.ReserveRequest{ProductId: validProduct, OrderId: validOrder, Quantity: 1, IdempotencyKey: uuid.New().String()},
@@ -167,13 +160,6 @@ func TestInventoryHandler_Release(t *testing.T) {
 			name:     "invalid_order_id",
 			ctx:      authCtxWithRole(auth.RoleService),
 			req:      &inventoryv1.ReleaseRequest{ProductId: validProduct, OrderId: "bad", Quantity: 1, IdempotencyKey: uuid.New().String()},
-			wantCode: codes.InvalidArgument,
-			wantErr:  true,
-		},
-		{
-			name:     "missing_idempotency_key",
-			ctx:      authCtxWithRole(auth.RoleService),
-			req:      &inventoryv1.ReleaseRequest{ProductId: validProduct, OrderId: validOrder, Quantity: 1},
 			wantCode: codes.InvalidArgument,
 			wantErr:  true,
 		},

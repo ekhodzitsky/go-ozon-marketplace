@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/app"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/config"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -131,7 +132,9 @@ func TestApp_StartStop(t *testing.T) {
 	t.Setenv("LOG_LEVEL", "error")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 
-	application := app.New()
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	application := app.New(cfg)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

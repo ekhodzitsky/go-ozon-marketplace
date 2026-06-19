@@ -18,7 +18,8 @@ func setRequired(t *testing.T) {
 func TestLoad_Defaults(t *testing.T) {
 	setRequired(t)
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, 50055, cfg.GRPCPort)
 	assert.Equal(t, 51055, cfg.MetricsPort)
@@ -51,7 +52,8 @@ func TestLoad_Overrides(t *testing.T) {
 	t.Setenv("KAFKA_TOPIC", "events")
 	t.Setenv("REDIS_ADDR", "redis:6379")
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, 8080, cfg.GRPCPort)
 	assert.Equal(t, 9090, cfg.MetricsPort)
@@ -72,7 +74,8 @@ func TestLoad_MetricsPortDerivedFromGRPCPort(t *testing.T) {
 	setRequired(t)
 	t.Setenv("GRPC_PORT", "60055")
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, 60055, cfg.GRPCPort)
 	assert.Equal(t, 61055, cfg.MetricsPort)
@@ -81,24 +84,23 @@ func TestLoad_MetricsPortDerivedFromGRPCPort(t *testing.T) {
 func TestLoad_MissingPostgresDSN(t *testing.T) {
 	t.Setenv("JWT_SECRET", "super-secret-at-least-32-bytes-long")
 
-	require.Panics(t, func() {
-		config.Load()
-	})
+	_, err := config.Load()
+	require.Error(t, err)
 }
 
 func TestLoad_MissingJWTSecret(t *testing.T) {
 	t.Setenv("POSTGRES_DSN", "postgres://user:pass@localhost/db")
 
-	require.Panics(t, func() {
-		config.Load()
-	})
+	_, err := config.Load()
+	require.Error(t, err)
 }
 
 func TestLoad_InvalidIntegerFallsBackToDefault(t *testing.T) {
 	setRequired(t)
 	t.Setenv("GRPC_PORT", "not-a-number")
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, 50055, cfg.GRPCPort)
 	assert.Equal(t, 51055, cfg.MetricsPort)
@@ -108,7 +110,8 @@ func TestLoad_InvalidDurationFallsBackToDefault(t *testing.T) {
 	setRequired(t)
 	t.Setenv("DEFAULT_CALL_TIMEOUT", "not-a-duration")
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, 5*time.Second, cfg.DefaultCallTimeout)
 }
@@ -116,7 +119,8 @@ func TestLoad_InvalidDurationFallsBackToDefault(t *testing.T) {
 func TestLoad_EmptySliceFallsBackToDefault(t *testing.T) {
 	setRequired(t)
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, []string{"localhost:9092"}, cfg.KafkaBrokers)
 }

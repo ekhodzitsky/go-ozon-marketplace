@@ -2,15 +2,15 @@ package usecase
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
+	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
+	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
+	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
-	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/infrastructure/grpcclient"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
-	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/saga"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/unitofwork"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -35,9 +35,9 @@ type orderUsecase struct {
 	outboxRepo    repository.OutboxRepository
 	sagaRepo      repository.SagaRepository
 	orchestrator  OrderOrchestrator
-	invClient     saga.InventoryClient
-	payClient     saga.PaymentClient
-	catalogClient grpcclient.CatalogClient
+	invClient     inventoryv1.InventoryServiceClient
+	payClient     paymentv1.PaymentServiceClient
+	catalogClient catalogv1.CatalogServiceClient
 	redis         *redis.Client
 	callTimeout   time.Duration
 	queryTimeout  time.Duration
@@ -49,9 +49,9 @@ func NewOrderUsecase(
 	outboxRepo repository.OutboxRepository,
 	sagaRepo repository.SagaRepository,
 	orchestrator OrderOrchestrator,
-	invClient saga.InventoryClient,
-	payClient saga.PaymentClient,
-	catalogClient grpcclient.CatalogClient,
+	invClient inventoryv1.InventoryServiceClient,
+	payClient paymentv1.PaymentServiceClient,
+	catalogClient catalogv1.CatalogServiceClient,
 	redis *redis.Client,
 	callTimeout time.Duration,
 	queryTimeout time.Duration,
@@ -77,53 +77,20 @@ func NewOrderUsecase(
 	}
 }
 
-func (u *orderUsecase) publishOrderEvent(ctx context.Context, orderID, status, userID string) {
-	if u.redis == nil {
-		return
-	}
-	event := map[string]interface{}{
-		"topic":   "orders",
-		"user_id": userID,
-		"payload": map[string]interface{}{
-			"order_id": orderID,
-			"status":   status,
-			"user_id":  userID,
-		},
-	}
-	data, _ := json.Marshal(event)
-	pubCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
-	defer cancel()
-	u.redis.Publish(pubCtx, "order-events", string(data))
-}
-
 func (u *orderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items []domain.OrderItem, idempotencyKey string) (uuid.UUID, error) {
-	if idempotencyKey == "" {
-		return uuid.Nil, fmt.Errorf("%w: idempotency_key is required", apperrors.ErrInvalidArgument)
-	}
-	if len(items) == 0 {
-		return uuid.Nil, fmt.Errorf("%w: order must contain at least one item", apperrors.ErrInvalidArgument)
-	}
-
 	var total int64
 	for _, item := range items {
-		if item.Quantity <= 0 {
-			return uuid.Nil, fmt.Errorf("%w: quantity must be positive", apperrors.ErrInvalidArgument)
-		}
-		if item.Price <= 0 {
-			return uuid.Nil, fmt.Errorf("%w: price must be greater than zero", apperrors.ErrInvalidArgument)
-		}
 		total += item.Price * int64(item.Quantity)
 	}
 
-	if total <= 0 {
-		return uuid.Nil, fmt.Errorf("%w: total amount must be greater than zero", apperrors.ErrInvalidArgument)
-	}
-
 	for _, item := range items {
-		product, err := u.catalogClient.GetProduct(ctx, item.ProductID.String())
+		cCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
+		resp, err := u.catalogClient.GetProduct(cCtx, &catalogv1.GetProductRequest{ProductId: item.ProductID.String()})
+		cancel()
 		if err != nil {
 			return uuid.Nil, fmt.Errorf("get product %s: %w", item.ProductID, err)
 		}
+		product := resp.GetProduct()
 		if product == nil || product.PriceCents != item.Price {
 			return uuid.Nil, fmt.Errorf("%w: price mismatch for product %s", apperrors.ErrInvalidArgument, item.ProductID)
 		}
@@ -153,18 +120,9 @@ func (u *orderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items 
 			return fmt.Errorf("create order: %w", err)
 		}
 
-		payload, err := json.Marshal(order)
+		event, err := outboxEventFromOrder(order)
 		if err != nil {
-			return fmt.Errorf("marshal outbox payload: %w", err)
-		}
-
-		event := &domain.OutboxEvent{
-			ID:            uuid.New(),
-			AggregateType: "order",
-			AggregateID:   order.ID.String(),
-			EventType:     "OrderCreated",
-			Payload:       payload,
-			CreatedAt:     time.Now().UTC(),
+			return err
 		}
 
 		if err := uow.OutboxRepo().Create(txCtx, event); err != nil {
@@ -223,7 +181,12 @@ func (u *orderUsecase) CancelOrder(ctx context.Context, id uuid.UUID) error {
 		cCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
 		defer cancel()
 		for _, item := range order.Items {
-			if err := u.invClient.Release(cCtx, item.ProductID.String(), int32(item.Quantity), order.ID.String(), releaseIdempotencyKey(order.ID.String(), item.ProductID.String())); err != nil {
+			if _, err := u.invClient.Release(cCtx, &inventoryv1.ReleaseRequest{
+				ProductId:      item.ProductID.String(),
+				Quantity:       int32(item.Quantity),
+				OrderId:        order.ID.String(),
+				IdempotencyKey: releaseIdempotencyKey(order.ID.String(), item.ProductID.String()),
+			}); err != nil {
 				return fmt.Errorf("release inventory for product %s: %w", item.ProductID, err)
 			}
 		}
@@ -240,12 +203,20 @@ func (u *orderUsecase) CancelOrder(ctx context.Context, id uuid.UUID) error {
 		cCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
 		defer cancel()
 		if saga.PaymentID != "" {
-			if err := u.payClient.Refund(cCtx, saga.PaymentID, refundIdempotencyKey(order.ID.String(), saga.PaymentID)); err != nil {
+			if _, err := u.payClient.Refund(cCtx, &paymentv1.RefundRequest{
+				PaymentId:      saga.PaymentID,
+				IdempotencyKey: refundIdempotencyKey(order.ID.String(), saga.PaymentID),
+			}); err != nil {
 				return fmt.Errorf("refund payment %s: %w", saga.PaymentID, err)
 			}
 		}
 		for _, item := range order.Items {
-			if err := u.invClient.Release(cCtx, item.ProductID.String(), int32(item.Quantity), order.ID.String(), releaseIdempotencyKey(order.ID.String(), item.ProductID.String())); err != nil {
+			if _, err := u.invClient.Release(cCtx, &inventoryv1.ReleaseRequest{
+				ProductId:      item.ProductID.String(),
+				Quantity:       int32(item.Quantity),
+				OrderId:        order.ID.String(),
+				IdempotencyKey: releaseIdempotencyKey(order.ID.String(), item.ProductID.String()),
+			}); err != nil {
 				return fmt.Errorf("release inventory for product %s: %w", item.ProductID, err)
 			}
 		}
@@ -279,12 +250,4 @@ func (u *orderUsecase) UpdateOrderStatus(ctx context.Context, id uuid.UUID, stat
 
 	u.publishOrderEvent(ctx, order.ID.String(), string(status), order.UserID.String())
 	return nil
-}
-
-func releaseIdempotencyKey(orderID, productID string) string {
-	return fmt.Sprintf("release:%s:%s", orderID, productID)
-}
-
-func refundIdempotencyKey(orderID, paymentID string) string {
-	return fmt.Sprintf("refund:%s:%s", orderID, paymentID)
 }

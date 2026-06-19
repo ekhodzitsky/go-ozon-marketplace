@@ -9,7 +9,6 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/validation"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/usecase"
 	"github.com/google/uuid"
@@ -22,7 +21,7 @@ type OrderHandler struct {
 	usecase usecase.OrderUsecase
 }
 
-func NewOrderHandler(uc usecase.OrderUsecase) *OrderHandler {
+func NewOrderHandler(uc usecase.OrderUsecase) orderv1.OrderServiceServer {
 	return &OrderHandler{usecase: uc}
 }
 
@@ -30,9 +29,6 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *orderv1.CreateOrder
 	authUserID, ok := middleware.GetUserID(ctx)
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "missing user_id in context")
-	}
-	if req.IdempotencyKey == "" {
-		return nil, status.Error(codes.InvalidArgument, "missing idempotency_key")
 	}
 
 	userID, err := uuid.Parse(authUserID)
@@ -42,12 +38,6 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *orderv1.CreateOrder
 
 	items := make([]domain.OrderItem, 0, len(req.Items))
 	for _, item := range req.Items {
-		if err := validation.ValidateQuantity(item.Quantity); err != nil {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
-		}
-		if item.PriceCents <= 0 {
-			return nil, status.Error(codes.InvalidArgument, "price must be greater than 0")
-		}
 		productID, err := uuid.Parse(item.ProductId)
 		if err != nil {
 			return nil, status.Error(codes.InvalidArgument, "invalid product_id")
@@ -112,20 +102,7 @@ func (h *OrderHandler) ListOrders(ctx context.Context, req *orderv1.ListOrdersRe
 		return nil, status.Errorf(codes.Internal, "invalid user_id in token: %v", err)
 	}
 
-	if err := validation.ValidatePageSize(req.PageSize); err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-
-	page := int(req.Page)
-	if page < 1 {
-		page = 1
-	}
-	pageSize := int(req.PageSize)
-	if pageSize < 1 {
-		pageSize = 10
-	}
-
-	orders, total, err := h.usecase.ListOrders(ctx, userID, page, pageSize)
+	orders, total, err := h.usecase.ListOrders(ctx, userID, int(req.Page), int(req.PageSize))
 	if err != nil {
 		return nil, apperrors.ToStatus(err)
 	}
@@ -193,10 +170,6 @@ func (h *OrderHandler) UpdateOrderStatus(ctx context.Context, req *orderv1.Updat
 		return nil, status.Error(codes.InvalidArgument, "invalid order_id")
 	}
 
-	if req.Status == orderv1.OrderStatus_ORDER_STATUS_UNSPECIFIED {
-		return nil, status.Error(codes.InvalidArgument, "invalid order status")
-	}
-
 	if err := h.usecase.UpdateOrderStatus(ctx, orderID, protoStatusToDomain(req.Status)); err != nil {
 		if errors.Is(err, apperrors.ErrInvalidArgument) {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -230,48 +203,39 @@ func mapOrderToProto(order *domain.Order) *orderv1.Order {
 	}
 }
 
+var domainStatusToProtoMap = map[domain.OrderStatus]orderv1.OrderStatus{
+	domain.OrderStatusPending:         orderv1.OrderStatus_ORDER_STATUS_PENDING,
+	domain.OrderStatusAwaitingPayment: orderv1.OrderStatus_ORDER_STATUS_AWAITING_PAYMENT,
+	domain.OrderStatusPaid:            orderv1.OrderStatus_ORDER_STATUS_PAID,
+	domain.OrderStatusProcessing:      orderv1.OrderStatus_ORDER_STATUS_PROCESSING,
+	domain.OrderStatusShipped:         orderv1.OrderStatus_ORDER_STATUS_SHIPPED,
+	domain.OrderStatusDelivered:       orderv1.OrderStatus_ORDER_STATUS_DELIVERED,
+	domain.OrderStatusCancelled:       orderv1.OrderStatus_ORDER_STATUS_CANCELLED,
+	domain.OrderStatusRefunded:        orderv1.OrderStatus_ORDER_STATUS_REFUNDED,
+}
+
 func domainStatusToProto(s domain.OrderStatus) orderv1.OrderStatus {
-	switch s {
-	case domain.OrderStatusPending:
-		return orderv1.OrderStatus_ORDER_STATUS_PENDING
-	case domain.OrderStatusAwaitingPayment:
-		return orderv1.OrderStatus_ORDER_STATUS_AWAITING_PAYMENT
-	case domain.OrderStatusPaid:
-		return orderv1.OrderStatus_ORDER_STATUS_PAID
-	case domain.OrderStatusProcessing:
-		return orderv1.OrderStatus_ORDER_STATUS_PROCESSING
-	case domain.OrderStatusShipped:
-		return orderv1.OrderStatus_ORDER_STATUS_SHIPPED
-	case domain.OrderStatusDelivered:
-		return orderv1.OrderStatus_ORDER_STATUS_DELIVERED
-	case domain.OrderStatusCancelled:
-		return orderv1.OrderStatus_ORDER_STATUS_CANCELLED
-	case domain.OrderStatusRefunded:
-		return orderv1.OrderStatus_ORDER_STATUS_REFUNDED
-	default:
-		return orderv1.OrderStatus_ORDER_STATUS_UNSPECIFIED
+	if ps, ok := domainStatusToProtoMap[s]; ok {
+		return ps
 	}
+	return orderv1.OrderStatus_ORDER_STATUS_UNSPECIFIED
+}
+
+var protoStatusToDomainMap = map[orderv1.OrderStatus]domain.OrderStatus{
+	orderv1.OrderStatus_ORDER_STATUS_UNSPECIFIED:      domain.OrderStatusUnspecified,
+	orderv1.OrderStatus_ORDER_STATUS_PENDING:          domain.OrderStatusPending,
+	orderv1.OrderStatus_ORDER_STATUS_AWAITING_PAYMENT: domain.OrderStatusAwaitingPayment,
+	orderv1.OrderStatus_ORDER_STATUS_PAID:             domain.OrderStatusPaid,
+	orderv1.OrderStatus_ORDER_STATUS_PROCESSING:       domain.OrderStatusProcessing,
+	orderv1.OrderStatus_ORDER_STATUS_SHIPPED:          domain.OrderStatusShipped,
+	orderv1.OrderStatus_ORDER_STATUS_DELIVERED:        domain.OrderStatusDelivered,
+	orderv1.OrderStatus_ORDER_STATUS_CANCELLED:        domain.OrderStatusCancelled,
+	orderv1.OrderStatus_ORDER_STATUS_REFUNDED:         domain.OrderStatusRefunded,
 }
 
 func protoStatusToDomain(s orderv1.OrderStatus) domain.OrderStatus {
-	switch s {
-	case orderv1.OrderStatus_ORDER_STATUS_PENDING:
-		return domain.OrderStatusPending
-	case orderv1.OrderStatus_ORDER_STATUS_AWAITING_PAYMENT:
-		return domain.OrderStatusAwaitingPayment
-	case orderv1.OrderStatus_ORDER_STATUS_PAID:
-		return domain.OrderStatusPaid
-	case orderv1.OrderStatus_ORDER_STATUS_PROCESSING:
-		return domain.OrderStatusProcessing
-	case orderv1.OrderStatus_ORDER_STATUS_SHIPPED:
-		return domain.OrderStatusShipped
-	case orderv1.OrderStatus_ORDER_STATUS_DELIVERED:
-		return domain.OrderStatusDelivered
-	case orderv1.OrderStatus_ORDER_STATUS_CANCELLED:
-		return domain.OrderStatusCancelled
-	case orderv1.OrderStatus_ORDER_STATUS_REFUNDED:
-		return domain.OrderStatusRefunded
-	default:
-		return domain.OrderStatusUnspecified
+	if ds, ok := protoStatusToDomainMap[s]; ok {
+		return ds
 	}
+	return domain.OrderStatusUnspecified
 }

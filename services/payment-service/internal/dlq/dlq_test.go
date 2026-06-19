@@ -6,65 +6,46 @@ import (
 	"testing"
 	"time"
 
-	"github.com/IBM/sarama"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/dlq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
-type mockSyncProducer struct {
-	msgs []*sarama.ProducerMessage
+type mockProducer struct {
+	msgs []*mockProducerMsg
 	err  error
 	sent chan struct{}
 }
 
-func newMockSyncProducer() *mockSyncProducer {
-	return &mockSyncProducer{sent: make(chan struct{}, 1)}
+type mockProducerMsg struct {
+	topic string
+	key   []byte
+	value []byte
 }
 
-func (m *mockSyncProducer) SendMessage(msg *sarama.ProducerMessage) (int32, int64, error) {
-	m.msgs = append(m.msgs, msg)
+func newMockProducer() *mockProducer {
+	return &mockProducer{sent: make(chan struct{}, 1)}
+}
+
+func (m *mockProducer) SendMessage(topic string, key, value []byte) error {
+	m.msgs = append(m.msgs, &mockProducerMsg{topic: topic, key: key, value: value})
 	if m.sent != nil {
 		m.sent <- struct{}{}
 	}
-	return 0, 0, m.err
+	return m.err
 }
 
-func (m *mockSyncProducer) SendMessages(msgs []*sarama.ProducerMessage) error {
-	m.msgs = append(m.msgs, msgs...)
+func (m *mockProducer) Close() error {
 	return nil
 }
-
-func (m *mockSyncProducer) Close() error {
-	return nil
-}
-
-func (m *mockSyncProducer) AbortTxn() error { return nil }
-func (m *mockSyncProducer) AddMessageToTxn(msg *sarama.ConsumerMessage, groupID string, metadata *string) error {
-	return nil
-}
-func (m *mockSyncProducer) AddMessageToTxnWithGroupMetadata(msg *sarama.ConsumerMessage, group *sarama.ConsumerGroupMetadata, metadata *string) error {
-	return nil
-}
-func (m *mockSyncProducer) AddOffsetsToTxn(offsets map[string][]*sarama.PartitionOffsetMetadata, groupID string) error {
-	return nil
-}
-func (m *mockSyncProducer) AddOffsetsToTxnWithGroupMetadata(offsets map[string][]*sarama.PartitionOffsetMetadata, groupMetadata *sarama.ConsumerGroupMetadata) error {
-	return nil
-}
-func (m *mockSyncProducer) BeginTxn() error                         { return nil }
-func (m *mockSyncProducer) CommitTxn() error                        { return nil }
-func (m *mockSyncProducer) InitTransactions() error                 { return nil }
-func (m *mockSyncProducer) IsTransactional() bool                   { return false }
-func (m *mockSyncProducer) TxnStatus() sarama.ProducerTxnStatusFlag { return 0 }
 
 func TestProducer_SendToDLQ(t *testing.T) {
 	t.Parallel()
 
 	t.Run("success", func(t *testing.T) {
 		t.Parallel()
-		mock := newMockSyncProducer()
+		mock := newMockProducer()
 		p := dlq.NewProducerWithClient(mock, "dlq-topic", zap.NewNop())
 
 		p.SendToDLQ("PaymentFailed", `{"id":"123"}`, "timeout")
@@ -76,11 +57,11 @@ func TestProducer_SendToDLQ(t *testing.T) {
 		require.Len(t, mock.msgs, 1)
 
 		msg := mock.msgs[0]
-		assert.Equal(t, "dlq-topic", msg.Topic)
-		assert.Equal(t, sarama.ByteEncoder([]byte("PaymentFailed")), msg.Key)
+		assert.Equal(t, "dlq-topic", msg.topic)
+		assert.Equal(t, []byte("PaymentFailed"), msg.key)
 
 		var event dlq.Event
-		err := json.Unmarshal(msg.Value.(sarama.ByteEncoder), &event)
+		err := json.Unmarshal(msg.value, &event)
 		require.NoError(t, err)
 		assert.Equal(t, "PaymentFailed", event.EventType)
 		assert.Equal(t, `{"id":"123"}`, event.Payload)
@@ -90,7 +71,7 @@ func TestProducer_SendToDLQ(t *testing.T) {
 
 	t.Run("send_error", func(t *testing.T) {
 		t.Parallel()
-		mock := newMockSyncProducer()
+		mock := newMockProducer()
 		mock.err = errors.New("kafka down")
 		p := dlq.NewProducerWithClient(mock, "dlq-topic", zap.NewNop())
 
@@ -112,7 +93,7 @@ func TestProducer_SendToDLQ(t *testing.T) {
 
 func TestProducer_Close(t *testing.T) {
 	t.Parallel()
-	mock := newMockSyncProducer()
+	mock := newMockProducer()
 	p := dlq.NewProducerWithClient(mock, "dlq-topic", zap.NewNop())
 	require.NoError(t, p.Close())
 }

@@ -171,12 +171,6 @@ func TestPaymentUsecase_ProcessPayment(t *testing.T) {
 			wantErr:    false,
 		},
 		{
-			name:    "amount_zero",
-			amount:  0,
-			randGen: func() float64 { return 0.5 },
-			wantErr: true,
-		},
-		{
 			name:      "create_error",
 			amount:    10000,
 			randGen:   func() float64 { return 0.5 },

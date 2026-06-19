@@ -1,48 +1,60 @@
 package config
 
 import (
-	"time"
-
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/config"
 )
 
 type Config struct {
-	GRPCPort                 int
-	MetricsPort              int
-	LogLevel                 string
-	LogFormat                string
-	OTELExporterOTLPEndpoint string
-	PostgresDSN              string
-	InventoryAddr            string
-	PaymentAddr              string
-	CatalogAddr              string
-	JWTSecret                string
-	DefaultCallTimeout       time.Duration
-	DefaultQueryTimeout      time.Duration
-	CertPath                 string
-	KafkaBrokers             []string
-	KafkaTopic               string
-	RedisAddr                string
+	config.Base
+	config.ServerBase
+
+	PostgresDSN   string
+	InventoryAddr string
+	PaymentAddr   string
+	CatalogAddr   string
+	KafkaBrokers  []string
+	KafkaTopic    string
+	RedisAddr     string
 }
 
-func Load() *Config {
-	grpcPort := config.GetEnvInt("GRPC_PORT", 50055)
-	return &Config{
-		GRPCPort:                 grpcPort,
-		MetricsPort:              config.GetEnvInt("METRICS_PORT", grpcPort+1000),
-		LogLevel:                 config.GetEnv("LOG_LEVEL", "info"),
-		LogFormat:                config.GetEnv("LOG_FORMAT", "json"),
-		OTELExporterOTLPEndpoint: config.GetEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"),
-		PostgresDSN:              config.MustGetEnv("POSTGRES_DSN"),
-		InventoryAddr:            config.GetEnv("INVENTORY_ADDR", "localhost:50053"),
-		PaymentAddr:              config.GetEnv("PAYMENT_ADDR", "localhost:50054"),
-		CatalogAddr:              config.GetEnv("CATALOG_ADDR", "localhost:50052"),
-		JWTSecret:                config.MustGetEnv("JWT_SECRET"),
-		DefaultCallTimeout:       config.GetEnvDuration("DEFAULT_CALL_TIMEOUT", 5*time.Second),
-		DefaultQueryTimeout:      config.GetEnvDuration("DEFAULT_QUERY_TIMEOUT", 3*time.Second),
-		CertPath:                 config.GetEnv("CERT_PATH", ""),
-		KafkaBrokers:             config.GetEnvSlice("KAFKA_BROKERS", []string{"localhost:9092"}),
-		KafkaTopic:               config.GetEnv("KAFKA_TOPIC", "order-events"),
-		RedisAddr:                config.GetEnv("REDIS_ADDR", "localhost:6379"),
+func Load() (*Config, error) {
+	base := config.LoadBase()
+	if err := config.ValidateJWTSecret(base.JWTSecret, 32); err != nil {
+		return nil, err
 	}
+
+	serverBase := config.LoadServerBase(50055)
+
+	postgresDSN := config.GetEnv("POSTGRES_DSN", "")
+	if err := config.ValidatePostgresDSN(postgresDSN); err != nil {
+		return nil, err
+	}
+
+	kafkaBrokers := config.GetEnvSlice("KAFKA_BROKERS", []string{"localhost:9092"})
+	if err := config.ValidateKafkaBrokers(kafkaBrokers); err != nil {
+		return nil, err
+	}
+
+	kafkaTopic := config.GetEnv("KAFKA_TOPIC", "order-events")
+	if err := config.ValidateKafkaTopics([]string{kafkaTopic}); err != nil {
+		return nil, err
+	}
+
+	return &Config{
+		Base:       base,
+		ServerBase: serverBase,
+
+		PostgresDSN:   postgresDSN,
+		InventoryAddr: config.GetEnv("INVENTORY_ADDR", "localhost:50053"),
+		PaymentAddr:   config.GetEnv("PAYMENT_ADDR", "localhost:50054"),
+		CatalogAddr:   config.GetEnv("CATALOG_ADDR", "localhost:50052"),
+		KafkaBrokers:  kafkaBrokers,
+		KafkaTopic:    kafkaTopic,
+		RedisAddr:     config.GetEnv("REDIS_ADDR", "localhost:6379"),
+	}, nil
 }
+
+func (c *Config) GetPostgresDSN() string    { return c.PostgresDSN }
+func (c *Config) GetRedisAddr() string      { return c.RedisAddr }
+func (c *Config) GetKafkaBrokers() []string { return c.KafkaBrokers }
+func (c *Config) GetInsecureSkipTLS() bool  { return false }

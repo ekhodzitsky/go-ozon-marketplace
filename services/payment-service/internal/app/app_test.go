@@ -11,6 +11,7 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/app"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -88,7 +89,7 @@ func waitForTCP(t *testing.T, addr string) {
 	require.NoError(t, err)
 }
 
-func TestNew_WithInvalidConfig(t *testing.T) {
+func TestLoadConfig_InvalidConfig(t *testing.T) {
 	require.NoError(t, os.Setenv("POSTGRES_DSN", "postgres://user:pass@localhost:5432/db?sslmode=disable"))
 	require.NoError(t, os.Setenv("JWT_SECRET", "short"))
 	t.Cleanup(func() {
@@ -96,11 +97,7 @@ func TestNew_WithInvalidConfig(t *testing.T) {
 		_ = os.Unsetenv("JWT_SECRET")
 	})
 
-	application := app.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	err := application.Start(ctx)
+	_, err := config.Load()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "jwt secret must be at least")
 }
@@ -113,7 +110,10 @@ func TestNew_DIWiring(t *testing.T) {
 	dsn := startPostgres(t)
 	grpcPort, metricsPort := setRequiredEnv(t, dsn)
 
-	application := app.New()
+	cfg, err := config.Load()
+	require.NoError(t, err)
+
+	application := app.New(cfg)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

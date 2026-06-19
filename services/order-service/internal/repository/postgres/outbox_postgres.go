@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -16,7 +17,7 @@ type OutboxPostgres struct {
 	tx   pgx.Tx
 }
 
-func NewOutboxPostgres(db Querier) *OutboxPostgres {
+func NewOutboxPostgres(db Querier) repository.OutboxRepository {
 	return &OutboxPostgres{db: db, pool: db}
 }
 

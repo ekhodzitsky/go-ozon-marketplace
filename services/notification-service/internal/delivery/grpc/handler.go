@@ -18,7 +18,7 @@ type NotificationHandler struct {
 	usecase usecase.NotificationUsecase
 }
 
-func NewNotificationHandler(uc usecase.NotificationUsecase) *NotificationHandler {
+func NewNotificationHandler(uc usecase.NotificationUsecase) notificationv1.NotificationServiceServer {
 	return &NotificationHandler{usecase: uc}
 }
 

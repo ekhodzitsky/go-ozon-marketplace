@@ -3,8 +3,8 @@ package app
 import (
 	"context"
 
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
-	pkgpostgres "github.com/ekhodzitsky/go-ozon-marketplace/pkg/postgres"
+	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/fxmodules"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/config"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/dlq"
@@ -16,18 +16,15 @@ import (
 	"go.uber.org/zap"
 )
 
-func New() *fx.App {
-	return fx.New(
+func New(cfg *config.Config) *fx.App {
+	return fxmodules.GRPCService(
+		"payment-service",
+		cfg,
+		paymentv1.RegisterPaymentServiceServer,
+		grpcdelivery.NewPaymentHandler,
+		fxmodules.Postgres(cfg),
+		fxmodules.KafkaProducer(cfg),
 		fx.Provide(
-			config.Load,
-			func(cfg *config.Config) (*zap.Logger, error) {
-				return logger.New(cfg.LogLevel, cfg.LogFormat)
-			},
-			func(cfg *config.Config) (*pgxpool.Pool, error) {
-				ctx, cancel := context.WithTimeout(context.Background(), cfg.DefaultQueryTimeout)
-				defer cancel()
-				return pkgpostgres.NewPool(ctx, cfg.PostgresDSN)
-			},
 			func(db *pgxpool.Pool) postgres.Querier {
 				return db
 			},
@@ -39,9 +36,7 @@ func New() *fx.App {
 			func(cfg *config.Config, log *zap.Logger) (*dlq.Producer, error) {
 				return dlq.NewProducer(cfg.KafkaBrokers, cfg.DLQTopic, log)
 			},
-			grpcdelivery.NewPaymentHandler,
 		),
-		fx.Invoke(registerServers),
 		fx.Invoke(func(lc fx.Lifecycle, p *dlq.Producer, log *zap.Logger) {
 			lc.Append(fx.Hook{
 				OnStop: func(ctx context.Context) error {

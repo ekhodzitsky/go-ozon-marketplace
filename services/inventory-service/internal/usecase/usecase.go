@@ -108,10 +108,6 @@ func (u *inventoryUsecase) Reserve(ctx context.Context, productID uuid.UUID, qua
 		return fmt.Errorf("invalid order_id: %w", err)
 	}
 
-	if quantity <= 0 {
-		return fmt.Errorf("%w: quantity must be positive", apperrors.ErrInvalidArgument)
-	}
-
 	if err := u.txm.Run(ctx, func(repo repository.InventoryRepository) error {
 		return reserve(ctx, repo, productID, quantity, orderUUID)
 	}); err != nil {
@@ -170,10 +166,6 @@ func (u *inventoryUsecase) Release(ctx context.Context, productID uuid.UUID, qua
 	orderUUID, err := uuid.Parse(orderID)
 	if err != nil {
 		return fmt.Errorf("invalid order_id: %w", err)
-	}
-
-	if quantity <= 0 {
-		return fmt.Errorf("%w: quantity must be positive", apperrors.ErrInvalidArgument)
 	}
 
 	if err := u.txm.Run(ctx, func(repo repository.InventoryRepository) error {
