@@ -6,6 +6,7 @@ import "buf/validate/validate.proto";
 
 option go_package = "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1;orderv1";
 
+// Статусы заказа на всём жизненном цикле.
 enum OrderStatus {
   ORDER_STATUS_UNSPECIFIED = 0;
   ORDER_STATUS_PENDING = 1;
@@ -18,71 +19,99 @@ enum OrderStatus {
   ORDER_STATUS_REFUNDED = 8;
 }
 
+// Сервис заказов: создание, просмотр, отмена, смена статуса.
 service OrderService {
+  // Создать заказ.
   rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse);
+  // Получить заказ по идентификатору.
   rpc GetOrder(GetOrderRequest) returns (GetOrderResponse);
+  // Постраничный список заказов.
   rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse);
+  // Отменить заказ.
   rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+  // Изменить статус заказа.
   rpc UpdateOrderStatus(UpdateOrderStatusRequest) returns (UpdateOrderStatusResponse);
 }
 
+// Запрос на создание заказа.
 message CreateOrderRequest {
+  // Позиции заказа, должен быть хотя бы один товар.
   repeated OrderItem items = 1 [(buf.validate.field).repeated.min_items = 1];
+  // Ключ идемпотентности создания заказа.
   string idempotency_key = 2 [(buf.validate.field).string.min_len = 1];
 }
 
+// Ответ на создание заказа.
 message CreateOrderResponse {
   string order_id = 1;
   OrderStatus status = 2;
 }
 
+// Запрос на получение заказа.
 message GetOrderRequest {
   string order_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
+// Ответ с заказом.
 message GetOrderResponse {
   Order order = 1;
 }
 
+// Запрос постраничного списка заказов.
 message ListOrdersRequest {
+  // Номер страницы, начинается с 1.
   int32 page = 1 [(buf.validate.field).int32.gte = 1];
+  // Размер страницы, от 1 до 100.
   int32 page_size = 2 [(buf.validate.field).int32 = { gt: 0, lte: 100 }];
 }
 
+// Ответ со списком заказов.
 message ListOrdersResponse {
   repeated Order orders = 1;
+  // Общее количество заказов.
   int32 total = 2;
 }
 
+// Модель заказа.
 message Order {
   string order_id = 1;
   string user_id = 2;
   repeated OrderItem items = 3;
+  // Общая сумма заказа в центах.
   int64 total_amount_cents = 4 [(buf.validate.field).int64.gte = 0];
   OrderStatus status = 5;
+  // Даты создания и обновления в формате RFC3339 (строки пока оставлены сознательно).
   string created_at = 6;
   string updated_at = 7;
 }
 
+// Позиция в заказе.
 message OrderItem {
   string product_id = 1 [(buf.validate.field).string.min_len = 1];
+  // Количество, больше нуля.
   int32 quantity = 2 [(buf.validate.field).int32.gt = 0];
+  // Цена позиции в центах, больше нуля.
   int64 price_cents = 3 [(buf.validate.field).int64.gt = 0];
 }
 
+// Запрос на отмену заказа.
 message CancelOrderRequest {
   string order_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
+// Ответ на отмену заказа.
 message CancelOrderResponse {
   bool success = 1;
 }
 
+// Запрос на смену статуса заказа.
 message UpdateOrderStatusRequest {
   string order_id = 1 [(buf.validate.field).string.min_len = 1];
+  // Новый статус. Должен быть известным значением enum.
   OrderStatus status = 2 [(buf.validate.field).enum.defined_only = true];
 }
 
+// Ответ на смену статуса.
 message UpdateOrderStatusResponse {
   string order_id = 1;
   OrderStatus status = 2;

@@ -262,6 +262,7 @@ func (b *ProcessPaymentRequestBuilder) Build() *paymentv1.ProcessPaymentRequest 
 
 type RefundRequestBuilder struct {
 	paymentID      string
+	amountCents    int64
 	idempotencyKey string
 }
 
@@ -271,6 +272,11 @@ func NewRefundRequestBuilder() *RefundRequestBuilder {
 
 func (b *RefundRequestBuilder) WithPaymentID(id string) *RefundRequestBuilder {
 	b.paymentID = id
+	return b
+}
+
+func (b *RefundRequestBuilder) WithAmountCents(amount int64) *RefundRequestBuilder {
+	b.amountCents = amount
 	return b
 }
 
@@ -285,6 +291,7 @@ func (b *RefundRequestBuilder) Build() *paymentv1.RefundRequest {
 	}
 	return &paymentv1.RefundRequest{
 		PaymentId:      b.paymentID,
+		AmountCents:    b.amountCents,
 		IdempotencyKey: ensureIdempotencyKey(b.idempotencyKey),
 	}
 }
@@ -433,9 +440,9 @@ func (b *SearchProductsRequestBuilder) Build() *catalogv1.SearchProductsRequest 
 
 type UpdateProductRequestBuilder struct {
 	productID   string
-	name        string
-	description string
-	priceCents  int64
+	name        *string
+	description *string
+	priceCents  *int64
 	categories  []string
 }
 
@@ -449,17 +456,17 @@ func (b *UpdateProductRequestBuilder) WithProductID(id string) *UpdateProductReq
 }
 
 func (b *UpdateProductRequestBuilder) WithName(name string) *UpdateProductRequestBuilder {
-	b.name = name
+	b.name = &name
 	return b
 }
 
 func (b *UpdateProductRequestBuilder) WithDescription(desc string) *UpdateProductRequestBuilder {
-	b.description = desc
+	b.description = &desc
 	return b
 }
 
 func (b *UpdateProductRequestBuilder) WithPriceCents(priceCents int64) *UpdateProductRequestBuilder {
-	b.priceCents = priceCents
+	b.priceCents = &priceCents
 	return b
 }
 

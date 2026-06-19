@@ -140,7 +140,10 @@ func TestCatalogUsecase_UpdateProduct_Success(t *testing.T) {
 	d.productRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 	d.outboxRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
 
-	err := d.uc.UpdateProduct(context.Background(), id, "New", "NewDesc", 2000, []string{"new"})
+	name := "New"
+	desc := "NewDesc"
+	price := int64(2000)
+	err := d.uc.UpdateProduct(context.Background(), id, &name, &desc, &price, []string{"new"})
 	require.NoError(t, err)
 }
 
@@ -152,7 +155,7 @@ func TestCatalogUsecase_UpdateProduct_PartialFields(t *testing.T) {
 	d.productRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
 	d.outboxRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
 
-	err := d.uc.UpdateProduct(context.Background(), id, "", "", 0, nil)
+	err := d.uc.UpdateProduct(context.Background(), id, nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "Old", existing.Name)
 	assert.Equal(t, int64(1000), existing.Price)
@@ -163,7 +166,8 @@ func TestCatalogUsecase_UpdateProduct_NotFoundOnGet(t *testing.T) {
 	id := uuid.New()
 	d.productRepo.EXPECT().GetByID(gomock.Any(), id).Return(nil, apperrors.ErrNotFound)
 
-	err := d.uc.UpdateProduct(context.Background(), id, "New", "", 0, nil)
+	name := "New"
+	err := d.uc.UpdateProduct(context.Background(), id, &name, nil, nil, nil)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrNotFound))
 }
@@ -175,7 +179,8 @@ func TestCatalogUsecase_UpdateProduct_RowsAffectedZero(t *testing.T) {
 	d.productRepo.EXPECT().GetByID(gomock.Any(), id).Return(existing, nil)
 	d.productRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(apperrors.ErrNotFound)
 
-	err := d.uc.UpdateProduct(context.Background(), id, "New", "", 0, nil)
+	name := "New"
+	err := d.uc.UpdateProduct(context.Background(), id, &name, nil, nil, nil)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrNotFound))
 }
@@ -184,7 +189,8 @@ func TestCatalogUsecase_UpdateProduct_TxManagerError(t *testing.T) {
 	d := newTestDeps(t)
 	d.txRunner.err = errors.New("tx manager failed")
 
-	err := d.uc.UpdateProduct(context.Background(), uuid.New(), "New", "", 0, nil)
+	name := "New"
+	err := d.uc.UpdateProduct(context.Background(), uuid.New(), &name, nil, nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "tx manager failed")
 }

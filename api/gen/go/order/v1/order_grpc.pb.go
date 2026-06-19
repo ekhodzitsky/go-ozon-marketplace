@@ -29,11 +29,18 @@ const (
 // OrderServiceClient is the client API for OrderService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Сервис заказов: создание, просмотр, отмена, смена статуса.
 type OrderServiceClient interface {
+	// Создать заказ.
 	CreateOrder(ctx context.Context, in *CreateOrderRequest, opts ...grpc.CallOption) (*CreateOrderResponse, error)
+	// Получить заказ по идентификатору.
 	GetOrder(ctx context.Context, in *GetOrderRequest, opts ...grpc.CallOption) (*GetOrderResponse, error)
+	// Постраничный список заказов.
 	ListOrders(ctx context.Context, in *ListOrdersRequest, opts ...grpc.CallOption) (*ListOrdersResponse, error)
+	// Отменить заказ.
 	CancelOrder(ctx context.Context, in *CancelOrderRequest, opts ...grpc.CallOption) (*CancelOrderResponse, error)
+	// Изменить статус заказа.
 	UpdateOrderStatus(ctx context.Context, in *UpdateOrderStatusRequest, opts ...grpc.CallOption) (*UpdateOrderStatusResponse, error)
 }
 
@@ -98,11 +105,18 @@ func (c *orderServiceClient) UpdateOrderStatus(ctx context.Context, in *UpdateOr
 // OrderServiceServer is the server API for OrderService service.
 // All implementations should embed UnimplementedOrderServiceServer
 // for forward compatibility
+//
+// Сервис заказов: создание, просмотр, отмена, смена статуса.
 type OrderServiceServer interface {
+	// Создать заказ.
 	CreateOrder(context.Context, *CreateOrderRequest) (*CreateOrderResponse, error)
+	// Получить заказ по идентификатору.
 	GetOrder(context.Context, *GetOrderRequest) (*GetOrderResponse, error)
+	// Постраничный список заказов.
 	ListOrders(context.Context, *ListOrdersRequest) (*ListOrdersResponse, error)
+	// Отменить заказ.
 	CancelOrder(context.Context, *CancelOrderRequest) (*CancelOrderResponse, error)
+	// Изменить статус заказа.
 	UpdateOrderStatus(context.Context, *UpdateOrderStatusRequest) (*UpdateOrderStatusResponse, error)
 }
 

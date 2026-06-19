@@ -111,7 +111,7 @@ func (u *catalogUsecase) GetProduct(ctx context.Context, id uuid.UUID) (*domain.
 	return u.productRepo.GetByID(ctx, id)
 }
 
-func (u *catalogUsecase) UpdateProduct(ctx context.Context, id uuid.UUID, name, description string, price int64, categories []string) error {
+func (u *catalogUsecase) UpdateProduct(ctx context.Context, id uuid.UUID, name, description *string, price *int64, categories []string) error {
 	txCtx, cancel := context.WithTimeout(ctx, u.queryTimeout)
 	defer cancel()
 
@@ -124,14 +124,15 @@ func (u *catalogUsecase) UpdateProduct(ctx context.Context, id uuid.UUID, name, 
 			return fmt.Errorf("get product: %w", err)
 		}
 
-		if name != "" {
-			existing.Name = name
+		// Обновляем только явно переданные поля. nil означает «не прислали».
+		if name != nil {
+			existing.Name = *name
 		}
-		if description != "" {
-			existing.Description = description
+		if description != nil {
+			existing.Description = *description
 		}
-		if price > 0 {
-			existing.Price = price
+		if price != nil {
+			existing.Price = *price
 		}
 		if len(categories) > 0 {
 			existing.Categories = categories

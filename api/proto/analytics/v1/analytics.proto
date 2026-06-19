@@ -6,39 +6,60 @@ import "buf/validate/validate.proto";
 
 option go_package = "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/analytics/v1;analyticsv1";
 
+// Сервис аналитики: события и выручка.
 service AnalyticsService {
+  // Зафиксировать произвольное событие.
   rpc TrackEvent(TrackEventRequest) returns (TrackEventResponse);
+  // Получить дневную выручку.
   rpc GetDailyRevenue(GetDailyRevenueRequest) returns (GetDailyRevenueResponse);
+  // Зафиксировать событие A/B-теста.
   rpc TrackABTestEvent(TrackABTestEventRequest) returns (TrackABTestEventResponse);
 }
 
+// Запрос на фиксацию события.
 message TrackEventRequest {
+  // Тип события, например "order_created".
   string event_type = 1 [(buf.validate.field).string.min_len = 1];
+  // Идентификатор агрегата, к которому относится событие.
   string aggregate_id = 2 [(buf.validate.field).string.min_len = 1];
+  // Произвольная полезная нагрузка в виде строки (обычно JSON).
   string payload = 3;
+  // Ключ для агрегации событий в потоке.
   string aggregation_key = 4 [(buf.validate.field).string.min_len = 1];
 }
 
+// Ответ после фиксации события.
 message TrackEventResponse {
   bool success = 1;
 }
 
+// Запрос дневной выручки.
 message GetDailyRevenueRequest {
+  // Дата в формате YYYY-MM-DD.
   string date = 1 [(buf.validate.field).string.min_len = 1];
 }
 
+// Ответ с дневной выручкой.
 message GetDailyRevenueResponse {
+  // Сумма выручки в условных единицах.
   double revenue = 1;
 }
 
+// Запрос на фиксацию события A/B-теста.
 message TrackABTestEventRequest {
+  // Название эксперимента.
   string experiment = 1 [(buf.validate.field).string.min_len = 1];
+  // Вариант, в который попал пользователь.
   string variation = 2 [(buf.validate.field).string.min_len = 1];
+  // Идентификатор пользователя.
   string user_id = 3 [(buf.validate.field).string.min_len = 1];
+  // Было ли конверсионное действие.
   bool conversion = 4;
+  // Выручка от пользователя в минорных единицах.
   int64 revenue_minor = 5 [(buf.validate.field).int64.gte = 0];
 }
 
+// Ответ после фиксации события A/B-теста.
 message TrackABTestEventResponse {
   bool success = 1;
 }

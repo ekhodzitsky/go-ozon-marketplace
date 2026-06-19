@@ -6,27 +6,37 @@ import "buf/validate/validate.proto";
 
 option go_package = "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1;userv1";
 
+// Сервис пользователей: регистрация, вход, профиль.
 service UserService {
+  // Зарегистрировать нового пользователя.
   rpc Register(RegisterRequest) returns (RegisterResponse);
+  // Войти по email и паролю, получить токен.
   rpc Login(LoginRequest) returns (LoginResponse);
+  // Получить профиль пользователя.
   rpc GetUser(GetUserRequest) returns (GetUserResponse);
 }
 
+// Запрос на регистрацию.
 message RegisterRequest {
   string email = 1 [(buf.validate.field).string.email = true];
+  // Пароль минимум 8 символов.
   string password = 2 [(buf.validate.field).string.min_len = 8];
+  // Имя пользователя, обязательное.
   string name = 3 [(buf.validate.field).string.min_len = 1];
 }
 
+// Ответ на регистрацию: идентификатор нового пользователя.
 message RegisterResponse {
   string user_id = 1;
 }
 
+// Запрос на вход.
 message LoginRequest {
   string email = 1 [(buf.validate.field).string.email = true];
   string password = 2 [(buf.validate.field).string.min_len = 8];
 }
 
+// Ответ на вход: JWT-токен.
 message LoginResponse {
   string token = 1;
 }
@@ -36,9 +46,11 @@ message GetUserRequest {
   string user_id = 1;
 }
 
+// Ответ с профилем пользователя.
 message GetUserResponse {
   string user_id = 1;
   string email = 2;
   string name = 3;
+  // Дата создания в формате RFC3339 (строка пока оставлена сознательно).
   string created_at = 4;
 }

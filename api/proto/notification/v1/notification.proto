@@ -6,16 +6,24 @@ import "buf/validate/validate.proto";
 
 option go_package = "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/notification/v1;notificationv1";
 
+// Сервис уведомлений: отправка email.
 service NotificationService {
+  // Отправить email-письмо.
   rpc SendEmail(SendEmailRequest) returns (SendEmailResponse);
 }
 
+// Запрос на отправку письма.
 message SendEmailRequest {
+  // Адрес получателя.
   string to = 1 [(buf.validate.field).string.email = true];
+  // Тема письма.
   string subject = 2 [(buf.validate.field).string.min_len = 1];
+  // Тело письма.
   string body = 3 [(buf.validate.field).string.min_len = 1];
 }
 
+// Ответ на отправку письма.
 message SendEmailResponse {
+  // true, если письмо поставлено в очередь или отправлено.
   bool sent = 1;
 }

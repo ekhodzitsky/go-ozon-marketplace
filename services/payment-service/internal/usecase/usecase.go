@@ -95,7 +95,7 @@ func (u *paymentUsecase) ProcessPayment(ctx context.Context, orderID, userID uui
 	return result, nil
 }
 
-func (u *paymentUsecase) Refund(ctx context.Context, paymentID uuid.UUID, idempotencyKey string) (*domain.Payment, *domain.Refund, error) {
+func (u *paymentUsecase) Refund(ctx context.Context, paymentID uuid.UUID, amountCents int64, idempotencyKey string) (*domain.Payment, *domain.Refund, error) {
 	ctx, cancel := context.WithTimeout(ctx, u.callTimeout)
 	defer cancel()
 
@@ -127,10 +127,19 @@ func (u *paymentUsecase) Refund(ctx context.Context, paymentID uuid.UUID, idempo
 			return fmt.Errorf("%w: payment status %s cannot be refunded", apperrors.ErrFailedPrecondition, payment.Status)
 		}
 
+		// Если сумму не передали — возвращаем полную стоимость платежа.
+		refundAmount := amountCents
+		if refundAmount == 0 {
+			refundAmount = payment.Amount
+		}
+		if refundAmount > payment.Amount {
+			return fmt.Errorf("%w: refund amount exceeds payment amount", apperrors.ErrInvalidArgument)
+		}
+
 		refund := &domain.Refund{
 			ID:             uuid.New(),
 			PaymentID:      payment.ID,
-			Amount:         payment.Amount,
+			Amount:         refundAmount,
 			Reason:         "",
 			Status:         domain.StatusRefunded,
 			IdempotencyKey: idempotencyKey,

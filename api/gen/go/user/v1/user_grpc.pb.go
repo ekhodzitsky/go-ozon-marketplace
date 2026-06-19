@@ -27,9 +27,14 @@ const (
 // UserServiceClient is the client API for UserService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Сервис пользователей: регистрация, вход, профиль.
 type UserServiceClient interface {
+	// Зарегистрировать нового пользователя.
 	Register(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error)
+	// Войти по email и паролю, получить токен.
 	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
+	// Получить профиль пользователя.
 	GetUser(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*GetUserResponse, error)
 }
 
@@ -74,9 +79,14 @@ func (c *userServiceClient) GetUser(ctx context.Context, in *GetUserRequest, opt
 // UserServiceServer is the server API for UserService service.
 // All implementations should embed UnimplementedUserServiceServer
 // for forward compatibility
+//
+// Сервис пользователей: регистрация, вход, профиль.
 type UserServiceServer interface {
+	// Зарегистрировать нового пользователя.
 	Register(context.Context, *RegisterRequest) (*RegisterResponse, error)
+	// Войти по email и паролю, получить токен.
 	Login(context.Context, *LoginRequest) (*LoginResponse, error)
+	// Получить профиль пользователя.
 	GetUser(context.Context, *GetUserRequest) (*GetUserResponse, error)
 }
 

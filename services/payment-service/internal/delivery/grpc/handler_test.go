@@ -42,6 +42,14 @@ func newRefundRequest(paymentID string) *paymentv1.RefundRequest {
 	}
 }
 
+func newRefundRequestWithAmount(paymentID string, amountCents int64) *paymentv1.RefundRequest {
+	return &paymentv1.RefundRequest{
+		PaymentId:      paymentID,
+		AmountCents:    amountCents,
+		IdempotencyKey: uuid.New().String(),
+	}
+}
+
 func TestPaymentHandler_ProcessPayment(t *testing.T) {
 	t.Parallel()
 
@@ -141,7 +149,7 @@ func TestPaymentHandler_Refund(t *testing.T) {
 			setupMock: func(m *mocks.MockPaymentUsecase) {
 				m.EXPECT().GetByID(gomock.Any(), paymentID).
 					Return(&domain.Payment{ID: paymentID, UserID: uuid.MustParse(validUser), Status: domain.StatusSuccess}, nil)
-				m.EXPECT().Refund(gomock.Any(), paymentID, gomock.Any()).
+				m.EXPECT().Refund(gomock.Any(), paymentID, int64(0), gomock.Any()).
 					Return(&domain.Payment{ID: paymentID, Status: domain.StatusRefunded}, &domain.Refund{}, nil)
 			},
 			wantCode:   codes.OK,
@@ -179,7 +187,7 @@ func TestPaymentHandler_Refund(t *testing.T) {
 			setupMock: func(m *mocks.MockPaymentUsecase) {
 				m.EXPECT().GetByID(gomock.Any(), paymentID).
 					Return(&domain.Payment{ID: paymentID, UserID: uuid.New(), Status: domain.StatusSuccess}, nil)
-				m.EXPECT().Refund(gomock.Any(), paymentID, gomock.Any()).
+				m.EXPECT().Refund(gomock.Any(), paymentID, int64(0), gomock.Any()).
 					Return(&domain.Payment{ID: paymentID, Status: domain.StatusRefunded}, &domain.Refund{}, nil)
 			},
 			wantCode:   codes.OK,

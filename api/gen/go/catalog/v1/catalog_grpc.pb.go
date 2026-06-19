@@ -30,12 +30,20 @@ const (
 // CatalogServiceClient is the client API for CatalogService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Сервис каталога: управление товарами — создание, поиск, обновление, удаление.
 type CatalogServiceClient interface {
+	// Создать новый товар.
 	CreateProduct(ctx context.Context, in *CreateProductRequest, opts ...grpc.CallOption) (*CreateProductResponse, error)
+	// Получить товар по идентификатору.
 	GetProduct(ctx context.Context, in *GetProductRequest, opts ...grpc.CallOption) (*GetProductResponse, error)
+	// Постраничный список всех товаров.
 	ListProducts(ctx context.Context, in *ListProductsRequest, opts ...grpc.CallOption) (*ListProductsResponse, error)
+	// Поиск товаров по запросу.
 	SearchProducts(ctx context.Context, in *SearchProductsRequest, opts ...grpc.CallOption) (*SearchProductsResponse, error)
+	// Частичное обновление товара. Переданные поля заменяются, пропущенные остаются без изменений.
 	UpdateProduct(ctx context.Context, in *UpdateProductRequest, opts ...grpc.CallOption) (*UpdateProductResponse, error)
+	// Удалить товар.
 	DeleteProduct(ctx context.Context, in *DeleteProductRequest, opts ...grpc.CallOption) (*DeleteProductResponse, error)
 }
 
@@ -110,12 +118,20 @@ func (c *catalogServiceClient) DeleteProduct(ctx context.Context, in *DeleteProd
 // CatalogServiceServer is the server API for CatalogService service.
 // All implementations should embed UnimplementedCatalogServiceServer
 // for forward compatibility
+//
+// Сервис каталога: управление товарами — создание, поиск, обновление, удаление.
 type CatalogServiceServer interface {
+	// Создать новый товар.
 	CreateProduct(context.Context, *CreateProductRequest) (*CreateProductResponse, error)
+	// Получить товар по идентификатору.
 	GetProduct(context.Context, *GetProductRequest) (*GetProductResponse, error)
+	// Постраничный список всех товаров.
 	ListProducts(context.Context, *ListProductsRequest) (*ListProductsResponse, error)
+	// Поиск товаров по запросу.
 	SearchProducts(context.Context, *SearchProductsRequest) (*SearchProductsResponse, error)
+	// Частичное обновление товара. Переданные поля заменяются, пропущенные остаются без изменений.
 	UpdateProduct(context.Context, *UpdateProductRequest) (*UpdateProductResponse, error)
+	// Удалить товар.
 	DeleteProduct(context.Context, *DeleteProductRequest) (*DeleteProductResponse, error)
 }
 

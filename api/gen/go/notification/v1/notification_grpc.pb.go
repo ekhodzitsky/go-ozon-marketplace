@@ -25,7 +25,10 @@ const (
 // NotificationServiceClient is the client API for NotificationService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Сервис уведомлений: отправка email.
 type NotificationServiceClient interface {
+	// Отправить email-письмо.
 	SendEmail(ctx context.Context, in *SendEmailRequest, opts ...grpc.CallOption) (*SendEmailResponse, error)
 }
 
@@ -50,7 +53,10 @@ func (c *notificationServiceClient) SendEmail(ctx context.Context, in *SendEmail
 // NotificationServiceServer is the server API for NotificationService service.
 // All implementations should embed UnimplementedNotificationServiceServer
 // for forward compatibility
+//
+// Сервис уведомлений: отправка email.
 type NotificationServiceServer interface {
+	// Отправить email-письмо.
 	SendEmail(context.Context, *SendEmailRequest) (*SendEmailResponse, error)
 }
 

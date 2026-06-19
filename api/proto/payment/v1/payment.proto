@@ -6,6 +6,7 @@ import "buf/validate/validate.proto";
 
 option go_package = "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1;paymentv1";
 
+// Статусы платежа на всём жизненном цикле.
 enum PaymentStatus {
   PAYMENT_STATUS_UNSPECIFIED = 0;
   PAYMENT_STATUS_PENDING = 1;
@@ -14,54 +15,78 @@ enum PaymentStatus {
   PAYMENT_STATUS_REFUNDED = 4;
 }
 
+// Сервис платежей: обработка оплат и возвратов.
 service PaymentService {
+  // Списать средства по заказу.
   rpc ProcessPayment(ProcessPaymentRequest) returns (ProcessPaymentResponse);
+  // Вернуть средства по платежу. Можно указать полную или частичную сумму.
   rpc Refund(RefundRequest) returns (RefundResponse);
+  // Получить информацию о конкретном возврате.
   rpc GetRefund(GetRefundRequest) returns (GetRefundResponse);
+  // Список возвратов по платежу.
   rpc ListRefunds(ListRefundsRequest) returns (ListRefundsResponse);
 }
 
+// Запрос на проведение платежа.
 message ProcessPaymentRequest {
+  // Идентификатор заказа, за который платим.
   string order_id = 1 [(buf.validate.field).string.min_len = 1];
+  // Сумма к списанию в центах, больше нуля.
   int64 amount_cents = 2 [(buf.validate.field).int64.gt = 0];
+  // Ключ идемпотентности, чтобы не провести платёж дважды.
   string idempotency_key = 3 [(buf.validate.field).string.min_len = 1];
 }
 
+// Ответ после проведения платежа.
 message ProcessPaymentResponse {
   string payment_id = 1;
   PaymentStatus status = 2;
 }
 
+// Запрос на возврат средств.
 message RefundRequest {
+  // Идентификатор платежа, который возвращаем.
   string payment_id = 1 [(buf.validate.field).string.min_len = 1];
-  string idempotency_key = 2 [(buf.validate.field).string.min_len = 1];
+  // Сумма возврата в центах. Если не передана или 0 — возвращаем полную сумму платежа.
+  int64 amount_cents = 2 [(buf.validate.field).int64.gte = 0];
+  // Ключ идемпотентности для защиты от дублирования возврата.
+  string idempotency_key = 3 [(buf.validate.field).string.min_len = 1];
 }
 
+// Ответ после создания возврата.
 message RefundResponse {
   PaymentStatus status = 1;
 }
 
+// Модель возврата средств.
 message Refund {
   string id = 1;
   string payment_id = 2;
+  // Сумма, которую вернули, в центах.
   int64 amount = 3 [(buf.validate.field).int64.gte = 0];
+  // Причина возврата, если указана.
   string reason = 4;
   PaymentStatus status = 5;
+  // Дата создания в формате RFC3339 (строка пока оставлена сознательно).
   string created_at = 6;
 }
 
+// Запрос на получение возврата.
 message GetRefundRequest {
   string refund_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
+// Ответ с информацией о возврате.
 message GetRefundResponse {
   Refund refund = 1;
 }
 
+// Запрос списка возвратов по платежу.
 message ListRefundsRequest {
   string payment_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
+// Ответ со списком возвратов.
 message ListRefundsResponse {
   repeated Refund refunds = 1;
 }

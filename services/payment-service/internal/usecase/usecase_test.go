@@ -299,7 +299,7 @@ func TestPaymentUsecase_Refund(t *testing.T) {
 				paymentID = uuid.New()
 			}
 
-			payment, refund, err := uc.Refund(context.Background(), paymentID, uuid.New().String())
+			payment, refund, err := uc.Refund(context.Background(), paymentID, 0, uuid.New().String())
 
 			if tt.wantErr {
 				require.Error(t, err)

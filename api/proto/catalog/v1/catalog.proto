@@ -6,81 +6,122 @@ import "buf/validate/validate.proto";
 
 option go_package = "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1;catalogv1";
 
+// Сервис каталога: управление товарами — создание, поиск, обновление, удаление.
 service CatalogService {
+  // Создать новый товар.
   rpc CreateProduct(CreateProductRequest) returns (CreateProductResponse);
+  // Получить товар по идентификатору.
   rpc GetProduct(GetProductRequest) returns (GetProductResponse);
+  // Постраничный список всех товаров.
   rpc ListProducts(ListProductsRequest) returns (ListProductsResponse);
+  // Поиск товаров по запросу.
   rpc SearchProducts(SearchProductsRequest) returns (SearchProductsResponse);
+  // Частичное обновление товара. Переданные поля заменяются, пропущенные остаются без изменений.
   rpc UpdateProduct(UpdateProductRequest) returns (UpdateProductResponse);
+  // Удалить товар.
   rpc DeleteProduct(DeleteProductRequest) returns (DeleteProductResponse);
 }
 
+// Запрос на создание товара.
 message CreateProductRequest {
+  // Название товара, обязательное.
   string name = 1 [(buf.validate.field).string.min_len = 1];
+  // Описание товара.
   string description = 2;
+  // Цена в центах, должна быть больше нуля.
   int64 price_cents = 3 [(buf.validate.field).int64.gt = 0];
+  // Список категорий.
   repeated string categories = 4;
+  // Ключ идемпотентности, чтобы не создать дубликат при повторном запросе.
   string idempotency_key = 5 [(buf.validate.field).string.min_len = 1];
 }
 
+// Ответ на создание товара: возвращает сгенерированный идентификатор.
 message CreateProductResponse {
   string product_id = 1;
 }
 
+// Запрос на получение товара.
 message GetProductRequest {
+  // Идентификатор товара в формате UUID.
   string product_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
+// Ответ с найденным товаром.
 message GetProductResponse {
   Product product = 1;
 }
 
+// Запрос постраничного списка товаров.
 message ListProductsRequest {
+  // Номер страницы, начинается с 1.
   int32 page = 1 [(buf.validate.field).int32.gte = 1];
+  // Размер страницы, от 1 до 100.
   int32 page_size = 2 [(buf.validate.field).int32 = { gt: 0, lte: 100 }];
 }
 
+// Ответ с постраничным списком товаров.
 message ListProductsResponse {
   repeated Product products = 1;
+  // Общее количество товаров под критериям запроса.
   int32 total = 2;
 }
 
+// Запрос на поиск товаров.
 message SearchProductsRequest {
+  // Поисковая строка.
   string query = 1 [(buf.validate.field).string.min_len = 1];
+  // Номер страницы, начинается с 1.
   int32 page = 2 [(buf.validate.field).int32.gte = 1];
+  // Размер страницы, от 1 до 100.
   int32 page_size = 3 [(buf.validate.field).int32 = { gt: 0, lte: 100 }];
 }
 
+// Ответ с результатами поиска.
 message SearchProductsResponse {
   repeated Product products = 1;
+  // Общее количество найденных товаров.
   int32 total = 2;
 }
 
+// Полная модель товара.
 message Product {
   string product_id = 1;
   string name = 2;
   string description = 3;
+  // Цена в центах, всегда положительная.
   int64 price_cents = 4 [(buf.validate.field).int64.gt = 0];
   repeated string categories = 5;
+  // Дата создания в формате RFC3339 (строка пока оставлена сознательно).
   string created_at = 6;
 }
 
+// Запрос на частичное обновление товара.
+// Все поля, кроме product_id, optional: сервер обновляет только явно переданные значения.
 message UpdateProductRequest {
+  // Идентификатор обновляемого товара.
   string product_id = 1 [(buf.validate.field).string.min_len = 1];
-  string name = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
-  string description = 3;
-  int64 price_cents = 4 [(buf.validate.field).int64.gt = 0, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
+  // Новое название. Если не передано — оставляем старое.
+  optional string name = 2 [(buf.validate.field).string.min_len = 1];
+  // Новое описание. Если не передано — оставляем старое.
+  optional string description = 3;
+  // Новая цена в центах. Если не передана — оставляем старую.
+  optional int64 price_cents = 4 [(buf.validate.field).int64.gt = 0];
+  // Новый список категорий. Пустой список считается валидным обновлением.
   repeated string categories = 5;
 }
 
+// Ответ на обновление товара.
 message UpdateProductResponse {
   bool success = 1;
 }
 
+// Запрос на удаление товара.
 message DeleteProductRequest {
   string product_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
+// Ответ на удаление товара.
 message DeleteProductResponse {
   bool success = 1;
 }
