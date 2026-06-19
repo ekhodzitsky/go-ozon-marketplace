@@ -19,7 +19,7 @@ func setupRouter(t *testing.T) http.Handler {
 	require.NoError(t, err)
 	require.NoError(t, flags.Register(context.Background(), &featureflags.Flag{Name: "new-checkout-flow", Enabled: false, Strategy: "default"}))
 	require.NoError(t, flags.Register(context.Background(), &featureflags.Flag{Name: "fast-search", Enabled: false, Strategy: "default"}))
-	return admin.NewRouter(admin.NewHandler(flags), "")
+	return admin.NewRouter(admin.NewHandler(flags), nil)
 }
 
 func TestListFlags(t *testing.T) {

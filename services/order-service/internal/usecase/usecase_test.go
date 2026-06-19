@@ -12,6 +12,7 @@ import (
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
+	grpcclient "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/infrastructure/grpcclient"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/saga"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/unitofwork"
@@ -68,7 +69,12 @@ func newTestOrderUsecase(t *testing.T, ctrl *gomock.Controller) (
 	payClient := mocks.NewMockPaymentServiceClient(ctrl)
 	catalogClient := mocks.NewMockCatalogServiceClient(ctrl)
 
-	orchestrator := saga.NewOrchestrator(orderRepo, sagaRepo, invClient, payClient, testLogger(t), 100*time.Millisecond, 100*time.Millisecond)
+	orchestrator := saga.NewOrchestrator(
+		orderRepo, sagaRepo,
+		grpcclient.NewInventoryClient(invClient, 100*time.Millisecond),
+		grpcclient.NewPaymentClient(payClient, 100*time.Millisecond),
+		testLogger(t), 100*time.Millisecond, 100*time.Millisecond,
+	)
 
 	txm := &fakeTxManager{uow: &fakeUnitOfWork{orderRepo: orderRepo, outboxRepo: outboxRepo}}
 

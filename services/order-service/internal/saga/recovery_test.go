@@ -9,6 +9,7 @@ import (
 
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
+	grpcclient "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/infrastructure/grpcclient"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/saga"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/mocks"
 	"github.com/google/uuid"
@@ -122,7 +123,12 @@ func TestRecoveryWorker_ProcessesIncompleteSagas(t *testing.T) {
 	payClient := mocks.NewMockPaymentServiceClient(ctrl)
 	log := zap.NewNop()
 
-	orchestrator := saga.NewOrchestrator(orderRepo, sagaRepo, invClient, payClient, log, 100*time.Millisecond, 100*time.Millisecond)
+	orchestrator := saga.NewOrchestrator(
+		orderRepo, sagaRepo,
+		grpcclient.NewInventoryClient(invClient, 100*time.Millisecond),
+		grpcclient.NewPaymentClient(payClient, 100*time.Millisecond),
+		log, 100*time.Millisecond, 100*time.Millisecond,
+	)
 
 	orderID := uuid.New()
 	incompleteSaga := domain.Saga{

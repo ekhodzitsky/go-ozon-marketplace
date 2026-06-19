@@ -12,6 +12,7 @@ import (
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
+	grpcclient "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/infrastructure/grpcclient"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/saga"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/mocks"
 	"github.com/google/uuid"
@@ -42,7 +43,12 @@ func newTestOrchestrator(
 	invClient := mocks.NewMockInventoryServiceClient(ctrl)
 	payClient := mocks.NewMockPaymentServiceClient(ctrl)
 	log := zap.NewNop()
-	o := saga.NewOrchestrator(orderRepo, sagaRepo, invClient, payClient, log, 100*time.Millisecond, 100*time.Millisecond)
+	o := saga.NewOrchestrator(
+		orderRepo, sagaRepo,
+		grpcclient.NewInventoryClient(invClient, 100*time.Millisecond),
+		grpcclient.NewPaymentClient(payClient, 100*time.Millisecond),
+		log, 100*time.Millisecond, 100*time.Millisecond,
+	)
 	return o, orderRepo, sagaRepo, invClient, payClient
 }
 
