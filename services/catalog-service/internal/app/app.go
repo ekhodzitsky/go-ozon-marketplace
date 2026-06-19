@@ -13,9 +13,8 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/repository"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/repository/elasticsearch"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/repository/postgres"
-	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/unitofwork"
-	postgresuow "github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/unitofwork/postgres"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/usecase"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/olivere/elastic/v7"
 	"go.uber.org/fx"
@@ -45,20 +44,37 @@ func New(cfg *config.Config) *fx.App {
 			},
 			postgres.NewProductPostgres,
 			postgres.NewOutboxPostgres,
-			func(pool *pgxpool.Pool) *txmanager.Manager[unitofwork.UnitOfWork] {
-				return txmanager.New(pool, postgresuow.NewUnitOfWork)
-			},
 			elasticsearch.NewProductES,
 			func(
-				txm *txmanager.Manager[unitofwork.UnitOfWork],
+				pool *pgxpool.Pool,
 				productRepo repository.ProductRepository,
+				outboxRepo repository.OutboxRepository,
 				searchRepo repository.ProductSearchRepository,
 				cfg *config.Config,
 			) usecase.CatalogUsecase {
-				return usecase.NewCatalogUsecase(txm, productRepo, searchRepo, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
+				return usecase.NewCatalogUsecase(
+					func(ctx context.Context, fn func(pgx.Tx) error) error { return txmanager.RunTx(ctx, pool, fn) },
+					productRepo,
+					outboxRepo,
+					searchRepo,
+					cfg.DefaultCallTimeout,
+					cfg.DefaultQueryTimeout,
+				)
 			},
-			func(outboxRepo repository.OutboxRepository, searchRepo repository.ProductSearchRepository, log *zap.Logger, cfg *config.Config) *outbox.Relay {
-				return outbox.NewRelay(outboxRepo, outbox.NewESHandler(searchRepo), log, cfg.DefaultQueryTimeout)
+			func(
+				pool *pgxpool.Pool,
+				outboxRepo repository.OutboxRepository,
+				searchRepo repository.ProductSearchRepository,
+				log *zap.Logger,
+				cfg *config.Config,
+			) *outbox.Relay {
+				return outbox.NewRelay(
+					func(ctx context.Context, fn func(pgx.Tx) error) error { return txmanager.RunTx(ctx, pool, fn) },
+					outboxRepo,
+					outbox.NewESHandler(searchRepo),
+					log,
+					cfg.DefaultQueryTimeout,
+				)
 			},
 		),
 		fx.Invoke(func(lc fx.Lifecycle, searchRepo repository.ProductSearchRepository, log *zap.Logger) {

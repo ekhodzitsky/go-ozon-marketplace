@@ -15,7 +15,9 @@ import (
 	time "time"
 
 	domain "github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/domain"
+	repository "github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/repository"
 	uuid "github.com/google/uuid"
+	pgx "github.com/jackc/pgx/v5"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -115,6 +117,20 @@ func (m *MockProductRepository) Update(ctx context.Context, product *domain.Prod
 func (mr *MockProductRepositoryMockRecorder) Update(ctx, product any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockProductRepository)(nil).Update), ctx, product)
+}
+
+// WithTx mocks base method.
+func (m *MockProductRepository) WithTx(tx pgx.Tx) repository.ProductRepository {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WithTx", tx)
+	ret0, _ := ret[0].(repository.ProductRepository)
+	return ret0
+}
+
+// WithTx indicates an expected call of WithTx.
+func (mr *MockProductRepositoryMockRecorder) WithTx(tx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithTx", reflect.TypeOf((*MockProductRepository)(nil).WithTx), tx)
 }
 
 // MockProductSearchRepository is a mock of ProductSearchRepository interface.
@@ -237,34 +253,6 @@ func (mr *MockOutboxRepositoryMockRecorder) BatchMarkProcessed(ctx, ids any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchMarkProcessed", reflect.TypeOf((*MockOutboxRepository)(nil).BatchMarkProcessed), ctx, ids)
 }
 
-// Begin mocks base method.
-func (m *MockOutboxRepository) Begin(ctx context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Begin", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Begin indicates an expected call of Begin.
-func (mr *MockOutboxRepositoryMockRecorder) Begin(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Begin", reflect.TypeOf((*MockOutboxRepository)(nil).Begin), ctx)
-}
-
-// Commit mocks base method.
-func (m *MockOutboxRepository) Commit(ctx context.Context) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Commit", ctx)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Commit indicates an expected call of Commit.
-func (mr *MockOutboxRepositoryMockRecorder) Commit(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Commit", reflect.TypeOf((*MockOutboxRepository)(nil).Commit), ctx)
-}
-
 // Create mocks base method.
 func (m *MockOutboxRepository) Create(ctx context.Context, event *domain.OutboxEvent) error {
 	m.ctrl.T.Helper()
@@ -336,16 +324,16 @@ func (mr *MockOutboxRepositoryMockRecorder) MoveToDLQ(ctx, event, failedAt, last
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MoveToDLQ", reflect.TypeOf((*MockOutboxRepository)(nil).MoveToDLQ), ctx, event, failedAt, lastError)
 }
 
-// Rollback mocks base method.
-func (m *MockOutboxRepository) Rollback(ctx context.Context) error {
+// WithTx mocks base method.
+func (m *MockOutboxRepository) WithTx(tx pgx.Tx) repository.OutboxRepository {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Rollback", ctx)
-	ret0, _ := ret[0].(error)
+	ret := m.ctrl.Call(m, "WithTx", tx)
+	ret0, _ := ret[0].(repository.OutboxRepository)
 	return ret0
 }
 
-// Rollback indicates an expected call of Rollback.
-func (mr *MockOutboxRepositoryMockRecorder) Rollback(ctx any) *gomock.Call {
+// WithTx indicates an expected call of WithTx.
+func (mr *MockOutboxRepositoryMockRecorder) WithTx(tx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rollback", reflect.TypeOf((*MockOutboxRepository)(nil).Rollback), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithTx", reflect.TypeOf((*MockOutboxRepository)(nil).WithTx), tx)
 }

@@ -3,16 +3,24 @@ package outbox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/repository"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
 )
 
+// txRunner выполняет функцию внутри БД-транзакции.
+// В продакшене это txmanager.RunTx, в тестах — заглушка.
+type txRunner func(ctx context.Context, fn func(pgx.Tx) error) error
+
 // Relay polls the outbox table and delegates events to a Handler.
 type Relay struct {
+	runTx        txRunner
 	outboxRepo   repository.OutboxRepository
 	handler      Handler
 	log          *zap.Logger
@@ -28,8 +36,9 @@ type Relay struct {
 }
 
 // NewRelay constructs a catalog outbox relay.
-func NewRelay(outboxRepo repository.OutboxRepository, handler Handler, log *zap.Logger, queryTimeout time.Duration) *Relay {
+func NewRelay(runTx txRunner, outboxRepo repository.OutboxRepository, handler Handler, log *zap.Logger, queryTimeout time.Duration) *Relay {
 	return &Relay{
+		runTx:        runTx,
 		outboxRepo:   outboxRepo,
 		handler:      handler,
 		log:          log,
@@ -80,67 +89,70 @@ func (r *Relay) loop(ctx context.Context) {
 	}
 }
 
+// poll читает события из outbox и отправляет их в Elasticsearch.
+// Транзакция управляется напрямую в relay: чтение событий и внешний вызов
+// разнесены по разным транзакциям, чтобы Elasticsearch не вызывался внутри БД-транзакции.
+// В текущей схеме без бронирования событий между транзакциями реле считается единственным
+// или обработчик — идемпотентным.
 func (r *Relay) poll(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, r.queryTimeout)
 	defer cancel()
 
-	if err := r.outboxRepo.Begin(ctx); err != nil {
-		r.log.Error("failed to begin outbox transaction", zap.Error(err))
-		return
-	}
-
-	events, err := r.outboxRepo.GetUnprocessed(ctx, 100)
-	if err != nil {
+	var events []domain.OutboxEvent
+	if err := r.runTx(ctx, func(tx pgx.Tx) error {
+		var err error
+		events, err = r.outboxRepo.WithTx(tx).GetUnprocessed(ctx, 100)
+		return err
+	}); err != nil {
 		r.log.Error("failed to get unprocessed outbox events", zap.Error(err))
-		_ = r.outboxRepo.Rollback(ctx)
 		return
 	}
 
-	now := time.Now().UTC()
-	processed := make([]uuid.UUID, 0, len(events))
+	if len(events) == 0 {
+		return
+	}
 
+	// Внешний вызов делаем после коммита первой транзакции.
+	type result struct {
+		event domain.OutboxEvent
+		err   error
+	}
+	results := make([]result, 0, len(events))
 	for _, event := range events {
-		if err := r.handler.Handle(ctx, event); err != nil {
+		err := r.handler.Handle(ctx, event)
+		results = append(results, result{event: event, err: err})
+		if err != nil {
 			r.log.Error("failed to handle outbox event",
 				zap.Error(err),
 				zap.String("event_id", event.ID.String()),
 				zap.Int("retry_count", event.RetryCount),
 			)
+		}
+	}
 
-			if errors.Is(err, ErrPoison) || event.RetryCount+1 >= r.maxRetries {
-				if dlqErr := r.outboxRepo.MoveToDLQ(ctx, &event, now, err.Error()); dlqErr != nil {
-					r.log.Error("failed to move outbox event to DLQ",
-						zap.Error(dlqErr),
-						zap.String("event_id", event.ID.String()),
-					)
+	now := time.Now().UTC()
+	if err := r.runTx(ctx, func(tx pgx.Tx) error {
+		txRepo := r.outboxRepo.WithTx(tx)
+		for _, res := range results {
+			switch {
+			case res.err == nil:
+				if err := txRepo.BatchMarkProcessed(ctx, []uuid.UUID{res.event.ID}); err != nil {
+					return fmt.Errorf("mark outbox event processed: %w", err)
 				}
-				continue
+			case errors.Is(res.err, ErrPoison) || res.event.RetryCount+1 >= r.maxRetries:
+				if err := txRepo.MoveToDLQ(ctx, &res.event, now, res.err.Error()); err != nil {
+					return fmt.Errorf("move outbox event to DLQ: %w", err)
+				}
+			default:
+				nextRetry := r.calculateNextRetry(res.event.RetryCount)
+				if err := txRepo.IncrementRetryAndSetError(ctx, res.event.ID, res.err.Error(), nextRetry); err != nil {
+					return fmt.Errorf("increment outbox retry: %w", err)
+				}
 			}
-
-			nextRetry := r.calculateNextRetry(event.RetryCount)
-			if retryErr := r.outboxRepo.IncrementRetryAndSetError(ctx, event.ID, err.Error(), nextRetry); retryErr != nil {
-				r.log.Error("failed to increment outbox retry",
-					zap.Error(retryErr),
-					zap.String("event_id", event.ID.String()),
-				)
-			}
-			continue
 		}
-
-		processed = append(processed, event.ID)
-	}
-
-	if len(processed) > 0 {
-		if err := r.outboxRepo.BatchMarkProcessed(ctx, processed); err != nil {
-			r.log.Error("failed to batch mark outbox events processed", zap.Error(err))
-			_ = r.outboxRepo.Rollback(ctx)
-			return
-		}
-	}
-
-	if err := r.outboxRepo.Commit(ctx); err != nil {
-		r.log.Error("failed to commit outbox transaction", zap.Error(err))
-		_ = r.outboxRepo.Rollback(ctx)
+		return nil
+	}); err != nil {
+		r.log.Error("failed to commit outbox results", zap.Error(err))
 	}
 }
 

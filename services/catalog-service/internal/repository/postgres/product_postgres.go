@@ -28,7 +28,7 @@ func NewProductPostgres(db Querier) repository.ProductRepository {
 	return &ProductPostgres{db: db}
 }
 
-func (r *ProductPostgres) WithTx(tx pgx.Tx) *ProductPostgres {
+func (r *ProductPostgres) WithTx(tx pgx.Tx) repository.ProductRepository {
 	return &ProductPostgres{db: tx}
 }
 

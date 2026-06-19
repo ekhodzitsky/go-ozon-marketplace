@@ -8,34 +8,26 @@ import (
 
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/domain"
-	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/repository"
-	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/unitofwork"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/usecase"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/mocks"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
-type fakeUoW struct {
-	productRepo repository.ProductRepository
-	outboxRepo  repository.OutboxRepository
-}
-
-func (f *fakeUoW) ProductRepo() repository.ProductRepository { return f.productRepo }
-func (f *fakeUoW) OutboxRepo() repository.OutboxRepository   { return f.outboxRepo }
-
-type fakeTxManager struct {
-	uow unitofwork.UnitOfWork
+// fakeTxRunner выполняет callback на той же репозитории-заглушке,
+// имитируя транзакцию без настоящей БД.
+type fakeTxRunner struct {
 	err error
 }
 
-func (f *fakeTxManager) Run(ctx context.Context, fn func(unitofwork.UnitOfWork) error) error {
+func (f *fakeTxRunner) run(ctx context.Context, fn func(pgx.Tx) error) error {
 	if f.err != nil {
 		return f.err
 	}
-	return fn(f.uow)
+	return fn(nil)
 }
 
 type testDeps struct {
@@ -43,7 +35,7 @@ type testDeps struct {
 	productRepo *mocks.MockProductRepository
 	searchRepo  *mocks.MockProductSearchRepository
 	outboxRepo  *mocks.MockOutboxRepository
-	txm         *fakeTxManager
+	txRunner    *fakeTxRunner
 	uc          usecase.CatalogUsecase
 }
 
@@ -52,16 +44,21 @@ func newTestDeps(t *testing.T) *testDeps {
 	productRepo := mocks.NewMockProductRepository(ctrl)
 	searchRepo := mocks.NewMockProductSearchRepository(ctrl)
 	outboxRepo := mocks.NewMockOutboxRepository(ctrl)
-	uow := &fakeUoW{productRepo: productRepo, outboxRepo: outboxRepo}
-	txm := &fakeTxManager{uow: uow}
+	txRunner := &fakeTxRunner{}
+
+	// Привязка к транзакции возвращает тот же мок — нам не важен реальный pgx.Tx.
+	productRepo.EXPECT().WithTx(gomock.Any()).Return(productRepo).AnyTimes()
+	outboxRepo.EXPECT().WithTx(gomock.Any()).Return(outboxRepo).AnyTimes()
+
 	uc := usecase.NewCatalogUsecase(
-		txm,
+		txRunner.run,
 		productRepo,
+		outboxRepo,
 		searchRepo,
 		100*time.Millisecond,
 		100*time.Millisecond,
 	)
-	return &testDeps{ctrl: ctrl, productRepo: productRepo, searchRepo: searchRepo, outboxRepo: outboxRepo, txm: txm, uc: uc}
+	return &testDeps{ctrl: ctrl, productRepo: productRepo, searchRepo: searchRepo, outboxRepo: outboxRepo, txRunner: txRunner, uc: uc}
 }
 
 func TestCatalogUsecase_CreateProduct_Success(t *testing.T) {
@@ -88,7 +85,7 @@ func TestCatalogUsecase_CreateProduct_IdempotencyKeyReuse(t *testing.T) {
 
 func TestCatalogUsecase_CreateProduct_TxManagerError(t *testing.T) {
 	d := newTestDeps(t)
-	d.txm.err = errors.New("tx manager failed")
+	d.txRunner.err = errors.New("tx manager failed")
 
 	_, err := d.uc.CreateProduct(context.Background(), "Name", "Desc", 1000, []string{"cat"}, "key")
 	require.Error(t, err)
@@ -185,7 +182,7 @@ func TestCatalogUsecase_UpdateProduct_RowsAffectedZero(t *testing.T) {
 
 func TestCatalogUsecase_UpdateProduct_TxManagerError(t *testing.T) {
 	d := newTestDeps(t)
-	d.txm.err = errors.New("tx manager failed")
+	d.txRunner.err = errors.New("tx manager failed")
 
 	err := d.uc.UpdateProduct(context.Background(), uuid.New(), "New", "", 0, nil)
 	require.Error(t, err)
@@ -225,7 +222,7 @@ func TestCatalogUsecase_DeleteProduct_OutboxError(t *testing.T) {
 
 func TestCatalogUsecase_DeleteProduct_TxManagerError(t *testing.T) {
 	d := newTestDeps(t)
-	d.txm.err = errors.New("tx manager failed")
+	d.txRunner.err = errors.New("tx manager failed")
 
 	err := d.uc.DeleteProduct(context.Background(), uuid.New())
 	require.Error(t, err)
@@ -253,3 +250,4 @@ func TestCatalogUsecase_SearchProducts(t *testing.T) {
 	assert.Equal(t, expected, products)
 	assert.Equal(t, 1, total)
 }
+
