@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// KafkaConsumerConfig exposes the settings needed to start a Kafka consumer group.
+// KafkaConsumerConfig — настройки для запуска Kafka consumer group.
 type KafkaConsumerConfig interface {
 	GetKafkaBrokers() []string
 	GetKafkaConsumerGroup() string
@@ -20,10 +20,10 @@ type KafkaConsumerConfig interface {
 	GetKafkaProcessTimeout() time.Duration
 }
 
-// KafkaConsumer wires a kafka.Consumer into an fx application.
-// The caller must provide a kafka.Processor implementation.
-// An optional kafka.IsPermanentError can be provided to override retry behavior.
-// Settings are resolved from KafkaConsumerConfig via DI, so tests can override them.
+// KafkaConsumer подключает kafka.Consumer к fx-приложению.
+// Вызывающий должен предоставить реализацию kafka.Processor.
+// Можно опционально передать kafka.IsPermanentError, чтобы переопределить поведение ретраев.
+// Настройки берутся из KafkaConsumerConfig через DI, чтобы тесты могли их переопределять.
 func KafkaConsumer(cfg KafkaConsumerConfig) fx.Option {
 	return fx.Options(
 		fx.Provide(func() KafkaConsumerConfig { return cfg }),

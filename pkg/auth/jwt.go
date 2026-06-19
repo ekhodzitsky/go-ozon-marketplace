@@ -7,19 +7,19 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// CustomClaims extends jwt.RegisteredClaims with a role claim.
+// CustomClaims — стандартные JWT-claims плюс роль.
 type CustomClaims struct {
 	jwt.RegisteredClaims
 	Role string `json:"role"`
 }
 
-// ParseJWT validates a JWT token string and returns parsed claims.
-// It uses the default issuer and audience expected by the marketplace.
+// ParseJWT проверяет JWT и возвращает распаршенные claims.
+// Использует дефолтный issuer и audience маркетплейса.
 func ParseJWT(tokenStr, secret string) (*CustomClaims, error) {
 	return parseJWT(tokenStr, secret, "go-ozon-marketplace", "api-gateway")
 }
 
-// ParseBearer extracts the token from "Bearer <token>" and parses it.
+// ParseBearer вытаскивает токен из "Bearer <token>" и парсит его.
 func ParseBearer(bearer, secret string) (*CustomClaims, error) {
 	tokenStr := strings.TrimPrefix(bearer, "Bearer ")
 	if tokenStr == bearer {

@@ -8,7 +8,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// GetUserID extracts user_id from context.
+// GetUserID достаёт user_id из контекста.
 func GetUserID(ctx context.Context) (string, bool) {
 	if id, ok := auth.IdentityFromContext(ctx); ok {
 		return id.UserID, true
@@ -17,7 +17,7 @@ func GetUserID(ctx context.Context) (string, bool) {
 	return v, ok
 }
 
-// GetRole extracts role from context.
+// GetRole достаёт роль из контекста.
 func GetRole(ctx context.Context) (auth.Role, bool) {
 	if id, ok := auth.IdentityFromContext(ctx); ok {
 		return id.Role, true
@@ -35,7 +35,7 @@ func GetRole(ctx context.Context) (auth.Role, bool) {
 	return auth.RoleUser, false
 }
 
-// RequireRole returns PermissionDenied if the context role is not in allowed.
+// RequireRole возвращает PermissionDenied, если роль в контексте не входит в allowed.
 func RequireRole(ctx context.Context, allowed ...auth.Role) error {
 	role, ok := GetRole(ctx)
 	if !ok {

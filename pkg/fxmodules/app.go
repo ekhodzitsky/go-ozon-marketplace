@@ -6,14 +6,14 @@ import (
 	"google.golang.org/grpc"
 )
 
-// ServiceConfig combines the common config interfaces needed by a gRPC service app.
+// ServiceConfig объединяет общие конфиг-интерфейсы для gRPC-сервиса.
 type ServiceConfig interface {
 	LoggerConfig
 	GRPCServerConfig
 }
 
-// GRPCService wires a standard gRPC service fx application. newHandler must be a
-// constructor function returning the generated server interface (Handler).
+// GRPCService собирает стандартное fx-приложение для gRPC-сервиса.
+// newHandler — конструктор, возвращающий сгенерированный интерфейс сервера (Handler).
 func GRPCService[Cfg ServiceConfig, Handler any](
 	serviceName string,
 	cfg Cfg,

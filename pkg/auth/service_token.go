@@ -11,14 +11,14 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// ServiceTokenIssuer signs short-lived JWTs for service-to-service calls.
+// ServiceTokenIssuer подписывает короткоживущие JWT для вызовов между сервисами.
 type ServiceTokenIssuer struct {
 	secret   string
 	subject  string
 	audience string
 }
 
-// NewServiceTokenIssuer creates an issuer for the given service identity.
+// NewServiceTokenIssuer создаёт issuer для заданного сервиса.
 func NewServiceTokenIssuer(secret, subject, audience string) *ServiceTokenIssuer {
 	return &ServiceTokenIssuer{
 		secret:   secret,
@@ -27,7 +27,7 @@ func NewServiceTokenIssuer(secret, subject, audience string) *ServiceTokenIssuer
 	}
 }
 
-// Issue returns a signed Bearer token valid for 1 hour.
+// Issue возвращает подписанный Bearer-токен, действительный час.
 func (i *ServiceTokenIssuer) Issue(ctx context.Context) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, CustomClaims{
 		RegisteredClaims: jwt.RegisteredClaims{

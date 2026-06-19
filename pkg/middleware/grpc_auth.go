@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// AuthUnaryInterceptor validates a JWT bearer token from gRPC metadata using the provided verifier.
+// AuthUnaryInterceptor проверяет JWT Bearer-токен из gRPC-метаданных с помощью заданного верификатора.
 func AuthUnaryInterceptor(verifier auth.Verifier) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		if isPublicEndpoint(info.FullMethod) {

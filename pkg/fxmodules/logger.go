@@ -6,14 +6,14 @@ import (
 	"go.uber.org/zap"
 )
 
-// LoggerConfig exposes logging settings.
+// LoggerConfig — настройки логирования.
 type LoggerConfig interface {
 	GetLogLevel() string
 	GetLogFormat() string
 }
 
-// Logger provides a zap logger as an fx module.
-// Settings are resolved from LoggerConfig via DI, so tests can override them.
+// Logger отдаёт zap-логгер как fx-модуль.
+// Настройки берутся из LoggerConfig через DI, чтобы тесты могли их переопределять.
 func Logger(cfg LoggerConfig) fx.Option {
 	return fx.Options(
 		fx.Provide(func() LoggerConfig { return cfg }),

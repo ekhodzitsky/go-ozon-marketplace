@@ -28,7 +28,7 @@ func NewGRPC(port int, opts ...grpc.ServerOption) *GRPCServer {
 	return NewGRPCWithLogger(port, defaultLog(), opts...)
 }
 
-// NewGRPCWithLogger creates a gRPC server with an explicit logger.
+// NewGRPCWithLogger создаёт gRPC-сервер с явно заданным логгером.
 func NewGRPCWithLogger(port int, log *zap.Logger, opts ...grpc.ServerOption) *GRPCServer {
 	if log == nil {
 		log = defaultLog()
@@ -65,7 +65,7 @@ func (s *GRPCServer) GracefulStop() {
 	}
 }
 
-// LoadServerCredentials loads TLS certificate and key and returns a gRPC server option.
+// LoadServerCredentials загружает TLS-сертификат и ключ и возвращает опцию gRPC-сервера.
 func LoadServerCredentials(certFile, keyFile string) (grpc.ServerOption, error) {
 	creds, err := credentials.NewServerTLSFromFile(certFile, keyFile)
 	if err != nil {
@@ -74,7 +74,7 @@ func LoadServerCredentials(certFile, keyFile string) (grpc.ServerOption, error) 
 	return grpc.Creds(creds), nil
 }
 
-// LoadClientCredentials loads CA certificate and returns transport credentials for gRPC client connections.
+// LoadClientCredentials загружает CA-сертификат и возвращает транспортные credentials для gRPC-клиентов.
 func LoadClientCredentials(caFile string, serverName string) (credentials.TransportCredentials, error) {
 	creds, err := credentials.NewClientTLSFromFile(caFile, serverName)
 	if err != nil {
@@ -83,8 +83,8 @@ func LoadClientCredentials(caFile string, serverName string) (credentials.Transp
 	return creds, nil
 }
 
-// LoadServerMTLSCredentials loads server certificate, key and CA certificate
-// and returns a gRPC server option that enforces mutual TLS.
+// LoadServerMTLSCredentials загружает сертификат сервера, ключ и CA
+// и возвращает опцию gRPC-сервера с mutual TLS.
 func LoadServerMTLSCredentials(certFile, keyFile, caFile string) (grpc.ServerOption, error) {
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
@@ -107,8 +107,8 @@ func LoadServerMTLSCredentials(certFile, keyFile, caFile string) (grpc.ServerOpt
 	return grpc.Creds(credentials.NewTLS(tlsConfig)), nil
 }
 
-// LoadClientMTLSCredentials loads client certificate, key and CA certificate
-// and returns transport credentials for mutual TLS gRPC client connections.
+// LoadClientMTLSCredentials загружает клиентский сертификат, ключ и CA
+// и возвращает транспортные credentials для gRPC-клиентов с mutual TLS.
 func LoadClientMTLSCredentials(certFile, keyFile, caFile, serverName string) (credentials.TransportCredentials, error) {
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
@@ -140,7 +140,7 @@ func NewHTTP(handler http.Handler, port int) *HTTPServer {
 	return NewHTTPWithLogger(handler, port, defaultLog())
 }
 
-// NewHTTPWithLogger creates an HTTP server with an explicit logger.
+// NewHTTPWithLogger создаёт HTTP-сервер с явно заданным логгером.
 func NewHTTPWithLogger(handler http.Handler, port int, log *zap.Logger) *HTTPServer {
 	if log == nil {
 		log = defaultLog()

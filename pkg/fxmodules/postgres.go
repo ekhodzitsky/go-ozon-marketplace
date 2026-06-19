@@ -9,14 +9,14 @@ import (
 	"go.uber.org/fx"
 )
 
-// PostgresConfig exposes Postgres connection settings.
+// PostgresConfig — настройки подключения к Postgres.
 type PostgresConfig interface {
 	GetPostgresDSN() string
 	GetDefaultQueryTimeout() time.Duration
 }
 
-// Postgres provides a pgx connection pool as an fx module.
-// Settings are resolved from PostgresConfig via DI, so tests can override them.
+// Postgres отдаёт пул соединений pgx как fx-модуль.
+// Настройки берутся из PostgresConfig через DI, чтобы тесты могли их переопределять.
 func Postgres(cfg PostgresConfig) fx.Option {
 	return fx.Options(
 		fx.Provide(func() PostgresConfig { return cfg }),

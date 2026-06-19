@@ -8,19 +8,19 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Manager runs a function inside a database transaction.
+// Manager выполняет функцию внутри транзакции БД.
 type Manager[T any] struct {
 	pool    *pgxpool.Pool
 	factory func(pgx.Tx) T
 }
 
-// New creates a transaction manager that produces a transactional resource T for each transaction.
+// New создаёт менеджер транзакций, который для каждой транзакции строит ресурс T.
 func New[T any](pool *pgxpool.Pool, factory func(pgx.Tx) T) *Manager[T] {
 	return &Manager[T]{pool: pool, factory: factory}
 }
 
-// Run executes fn inside a transaction. The resource T is created from the transaction handle.
-// If fn returns an error, the transaction is rolled back. Otherwise it is committed.
+// Run выполняет fn внутри транзакции. Ресурс T создаётся из хендла транзакции.
+// Если fn вернула ошибку — транзакция откатывается, иначе коммитится.
 func (m *Manager[T]) Run(ctx context.Context, fn func(T) error) error {
 	tx, err := m.pool.Begin(ctx)
 	if err != nil {
@@ -39,7 +39,7 @@ func (m *Manager[T]) Run(ctx context.Context, fn func(T) error) error {
 	return nil
 }
 
-// RunTx is a lower-level variant that exposes the raw pgx transaction handle.
+// RunTx — низкоуровневый вариант, отдающий сырой хендл pgx-транзакции.
 func RunTx(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) error) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {

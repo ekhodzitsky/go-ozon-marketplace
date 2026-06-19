@@ -5,8 +5,8 @@ import (
 	"fmt"
 )
 
-// Sentinel errors form the domain vocabulary. They are preserved for backward
-// compatibility and remain the primary handle for legacy code paths.
+// Sentinel-ошибки — доменный словарь. Оставлены для совместимости и всё ещё
+// используются в старом коде как основные точки сравнения.
 var (
 	ErrNotFound           = stderrors.New("not found")
 	ErrAlreadyExists      = stderrors.New("already exists")
@@ -21,9 +21,8 @@ var (
 	ErrDeadlineExceeded   = stderrors.New("deadline exceeded")
 )
 
-// AppError is the domain error carrier. Exported fields Code, Message, and Err
-// are retained for backward compatibility; Kind and Detail deepen the module
-// by separating transport-neutral classification from human-readable messaging.
+// AppError — доменная ошибка. Поля Code, Message и Err оставлены для совместимости;
+// Kind и Detail отделяют транспортно-нейтральную классификацию от текста для человека.
 type AppError struct {
 	Code    string
 	Message string
@@ -43,8 +42,8 @@ func (e *AppError) Unwrap() error {
 	return e.Err
 }
 
-// New is the legacy constructor. It stays backward-compatible by accepting a
-// string code and deriving the Kind from the registry when possible.
+// New — старый конструктор. Для совместимости принимает строковый code,
+// Kind подбирается из registry, если возможно.
 func New(code, message string) *AppError {
 	return &AppError{
 		Code:    code,

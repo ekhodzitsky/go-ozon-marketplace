@@ -6,14 +6,14 @@ import (
 	"go.uber.org/fx"
 )
 
-// LifecycleRunner is a background worker that can be started and stopped.
+// LifecycleRunner — фоновый воркер, который можно стартовать и остановить.
 type LifecycleRunner interface {
 	Start(ctx context.Context)
 	Stop()
 }
 
-// Runner registers a LifecycleRunner with the fx lifecycle.
-// Use it for background workers such as outbox relays or recovery loops.
+// Runner регистрирует LifecycleRunner в жизненном цикле fx.
+// Используй для фоновых задач: outbox-релеев, recovery-циклов и т.п.
 func Runner[T LifecycleRunner]() fx.Option {
 	return fx.Invoke(func(lc fx.Lifecycle, r T) {
 		lc.Append(fx.Hook{

@@ -7,13 +7,13 @@ import (
 	"go.uber.org/fx"
 )
 
-// KafkaProducerConfig exposes Kafka broker settings.
+// KafkaProducerConfig — настройки Kafka-брокеров.
 type KafkaProducerConfig interface {
 	GetKafkaBrokers() []string
 }
 
-// KafkaProducer provides a shared Kafka producer as an fx module.
-// Settings are resolved from KafkaProducerConfig via DI, so tests can override them.
+// KafkaProducer отдаёт общий Kafka-продюсер как fx-модуль.
+// Настройки берутся из KafkaProducerConfig через DI, чтобы тесты могли их переопределять.
 func KafkaProducer(cfg KafkaProducerConfig) fx.Option {
 	return fx.Options(
 		fx.Provide(func() KafkaProducerConfig { return cfg }),

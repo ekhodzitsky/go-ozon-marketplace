@@ -8,6 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// NewClient создаёт Redis-клиент для заданного адреса.
 func NewClient(ctx context.Context, addr string) (*redis.Client, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:            addr,

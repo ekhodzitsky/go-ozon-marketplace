@@ -1,8 +1,8 @@
 package errors
 
-// Kind is the canonical transport-neutral classification for domain errors.
-// It sits at the seam between the domain vocabulary and transport adapters,
-// allowing gRPC, HTTP, GraphQL, and logging to leverage a single source of truth.
+// Kind — каноническая транспортно-нейтральная классификация доменных ошибок.
+// Служит стыком между доменным словарём и транспортными адаптерами:
+// gRPC, HTTP, GraphQL и логи используют одну и ту же таблицу.
 type Kind string
 
 const (

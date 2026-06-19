@@ -20,7 +20,7 @@ var (
 	ErrInvalidClickHouseDSN = errors.New("CLICKHOUSE_DSN is invalid")
 )
 
-// ValidateJWTSecret checks that the JWT secret is present and meets the minimum length.
+// ValidateJWTSecret проверяет, что JWT-секрет задан и не короче минимальной длины.
 func ValidateJWTSecret(secret string, minLen int) error {
 	if secret == "" {
 		return ErrMissingJWTSecret
@@ -31,7 +31,7 @@ func ValidateJWTSecret(secret string, minLen int) error {
 	return nil
 }
 
-// ValidatePostgresDSN checks that the Postgres DSN is present and parseable.
+// ValidatePostgresDSN проверяет, что Postgres DSN задан и парсится.
 func ValidatePostgresDSN(dsn string) error {
 	if strings.TrimSpace(dsn) == "" {
 		return ErrMissingPostgresDSN
@@ -45,7 +45,7 @@ func ValidatePostgresDSN(dsn string) error {
 	return nil
 }
 
-// ValidateKafkaBrokers checks that at least one Kafka broker is configured.
+// ValidateKafkaBrokers проверяет, что настроен хотя бы один Kafka-брокер.
 func ValidateKafkaBrokers(brokers []string) error {
 	if len(brokers) == 0 {
 		return ErrMissingKafkaBrokers
@@ -53,7 +53,7 @@ func ValidateKafkaBrokers(brokers []string) error {
 	return nil
 }
 
-// ValidateKafkaTopics checks that at least one Kafka topic is configured.
+// ValidateKafkaTopics проверяет, что настроен хотя бы один Kafka-топик.
 func ValidateKafkaTopics(topics []string) error {
 	if len(topics) == 0 {
 		return ErrMissingKafkaTopics
@@ -61,7 +61,7 @@ func ValidateKafkaTopics(topics []string) error {
 	return nil
 }
 
-// ValidateClickHouseAddr checks that the ClickHouse address is present and has a port.
+// ValidateClickHouseAddr проверяет, что адрес ClickHouse задан и содержит порт.
 func ValidateClickHouseAddr(addr string) error {
 	if addr == "" {
 		return ErrMissingClickHouseDSN
@@ -72,7 +72,7 @@ func ValidateClickHouseAddr(addr string) error {
 	return nil
 }
 
-// ValidateSMTP checks that SMTP settings are consistent when SMTP_HOST is set.
+// ValidateSMTP проверяет консистентность SMTP-настроек, если задан SMTP_HOST.
 func ValidateSMTP(host string, port int, from string) error {
 	if host == "" {
 		return nil

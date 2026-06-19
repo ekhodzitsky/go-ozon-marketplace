@@ -2,7 +2,7 @@ package config
 
 import "time"
 
-// Base contains settings shared by every service: logging, tracing, auth and timeouts.
+// Base — общие настройки всех сервисов: логи, трассировка, auth и таймауты.
 type Base struct {
 	LogLevel                 string
 	LogFormat                string
@@ -13,7 +13,7 @@ type Base struct {
 	DefaultQueryTimeout      time.Duration
 }
 
-// LoadBase reads the common environment variables used by all services.
+// LoadBase читает общие переменные окружения, которые используют все сервисы.
 func LoadBase() Base {
 	return Base{
 		LogLevel:                 GetEnv("LOG_LEVEL", "info"),
@@ -34,13 +34,13 @@ func (b *Base) GetCertPath() string                 { return b.CertPath }
 func (b *Base) GetDefaultCallTimeout() time.Duration { return b.DefaultCallTimeout }
 func (b *Base) GetDefaultQueryTimeout() time.Duration { return b.DefaultQueryTimeout }
 
-// ServerBase contains the network settings for standard gRPC services.
+// ServerBase — сетевые настройки обычного gRPC-сервиса.
 type ServerBase struct {
 	GRPCPort    int
 	MetricsPort int
 }
 
-// LoadServerBase reads gRPC and metrics ports. Metrics default to grpcPort+1000.
+// LoadServerBase читает порты gRPC и метрик. Метрики по умолчанию grpcPort+1000.
 func LoadServerBase(defaultGRPCPort int) ServerBase {
 	grpcPort := GetEnvInt("GRPC_PORT", defaultGRPCPort)
 	return ServerBase{

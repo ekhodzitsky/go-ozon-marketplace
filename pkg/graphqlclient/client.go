@@ -1,4 +1,4 @@
-// Package graphqlclient provides a minimal GraphQL HTTP client.
+// Package graphqlclient — минимальный GraphQL HTTP-клиент.
 package graphqlclient
 
 import (
@@ -11,13 +11,13 @@ import (
 	"time"
 )
 
-// Client executes GraphQL queries over HTTP.
+// Client выполняет GraphQL-запросы по HTTP.
 type Client struct {
 	URL        string
 	HTTPClient *http.Client
 }
 
-// NewClient creates a client with the given endpoint URL and a default timeout.
+// NewClient создаёт клиент для заданного URL с таймаутом по умолчанию.
 func NewClient(url string) *Client {
 	return &Client{
 		URL:        url,
@@ -25,8 +25,8 @@ func NewClient(url string) *Client {
 	}
 }
 
-// Do executes a GraphQL query and unmarshals the response data into result.
-// Result may be nil if the caller only needs to check for errors.
+// Do выполняет GraphQL-запрос и распаковывает данные ответа в result.
+// result может быть nil, если вызывающему нужно только проверить ошибки.
 func (c *Client) Do(ctx context.Context, query string, result interface{}) error {
 	body, err := json.Marshal(request{Query: query})
 	if err != nil {

@@ -6,17 +6,17 @@ import (
 	"go.uber.org/fx"
 )
 
-// GRPCClientFactoryConfig exposes TLS/auth settings needed by the gRPC client factory.
+// GRPCClientFactoryConfig — TLS/Auth-настройки фабрики gRPC-клиентов.
 type GRPCClientFactoryConfig interface {
 	GetCertPath() string
 	GetJWTSecret() string
 	GetInsecureSkipTLS() bool
 }
 
-// GRPCClientFactory provides a shared pkg/grpcclient.Factory as an fx module.
-// userAuth selects user-token auth; otherwise service-to-service auth is used
-// when JWTSecret and ServiceName are configured.
-// Settings are resolved from GRPCClientFactoryConfig via DI, so tests can override them.
+// GRPCClientFactory отдаёт общую pkg/grpcclient.Factory как fx-модуль.
+// userAuth включает авторизацию по пользовательскому токену; иначе используется
+// сервисная авторизация, если заданы JWTSecret и ServiceName.
+// Настройки берутся из GRPCClientFactoryConfig через DI, чтобы тесты могли их переопределять.
 func GRPCClientFactory(cfg GRPCClientFactoryConfig, serviceName string, userAuth bool) fx.Option {
 	return fx.Options(
 		fx.Provide(func() GRPCClientFactoryConfig { return cfg }),

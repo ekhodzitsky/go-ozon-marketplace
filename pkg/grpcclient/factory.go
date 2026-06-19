@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
-// Factory creates gRPC client connections with TLS, service auth, circuit breaker and tracing.
+// Factory создаёт gRPC-соединения с TLS, сервисной авторизацией, circuit breaker и трассировкой.
 type Factory struct {
 	cfg             Config
 	cb              *gobreaker.CircuitBreaker
@@ -27,7 +27,7 @@ type Factory struct {
 	interceptors    []grpc.UnaryClientInterceptor
 }
 
-// Config holds factory configuration.
+// Config — настройки фабрики.
 type Config struct {
 	CertPath        string
 	JWTSecret       string
@@ -36,20 +36,20 @@ type Config struct {
 	InsecureSkipTLS bool
 }
 
-// Option customizes a Factory.
+// Option настраивает Factory.
 type Option func(*Factory)
 
-// WithUnaryInterceptor appends a user interceptor to the client chain.
+// WithUnaryInterceptor добавляет пользовательский интерцептор в цепочку клиента.
 func WithUnaryInterceptor(i grpc.UnaryClientInterceptor) Option {
 	return func(f *Factory) { f.interceptors = append(f.interceptors, i) }
 }
 
-// WithInsecureAllowed controls whether insecure connections are permitted when no cert path is configured.
+// WithInsecureAllowed разрешает или запрещает незащищённые соединения, если не настроен cert path.
 func WithInsecureAllowed(allowed bool) Option {
 	return func(f *Factory) { f.insecureAllowed = allowed }
 }
 
-// NewFactory creates a client factory.
+// NewFactory создаёт фабрику клиентов.
 func NewFactory(cfg Config, cb *gobreaker.CircuitBreaker, opts ...Option) *Factory {
 	f := &Factory{
 		cfg:             cfg,
@@ -65,7 +65,7 @@ func NewFactory(cfg Config, cb *gobreaker.CircuitBreaker, opts ...Option) *Facto
 	return f
 }
 
-// NewClient creates a connection to addr.
+// NewClient создаёт соединение с addr.
 func (f *Factory) NewClient(ctx context.Context, addr string) (*grpc.ClientConn, error) {
 	creds, err := f.clientCreds(addr)
 	if err != nil {

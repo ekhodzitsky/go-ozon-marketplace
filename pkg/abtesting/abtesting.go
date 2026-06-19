@@ -4,19 +4,19 @@ import (
 	"hash/fnv"
 )
 
-// Experiment represents an A/B test with weighted variations.
+// Experiment — A/B-тест с вариантами и весами.
 type Experiment struct {
 	Name       string
 	Variations []Variation
 }
 
-// Variation is a single variant in an experiment.
+// Variation — один вариант эксперимента.
 type Variation struct {
 	Name   string
 	Weight int
 }
 
-// Assign deterministically assigns a user to a variation based on hash(userID + experimentName) % 100.
+// Assign распределяет пользователя по варианту детерминированно: hash(userID + имя эксперимента) % 100.
 func (e *Experiment) Assign(userID string) string {
 	if len(e.Variations) == 0 {
 		return ""

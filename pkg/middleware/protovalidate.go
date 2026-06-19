@@ -10,8 +10,8 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// ProtoValidateInterceptor returns a gRPC interceptor that validates incoming
-// protobuf messages using buf protovalidate rules defined in .proto files.
+// ProtoValidateInterceptor возвращает gRPC-интерцептор, который валидирует входящие
+// protobuf-сообщения по правилам buf protovalidate из .proto-файлов.
 func ProtoValidateInterceptor() (grpc.UnaryServerInterceptor, error) {
 	validator, err := protovalidate.New()
 	if err != nil {

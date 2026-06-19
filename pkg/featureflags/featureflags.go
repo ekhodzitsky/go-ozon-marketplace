@@ -7,7 +7,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// FeatureFlags is a facade over an OpenFeature client backed by Redis.
+// FeatureFlags — фасад над OpenFeature-клиентом на базе Redis.
 type FeatureFlags struct {
 	store  *RedisStore
 	client *openfeature.Client
@@ -15,7 +15,7 @@ type FeatureFlags struct {
 
 const clientDomain = "api-gateway"
 
-// New creates a feature-flag facade backed by Redis.
+// New создаёт фасад фиче-флагов поверх Redis.
 func New(client *redis.Client) (*FeatureFlags, error) {
 	store := NewRedisStore(client)
 	provider := NewProvider(store)
@@ -28,29 +28,29 @@ func New(client *redis.Client) (*FeatureFlags, error) {
 	}, nil
 }
 
-// IsEnabled evaluates a boolean flag for the given user.
+// IsEnabled проверяет булевый флаг для заданного пользователя.
 func (f *FeatureFlags) IsEnabled(ctx context.Context, name string, userID string) bool {
 	evalCtx := openfeature.NewEvaluationContext(userID, nil)
 	val, _ := f.client.BooleanValue(ctx, name, false, evalCtx)
 	return val
 }
 
-// Register stores a flag definition.
+// Register сохраняет определение флага.
 func (f *FeatureFlags) Register(ctx context.Context, flag *Flag) error {
 	return f.store.Set(ctx, flag)
 }
 
-// List returns all stored flags.
+// List возвращает все сохранённые флаги.
 func (f *FeatureFlags) List(ctx context.Context) ([]*Flag, error) {
 	return f.store.List(ctx)
 }
 
-// SetEnabled enables or disables a flag.
+// SetEnabled включает или выключает флаг.
 func (f *FeatureFlags) SetEnabled(ctx context.Context, name string, enabled bool) error {
 	return f.store.SetEnabled(ctx, name, enabled)
 }
 
-// SetPercentage sets a percentage rollout strategy for a flag.
+// SetPercentage задаёт процентный раскат для флага.
 func (f *FeatureFlags) SetPercentage(ctx context.Context, name string, percentage int) error {
 	return f.store.SetPercentage(ctx, name, percentage)
 }
