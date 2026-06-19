@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/tracing"
 	"go.uber.org/fx"
@@ -25,7 +26,7 @@ func RegisterGRPCService(lc fx.Lifecycle, cfg ServiceConfig, register RegisterFn
 		middleware.MetricsUnaryInterceptor,
 		protoValidateInterceptor,
 		tracing.UnaryServerInterceptor(),
-		middleware.AuthUnaryInterceptor(jwtSecret),
+		middleware.AuthUnaryInterceptor(auth.NewJWTVerifier(jwtSecret)),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

@@ -56,14 +56,17 @@ func NewHTTP(
 	r.Use(c.Handler)
 
 	if cfg.JWTSecret != "" {
-		r.Use(pkgmiddleware.AuthHTTP(cfg.JWTSecret))
+		r.Use(pkgmiddleware.AuthHTTP(auth.NewJWTVerifier(cfg.JWTSecret)))
 	}
 
 	r.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		ws.ServeWs(m, w, r, ws.Config{
+		wsCfg := ws.Config{
 			AllowedOrigins: cfg.CORSAllowedOrigins,
-			JWTSecret:      cfg.JWTSecret,
-		})
+		}
+		if cfg.JWTSecret != "" {
+			wsCfg.Verifier = auth.NewJWTVerifier(cfg.JWTSecret)
+		}
+		ws.ServeWs(m, w, r, wsCfg)
 	})
 	r.Get("/", playground.Handler("GraphQL playground", "/query"))
 	r.Handle("/query", srv)
