@@ -24,8 +24,8 @@ type ServiceConfig struct {
 	CertPath    string
 }
 
-// RegisterFn registers service implementations on the provided gRPC server.
-type RegisterFn func(*grpc.Server)
+// RegisterFn registers service implementations on the provided gRPC registrar.
+type RegisterFn func(grpc.ServiceRegistrar)
 
 // StartService creates and starts a gRPC server plus a metrics HTTP server.
 // It returns two shutdown functions that must be called on stop.
@@ -76,7 +76,7 @@ func RunService(ctx context.Context, cfg ServiceConfig, register RegisterFn, int
 	}()
 
 	go func() {
-		if err := grpcServer.Start(); err != nil {
+		if err := grpcServer.Start(); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			log.Fatal("grpc server error", zap.Error(err))
 		}
 	}()

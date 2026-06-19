@@ -3,10 +3,12 @@ module github.com/ekhodzitsky/go-ozon-marketplace/pkg
 go 1.26
 
 require (
+	github.com/IBM/sarama v1.50.2
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
+	github.com/open-feature/go-sdk v1.17.2
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/sony/gobreaker v1.0.0
@@ -15,6 +17,7 @@ require (
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.44.0
 	go.opentelemetry.io/otel/sdk v1.44.0
+	go.uber.org/fx v1.24.0
 	go.uber.org/zap v1.28.0
 	google.golang.org/grpc v1.81.1
 )
@@ -23,7 +26,20 @@ require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1 // indirect
 	cel.dev/expr v0.25.1 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
+	github.com/eapache/go-resiliency v1.7.0 // indirect
 	github.com/google/cel-go v0.28.0 // indirect
+	github.com/hashicorp/go-uuid v1.0.3 // indirect
+	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
+	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
+	github.com/jcmturner/gofork v1.7.6 // indirect
+	github.com/jcmturner/gokrb5/v8 v8.4.4 // indirect
+	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
+	github.com/klauspost/compress v1.18.6 // indirect
+	github.com/pierrec/lz4/v4 v4.1.27 // indirect
+	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9 // indirect
+	go.uber.org/dig v1.19.0 // indirect
+	go.uber.org/mock v0.6.0 // indirect
+	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/exp v0.0.0-20250813145105-42675adae3e6 // indirect
 )
 

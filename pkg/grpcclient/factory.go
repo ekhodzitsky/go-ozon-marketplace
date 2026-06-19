@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/server"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/tracing"
 	"github.com/sony/gobreaker"
@@ -29,9 +28,11 @@ type Factory struct {
 
 // Config holds factory configuration.
 type Config struct {
-	CertPath    string
-	JWTSecret   string
-	ServiceName string
+	CertPath        string
+	JWTSecret       string
+	ServiceName     string
+	UserAuth        bool
+	InsecureSkipTLS bool
 }
 
 // Option customizes a Factory.
@@ -77,8 +78,10 @@ func (f *Factory) NewClient(ctx context.Context, addr string) (*grpc.ClientConn,
 		interceptors = append(interceptors, circuitBreakerInterceptor(f.cb))
 	}
 	interceptors = append(interceptors, f.interceptors...)
-	if f.issuer != nil {
-		interceptors = append(interceptors, middleware.ServiceAuthInterceptor(f.issuer))
+	if f.cfg.UserAuth {
+		interceptors = append(interceptors, auth.UserAuthInterceptor())
+	} else if f.issuer != nil {
+		interceptors = append(interceptors, auth.ServiceAuthInterceptor(f.issuer))
 	}
 
 	return grpc.NewClient(addr,
@@ -101,7 +104,7 @@ func (f *Factory) clientCreds(addr string) (credentials.TransportCredentials, er
 			serverNameFromAddr(addr),
 		)
 	}
-	if f.insecureAllowed {
+	if f.cfg.InsecureSkipTLS || f.insecureAllowed {
 		return insecure.NewCredentials(), nil
 	}
 	return nil, fmt.Errorf("no CERT_PATH configured and insecure connections are not allowed")
