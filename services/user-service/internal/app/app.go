@@ -7,6 +7,7 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/fxmodules"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/config"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/delivery/grpc"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/ratelimit"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/repository"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/repository/postgres"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/usecase"
@@ -23,7 +24,7 @@ func New(cfg *config.Config) *fx.App {
 		fx.Provide(
 			postgres.NewUserPostgres,
 			func(repo repository.UserRepository, cfg *config.Config) usecase.UserUsecase {
-				rl := usecase.NewMemoryRateLimiter(5, time.Minute)
+				rl := ratelimit.NewMemoryRateLimiter(5, time.Minute)
 				return usecase.NewUserUsecase(repo, cfg.JWTSecret, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout, rl)
 			},
 		),

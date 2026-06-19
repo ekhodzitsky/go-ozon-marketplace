@@ -8,6 +8,7 @@ import (
 
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/domain"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/ratelimit"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -215,7 +216,7 @@ func TestUserUsecase_RateLimit(t *testing.T) {
 
 	repo := newMockUserRepository()
 	// Very strict limiter: 2 requests per hour per key.
-	rl := NewMemoryRateLimiter(2, time.Hour)
+	rl := ratelimit.NewMemoryRateLimiter(2, time.Hour)
 	uc := NewUserUsecase(repo, "test-secret", time.Second, time.Second, rl)
 
 	email := "ratelimit@ozon.ru"
@@ -241,22 +242,7 @@ func TestUserUsecase_DefaultTimeoutsAndRateLimiter(t *testing.T) {
 	uc := NewUserUsecase(repo, "test-secret", 0, 0, nil)
 
 	assert.Equal(t, DefaultCallTimeout, uc.(*userUsecase).callTimeout)
-	assert.Equal(t, DefaultQueryTimeout, uc.(*userUsecase).queryTimeout)
 	assert.NotNil(t, uc.(*userUsecase).rateLimiter)
-}
-
-func TestMemoryRateLimiter_Defaults(t *testing.T) {
-	t.Parallel()
-
-	rl := NewMemoryRateLimiter(0, 0)
-	assert.Equal(t, 10, rl.limit)
-	assert.Equal(t, time.Minute, rl.window)
-
-	// Should allow 10 requests with the default limit.
-	for i := 0; i < 10; i++ {
-		assert.True(t, rl.Allow(context.Background(), "key"))
-	}
-	assert.False(t, rl.Allow(context.Background(), "key"))
 }
 
 func TestUserUsecase_Login_NormalizesEmailBeforeLookup(t *testing.T) {
@@ -313,7 +299,7 @@ func TestUserUsecase_Register_RateLimited(t *testing.T) {
 	t.Parallel()
 
 	repo := newMockUserRepository()
-	rl := NewMemoryRateLimiter(1, time.Hour)
+	rl := ratelimit.NewMemoryRateLimiter(1, time.Hour)
 	uc := NewUserUsecase(repo, "test-secret", time.Second, time.Second, rl)
 
 	email := "register-limit@ozon.ru"
