@@ -45,6 +45,7 @@ env:
   RATE_LIMIT_REQUESTS: "100"
   RATE_LIMIT_WINDOW_SECONDS: "60"
   CORS_ALLOWED_ORIGINS: "*"
+  ENABLE_INTROSPECTION: "false"
 
 secrets:
   jwtSecret: ""

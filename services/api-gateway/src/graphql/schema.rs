@@ -9,10 +9,14 @@ pub fn create_schema(
     redis_pool: deadpool_redis::Pool,
     redis_client: redis::Client,
     clients: Clients,
+    introspection_enabled: bool,
 ) -> AppSchema {
-    Schema::build(Query, Mutation, SubscriptionRoot)
+    let mut builder = Schema::build(Query, Mutation, SubscriptionRoot)
         .data(redis_pool)
         .data(redis_client)
-        .data(clients)
-        .finish()
+        .data(clients);
+    if !introspection_enabled {
+        builder = builder.disable_introspection();
+    }
+    builder.finish()
 }

@@ -1,0 +1,5 @@
+# Global fallback owner
+* @ekhodzitsky
+
+# CI/CD changes affect supply chain and secret exposure; require explicit review
+/.github/workflows/ @ekhodzitsky

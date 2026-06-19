@@ -12,6 +12,7 @@ mod ratelimit;
 mod validation;
 mod ws;
 
+use crate::error::ApiError;
 use async_graphql::http::GraphiQLSource;
 use axum::{
     extract::Extension,
@@ -21,7 +22,37 @@ use axum::{
     Router,
 };
 use std::net::SocketAddr;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+
+fn build_cors_layer(cfg: &config::Config) -> Result<CorsLayer, ApiError> {
+    if cfg.cors_allowed_origins.is_empty() || cfg.cors_allowed_origins.iter().any(|o| o == "*") {
+        Ok(CorsLayer::new()
+            .allow_methods([
+                axum::http::Method::GET,
+                axum::http::Method::POST,
+                axum::http::Method::OPTIONS,
+            ])
+            .allow_headers(Any)
+            .allow_origin(Any))
+    } else {
+        let origins: Vec<axum::http::HeaderValue> = cfg
+            .cors_allowed_origins
+            .iter()
+            .map(|o| {
+                o.parse::<axum::http::HeaderValue>()
+                    .map_err(|e| ApiError::Internal(format!("invalid CORS_ALLOWED_ORIGINS: {e}")))
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(CorsLayer::new()
+            .allow_methods([
+                axum::http::Method::GET,
+                axum::http::Method::POST,
+                axum::http::Method::OPTIONS,
+            ])
+            .allow_headers(Any)
+            .allow_origin(AllowOrigin::list(origins)))
+    }
+}
 
 async fn graphiql() -> impl IntoResponse {
     axum::response::Html(GraphiQLSource::build().endpoint("/query").finish())
@@ -63,20 +94,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let prometheus = metrics::setup()?;
 
     // В schema.data кладём пул, отдельный Redis-клиент для pub/sub и клиентов.
-    let schema = graphql::create_schema(redis_pool, redis_client, clients.clone());
+    let schema = graphql::create_schema(
+        redis_pool,
+        redis_client,
+        clients.clone(),
+        cfg.introspection_enabled,
+    );
     let verifier = auth::JwtVerifier::new(cfg.jwt_secret.clone());
 
-    let cors = CorsLayer::new()
-        .allow_methods([
-            axum::http::Method::GET,
-            axum::http::Method::POST,
-            axum::http::Method::OPTIONS,
-        ])
-        .allow_headers(Any)
-        .allow_origin(Any);
+    let cors = build_cors_layer(&cfg)?;
 
-    let app = Router::new()
-        .route("/", get(graphiql))
+    let mut app = Router::new();
+    if cfg.introspection_enabled {
+        app = app.route("/", get(graphiql));
+    }
+    let app = app
         .route("/query", get(graphql_handler).post(graphql_handler))
         .route("/ws", get(ws::handler))
         .nest("/admin", admin::router(prometheus, feature_flags))

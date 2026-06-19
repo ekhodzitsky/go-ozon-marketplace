@@ -46,8 +46,7 @@ impl JwtVerifier {
 
     pub fn verify(&self, token: &str) -> Result<Identity, ApiError> {
         let key = DecodingKey::from_secret(self.secret.as_bytes());
-        let mut validation = Validation::new(Algorithm::HS256);
-        validation.validate_exp = false;
+        let validation = Validation::new(Algorithm::HS256);
         let token_data = decode::<Claims>(token, &key, &validation)?;
         Ok(Identity {
             user_id: token_data.claims.sub,

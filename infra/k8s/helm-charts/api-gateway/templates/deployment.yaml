@@ -68,6 +68,8 @@ spec:
               value: {{ .Values.env.RATE_LIMIT_WINDOW_SECONDS | quote }}
             - name: CORS_ALLOWED_ORIGINS
               value: {{ .Values.env.CORS_ALLOWED_ORIGINS | quote }}
+            - name: ENABLE_INTROSPECTION
+              value: {{ .Values.env.ENABLE_INTROSPECTION | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.env.OTEL_EXPORTER_OTLP_ENDPOINT | default "http://jaeger.monitoring.svc.cluster.local:4318" | quote }}
           envFrom:

@@ -18,6 +18,7 @@ pub struct Config {
     pub redis_addr: String,
     pub rate_limit_requests: u32,
     pub rate_limit_window_seconds: u64,
+    pub introspection_enabled: bool,
     pub tls_enabled: bool,
     pub mtls_enabled: bool,
     pub cert_path: String,
@@ -35,12 +36,13 @@ impl Config {
             payment_service_addr: env_or("PAYMENT_SERVICE_ADDR", "localhost:50054"),
             analytics_service_addr: env_or("ANALYTICS_SERVICE_ADDR", "localhost:50056"),
             http_port: env_parse_or("PORT", 8080),
-            jwt_secret: env_or("JWT_SECRET", "dev-secret"),
+            jwt_secret: env_required("JWT_SECRET")?,
             cors_allowed_origins: parse_list(env_or("CORS_ALLOWED_ORIGINS", "")),
             log_level: env_or("RUST_LOG", "info"),
             redis_addr: env_or("REDIS_ADDR", "redis://localhost:6379"),
             rate_limit_requests: env_parse_or("RATE_LIMIT_REQUESTS", 100),
             rate_limit_window_seconds: env_parse_or("RATE_LIMIT_WINDOW_SECONDS", 60),
+            introspection_enabled: env_parse_or("ENABLE_INTROSPECTION", false),
             tls_enabled: env_parse_or("TLS_ENABLED", false),
             mtls_enabled: env_parse_or("MTLS_ENABLED", false),
             cert_path: env_or("CERT_PATH", ""),
@@ -52,6 +54,10 @@ impl Config {
 
 fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
+}
+
+fn env_required(key: &str) -> Result<String, ApiError> {
+    std::env::var(key).map_err(|_| ApiError::Internal(format!("missing required env var: {key}")))
 }
 
 fn env_parse_or<T: std::str::FromStr>(key: &str, default: T) -> T {

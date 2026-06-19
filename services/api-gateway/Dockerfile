@@ -11,7 +11,13 @@ RUN apt-get update \
        curl ca-certificates git protobuf-compiler libprotobuf-dev pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/* \
     && BUF_VERSION=1.47.0 \
-    && curl -sSL "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-$(uname -s)-$(uname -m)" -o /usr/local/bin/buf \
+    && BUF_OS=$(uname -s) \
+    && BUF_ARCH=$(uname -m) \
+    && BUF_BIN="buf-${BUF_OS}-${BUF_ARCH}" \
+    && curl -sSL "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/${BUF_BIN}" -o /tmp/${BUF_BIN} \
+    && curl -sSL "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/sha256.txt" -o /tmp/buf-sha256.txt \
+    && cd /tmp && sha256sum -c <(grep "  ${BUF_BIN}$" buf-sha256.txt) \
+    && mv /tmp/${BUF_BIN} /usr/local/bin/buf \
     && chmod +x /usr/local/bin/buf
 
 # Копируем proto-контракты и исходники сервиса.

@@ -52,10 +52,10 @@ cargo test
 
 ```bash
 # с дефолтными адресами downstream-сервисов и Redis на localhost
-PORT=8080 JWT_SECRET=dev-secret REDIS_ADDR=redis://localhost:6379 cargo run
+PORT=8080 JWT_SECRET=<secret> REDIS_ADDR=redis://localhost:6379 cargo run
 ```
 
-Переменные окружения (все опциональны, dev-значения совпадают с остальными сервисами):
+Переменные окружения (все опциональны, кроме `JWT_SECRET`):
 
 | Переменная | Значение по умолчанию | Описание |
 |---|---|---|
@@ -67,11 +67,12 @@ PORT=8080 JWT_SECRET=dev-secret REDIS_ADDR=redis://localhost:6379 cargo run
 | `ORDER_SERVICE_ADDR` | `localhost:50055` | order-service |
 | `ANALYTICS_SERVICE_ADDR` | `localhost:50056` | analytics-service |
 | `REDIS_ADDR` | `redis://localhost:6379` | Redis для rate limit, pub/sub, feature flags |
-| `JWT_SECRET` | `dev-secret` | Секрет для проверки JWT |
-| `CORS_ALLOWED_ORIGINS` | `*` (через tower-http `Any`) | Разрешённые origins |
+| `JWT_SECRET` | **обязательна** | Секрет для проверки JWT (минимум 32 символа) |
+| `CORS_ALLOWED_ORIGINS` | `""` (разрешает `*`) | Список origins через запятую; `*` или пусто — любой origin |
 | `RUST_LOG` | `info` | Уровень логирования |
 | `RATE_LIMIT_REQUESTS` | `100` | Максимум запросов в окно |
 | `RATE_LIMIT_WINDOW_SECONDS` | `60` | Окно rate limiter в секундах |
+| `ENABLE_INTROSPECTION` | `false` | Включить GraphiQL и GraphQL-интроспекцию |
 | `TLS_ENABLED` | `false` | Включить TLS для gRPC |
 | `MTLS_ENABLED` | `false` | Включить mTLS для gRPC |
 | `CERT_PATH` | `""` | Путь к TLS-сертификату/CA |
@@ -82,7 +83,7 @@ PORT=8080 JWT_SECRET=dev-secret REDIS_ADDR=redis://localhost:6379 cargo run
 
 | Endpoint | Метод | Описание |
 |---|---|---|
-| `/` | GET | GraphiQL playground |
+| `/` | GET | GraphiQL playground (только если `ENABLE_INTROSPECTION=true`) |
 | `/query` | GET/POST | GraphQL endpoint |
 | `/ws` | GET | WebSocket для GraphQL subscriptions |
 | `/admin/health` | GET | Health check |
