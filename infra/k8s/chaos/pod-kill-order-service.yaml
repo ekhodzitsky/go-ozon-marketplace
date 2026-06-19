@@ -10,6 +10,6 @@ spec:
     namespaces:
       - marketplace-staging
     labelSelectors:
-      app: order-service
+      app.kubernetes.io/name: order-service
   scheduler:
     cron: "@every 30m"

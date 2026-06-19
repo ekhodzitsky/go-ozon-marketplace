@@ -53,6 +53,16 @@ spec:
               value: {{ .Values.env.USER_SERVICE_ADDR | quote }}
             - name: CATALOG_SERVICE_ADDR
               value: {{ .Values.env.CATALOG_SERVICE_ADDR | quote }}
+            - name: ORDER_SERVICE_ADDR
+              value: {{ .Values.env.ORDER_SERVICE_ADDR | quote }}
+            - name: INVENTORY_SERVICE_ADDR
+              value: {{ .Values.env.INVENTORY_SERVICE_ADDR | quote }}
+            - name: PAYMENT_SERVICE_ADDR
+              value: {{ .Values.env.PAYMENT_SERVICE_ADDR | quote }}
+            - name: ANALYTICS_SERVICE_ADDR
+              value: {{ .Values.env.ANALYTICS_SERVICE_ADDR | quote }}
+            - name: REDIS_ADDR
+              value: {{ .Values.env.REDIS_ADDR | quote }}
             - name: METRICS_PORT
               value: {{ .Values.service.metricsPort | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

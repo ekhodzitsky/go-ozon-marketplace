@@ -36,8 +36,8 @@ env:
   HTTP_PORT: "8080"
 
 secrets:
-  jwtSecret: ""      # required
-  postgresDSN: ""    # required
+  jwtSecret: ""      # обязательно
+  postgresDSN: ""    # обязательно
 
 autoscaling:
   enabled: false

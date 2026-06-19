@@ -9,7 +9,7 @@ spec:
     namespaces:
       - marketplace-staging
     labelSelectors:
-      app: postgres
+      app.kubernetes.io/name: postgres
   stressors:
     cpu:
       workers: 4

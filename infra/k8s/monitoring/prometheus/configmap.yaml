@@ -18,7 +18,7 @@ data:
           - role: service
             namespaces:
               names:
-                - default
+                - marketplace-staging
         relabel_configs:
           - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
             action: keep
@@ -44,7 +44,7 @@ data:
           - role: pod
             namespaces:
               names:
-                - default
+                - marketplace-staging
         relabel_configs:
           - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
             action: keep
