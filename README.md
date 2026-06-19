@@ -5,7 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/ekhodzitsky/go-ozon-marketplace)](https://github.com/ekhodzitsky/go-ozon-marketplace/releases)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-Production-grade микросервисный e-commerce backend на Go — pet-проект для портфолио.
+Production-grade микросервисный e-commerce backend — pet-проект для портфолио. Сервисы на Go 1.26, API-шлюз на Rust (axum + async-graphql).
 
 ## Architecture Overview
 
@@ -62,8 +62,8 @@ open http://localhost:8080
 
 | Категория | Технологии |
 |-----------|-----------|
-| **Язык / Runtime** | Go 1.26 |
-| **API** | gRPC, GraphQL (gqlgen), WebSocket (gorilla/websocket) |
+| **Язык / Runtime** | Go 1.26, Rust |
+| **API** | gRPC, GraphQL (gqlgen / async-graphql), WebSocket |
 | **Базы данных** | PostgreSQL 16, Redis 7, ClickHouse, Elasticsearch |
 | **Messaging** | Kafka (Redpanda), Transactional Outbox |
 | **Observability** | OpenTelemetry, Prometheus, Grafana, Jaeger |
@@ -125,7 +125,7 @@ GitHub Actions:
 - **lint** (`golangci-lint`)
 - **proto** (`buf lint`, `buf breaking`)
 - **govulncheck**
-- **test** (race, coverage gate 60%)
+- **test** (`go test` + `cargo test` для api-gateway, race, coverage gate 15%)
 - **integration**
 - **build** (Docker images)
 - **helm** (lint + template)

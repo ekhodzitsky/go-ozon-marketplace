@@ -18,7 +18,7 @@
 
 ## Graphify
 
-This project uses [Graphify](https://graphify.net/) to turn the codebase into a queryable knowledge graph. Use it to navigate the 8-service Go marketplace monorepo and to make better-informed changes.
+This project uses [Graphify](https://graphify.net/) to turn the codebase into a queryable knowledge graph. Use it to navigate the 8-service Go/Rust marketplace monorepo and to make better-informed changes.
 
 ### When to consult the graph
 

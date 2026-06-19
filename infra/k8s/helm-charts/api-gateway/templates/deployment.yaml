@@ -40,9 +40,6 @@ spec:
             - name: http
               containerPort: {{ .Values.service.httpPort }}
               protocol: TCP
-            - name: grpc
-              containerPort: {{ .Values.service.grpcPort }}
-              protocol: TCP
             - name: metrics
               containerPort: {{ .Values.service.metricsPort }}
               protocol: TCP
@@ -63,21 +60,29 @@ spec:
               value: {{ .Values.env.ANALYTICS_SERVICE_ADDR | quote }}
             - name: REDIS_ADDR
               value: {{ .Values.env.REDIS_ADDR | quote }}
-            - name: METRICS_PORT
-              value: {{ .Values.service.metricsPort | quote }}
+            - name: RUST_LOG
+              value: {{ .Values.env.RUST_LOG | quote }}
+            - name: RATE_LIMIT_REQUESTS
+              value: {{ .Values.env.RATE_LIMIT_REQUESTS | quote }}
+            - name: RATE_LIMIT_WINDOW_SECONDS
+              value: {{ .Values.env.RATE_LIMIT_WINDOW_SECONDS | quote }}
+            - name: CORS_ALLOWED_ORIGINS
+              value: {{ .Values.env.CORS_ALLOWED_ORIGINS | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ .Values.env.OTEL_EXPORTER_OTLP_ENDPOINT | default "http://jaeger.monitoring.svc.cluster.local:4318" | quote }}
           envFrom:
             - secretRef:
                 name: {{ include "api-gateway.fullname" . }}-secrets
           livenessProbe:
-            grpc:
-              port: {{ .Values.service.grpcPort }}
+            httpGet:
+              path: /admin/health
+              port: http
             initialDelaySeconds: 10
             periodSeconds: 15
           readinessProbe:
-            grpc:
-              port: {{ .Values.service.grpcPort }}
+            httpGet:
+              path: /admin/ready
+              port: http
             initialDelaySeconds: 5
             periodSeconds: 10
           resources:

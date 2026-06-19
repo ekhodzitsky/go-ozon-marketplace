@@ -5,7 +5,6 @@ use (
 	./pkg
 	./scripts
 	./services/analytics-service
-	./services/api-gateway
 	./services/catalog-service
 	./services/inventory-service
 	./services/notification-service

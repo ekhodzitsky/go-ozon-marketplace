@@ -20,7 +20,7 @@ dev-seed:
 dev-logs:
 	docker compose -f infra/docker/docker-compose.yml -f infra/docker/docker-compose.dev.yml logs -f
 
-MODULES := ./api ./pkg ./scripts ./services/* ./tests
+MODULES := $(filter-out ./services/api-gateway,./api ./pkg ./scripts ./services/* ./tests)
 
 test:
 	@for m in $(MODULES); do \
@@ -78,17 +78,22 @@ migrate-user:
 migrate-%:
 	migrate -path services/$*/migrations -database "$(POSTGRES_DSN)" up
 
-SERVICES := analytics-service api-gateway catalog-service inventory-service notification-service order-service payment-service user-service
+GO_SERVICES := analytics-service catalog-service inventory-service notification-service order-service payment-service user-service
 
-build: $(addprefix build-,$(SERVICES))
+build: build-api-gateway $(addprefix build-,$(GO_SERVICES))
 
-$(addprefix build-,$(SERVICES)):
+$(addprefix build-,$(GO_SERVICES)):
 	@mkdir -p bin
 	@svc=$(patsubst build-%,%,$@); \
 	echo "Building $$svc -> bin/$$svc"; \
 	cd services/$$svc && CGO_ENABLED=0 go build -ldflags="-w -s" -trimpath -o ../../bin/$$svc ./cmd/main.go
 
 build-order: build-order-service
+
+build-api-gateway:
+	@mkdir -p bin
+	cd services/api-gateway && cargo build --release
+	cp services/api-gateway/target/release/api-gateway bin/api-gateway
 
 bench:
 	bash tests/bench/grpc/bench.sh
