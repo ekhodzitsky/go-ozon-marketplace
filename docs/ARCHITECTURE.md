@@ -221,7 +221,7 @@ graph LR
 
 ### Input Validation
 
-Централизованные правила в `pkg/validation/`:
+Централизованная валидация реализована через `protovalidate` интерцептор (`pkg/middleware/protovalidate.go`) и правила `buf.validate` в `.proto`-файлах:
 - Email: regex с базовой валидацией
 - Пароль: минимум 8 символов
 - Имя: 2–100 символов
@@ -243,7 +243,7 @@ stateDiagram-v2
     HalfOpen --> Open: failure
 ```
 
-- Реализация: `pkg/circuitbreaker/circuitbreaker.go`
+- Реализация: `services/api-gateway/internal/app/infra.go` (обёртка `github.com/sony/gobreaker`), применение в `services/api-gateway/internal/clients/adapter.go`
 - Параметры: `failureThreshold=5`, `successThreshold=2`, `timeout=30s`
 - Применение: `api-gateway` на всех исходящих gRPC вызовах
 

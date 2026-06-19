@@ -182,13 +182,13 @@ Circuit breaker защищает gateway от каскадных отказов 
 - Интерцептор на всех исходящих gRPC соединениях gateway
 - При `Open` — мгновенный отказ без вызова downstream
 
-**Код:** `pkg/circuitbreaker/circuitbreaker.go`
+**Код:** `services/api-gateway/internal/app/infra.go` (обёртка `github.com/sony/gobreaker`), применение в `services/api-gateway/internal/clients/adapter.go`
 
 ---
 
 ## Input Validation
 
-Централизованные правила в `pkg/validation/validation.go`:
+Централизованная валидация реализована через `protovalidate` интерцептор (`pkg/middleware/protovalidate.go`) и правила `buf.validate` в `.proto`-файлах:
 
 | Поле | Правило |
 |------|---------|

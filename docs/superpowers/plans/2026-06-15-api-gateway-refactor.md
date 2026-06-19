@@ -8,6 +8,8 @@
 
 **Tech Stack:** Go, gRPC, gqlgen, chi, rs/cors, google/wire, zap, redis.
 
+> **Note:** This plan was written before the migration from a custom `pkg/circuitbreaker` to `github.com/sony/gobreaker`. Code examples referencing `pkg/circuitbreaker` should use `github.com/sony/gobreaker` instead.
+
 ---
 
 ### Task 1: Add dependencies
