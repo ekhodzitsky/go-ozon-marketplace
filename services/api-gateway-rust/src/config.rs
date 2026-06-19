@@ -15,6 +15,14 @@ pub struct Config {
     pub jwt_secret: String,
     pub cors_allowed_origins: Vec<String>,
     pub log_level: String,
+    pub redis_addr: String,
+    pub rate_limit_requests: u32,
+    pub rate_limit_window_seconds: u64,
+    pub tls_enabled: bool,
+    pub mtls_enabled: bool,
+    pub cert_path: String,
+    pub key_path: String,
+    pub insecure_skip_tls: bool,
 }
 
 impl Config {
@@ -30,6 +38,14 @@ impl Config {
             jwt_secret: env_or("JWT_SECRET", "dev-secret"),
             cors_allowed_origins: parse_list(env_or("CORS_ALLOWED_ORIGINS", "")),
             log_level: env_or("RUST_LOG", "info"),
+            redis_addr: env_or("REDIS_ADDR", "redis://localhost:6379"),
+            rate_limit_requests: env_parse_or("RATE_LIMIT_REQUESTS", 100),
+            rate_limit_window_seconds: env_parse_or("RATE_LIMIT_WINDOW_SECONDS", 60),
+            tls_enabled: env_parse_or("TLS_ENABLED", false),
+            mtls_enabled: env_parse_or("MTLS_ENABLED", false),
+            cert_path: env_or("CERT_PATH", ""),
+            key_path: env_or("KEY_PATH", ""),
+            insecure_skip_tls: env_parse_or("INSECURE_SKIP_TLS", false),
         })
     }
 }

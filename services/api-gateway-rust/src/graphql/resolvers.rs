@@ -2,8 +2,10 @@ use crate::auth::{require_identity, Identity};
 use crate::clients::Clients;
 use crate::error::ApiError;
 use crate::proto::{
-    catalog::v1 as catalog_v1, order::v1 as order_v1, user::v1 as user_v1,
+    catalog::v1 as catalog_v1, inventory::v1 as inventory_v1, order::v1 as order_v1,
+    user::v1 as user_v1,
 };
+use crate::validation;
 use async_graphql::{Context, InputObject, Object, Result, SimpleObject, ID};
 use tonic::metadata::MetadataValue;
 use tonic::Request;
@@ -106,8 +108,11 @@ impl Query {
         let clients = ctx_clients(ctx)?;
 
         let mut client = clients.user.clone();
-        let req = with_auth(Request::new(user_v1::GetUserRequest::default()), Some(identity));
-        let resp = client.get_user(req).await?;
+        let req = with_auth(
+            Request::new(user_v1::GetUserRequest::default()),
+            Some(identity),
+        );
+        let resp = clients.call("user", || client.get_user(req)).await?;
         let u = resp.into_inner();
 
         Ok(Some(User {
@@ -120,6 +125,7 @@ impl Query {
 
     /// Профиль пользователя по id.
     async fn user(&self, ctx: &Context<'_>, id: ID) -> Result<Option<User>> {
+        validation::validate_uuid(&id)?;
         let identity = ctx.data::<Identity>().ok();
         let clients = ctx_clients(ctx)?;
 
@@ -130,7 +136,7 @@ impl Query {
             }),
             identity,
         );
-        let resp = client.get_user(req).await?;
+        let resp = clients.call("user", || client.get_user(req)).await?;
         let u = resp.into_inner();
 
         Ok(Some(User {
@@ -143,6 +149,7 @@ impl Query {
 
     /// Товар по id.
     async fn product(&self, ctx: &Context<'_>, id: ID) -> Result<Option<Product>> {
+        validation::validate_uuid(&id)?;
         let identity = ctx.data::<Identity>().ok();
         let clients = ctx_clients(ctx)?;
 
@@ -153,7 +160,7 @@ impl Query {
             }),
             identity,
         );
-        let resp = client.get_product(req).await?;
+        let resp = clients.call("catalog", || client.get_product(req)).await?;
         Ok(resp.into_inner().product.map(proto_product_to_model))
     }
 
@@ -181,16 +188,22 @@ impl Query {
                 }),
                 identity,
             );
-            let resp = client.search_products(req).await?.into_inner();
-            (resp.products, resp.total)
+            let resp = clients
+                .call("catalog", || client.search_products(req))
+                .await?;
+            let inner = resp.into_inner();
+            (inner.products, inner.total)
         } else {
             let mut client = clients.catalog.clone();
             let req = with_auth(
                 Request::new(catalog_v1::ListProductsRequest { page, page_size }),
                 identity,
             );
-            let resp = client.list_products(req).await?.into_inner();
-            (resp.products, resp.total)
+            let resp = clients
+                .call("catalog", || client.list_products(req))
+                .await?;
+            let inner = resp.into_inner();
+            (inner.products, inner.total)
         };
 
         Ok(ProductConnection {
@@ -199,8 +212,31 @@ impl Query {
         })
     }
 
+    /// Остатки товара на складе.
+    async fn inventory(&self, ctx: &Context<'_>, product_id: ID) -> Result<Option<Inventory>> {
+        validation::validate_uuid(&product_id)?;
+        let identity = ctx.data::<Identity>().ok();
+        let clients = ctx_clients(ctx)?;
+
+        let mut client = clients.inventory.clone();
+        let req = with_auth(
+            Request::new(inventory_v1::GetStockRequest {
+                product_id: product_id.to_string(),
+            }),
+            identity,
+        );
+        let resp = clients.call("inventory", || client.get_stock(req)).await?;
+        let stock = resp.into_inner();
+        Ok(Some(Inventory {
+            product_id: product_id.to_string().into(),
+            available: stock.available,
+            reserved: stock.reserved,
+        }))
+    }
+
     /// Заказ по id.
     async fn order(&self, ctx: &Context<'_>, id: ID) -> Result<Option<Order>> {
+        validation::validate_uuid(&id)?;
         let identity = require_identity(ctx)?;
         let clients = ctx_clients(ctx)?;
 
@@ -211,7 +247,7 @@ impl Query {
             }),
             Some(identity),
         );
-        let resp = client.get_order(req).await?;
+        let resp = clients.call("order", || client.get_order(req)).await?;
         Ok(resp.into_inner().order.map(proto_order_to_model))
     }
 
@@ -223,10 +259,11 @@ impl Query {
         page: Option<i32>,
         page_size: Option<i32>,
     ) -> Result<OrderConnection> {
+        validation::validate_uuid(&user_id)?;
         let identity = require_identity(ctx)?;
         let clients = ctx_clients(ctx)?;
 
-        let _ = user_id; // в Go-реализации авторизация owner/admin, здесь пока проксируем запрос
+        let _ = user_id; // авторизация owner/admin остаётся на downstream-сервисе
         let page = page.filter(|&p| p > 0).unwrap_or(1);
         let page_size = page_size.filter(|&s| s > 0 && s <= 100).unwrap_or(10);
 
@@ -235,11 +272,12 @@ impl Query {
             Request::new(order_v1::ListOrdersRequest { page, page_size }),
             Some(identity),
         );
-        let resp = client.list_orders(req).await?.into_inner();
+        let resp = clients.call("order", || client.list_orders(req)).await?;
+        let inner = resp.into_inner();
 
         Ok(OrderConnection {
-            orders: resp.orders.into_iter().map(proto_order_to_model).collect(),
-            total: resp.total,
+            orders: inner.orders.into_iter().map(proto_order_to_model).collect(),
+            total: inner.total,
         })
     }
 }
@@ -254,6 +292,7 @@ impl Mutation {
         password: String,
         name: String,
     ) -> Result<ID> {
+        validation::validate_email(&email)?;
         let clients = ctx_clients(ctx)?;
         let mut client = clients.user.clone();
         let req = Request::new(user_v1::RegisterRequest {
@@ -261,16 +300,17 @@ impl Mutation {
             password,
             name,
         });
-        let resp = client.register(req).await?;
+        let resp = clients.call("user", || client.register(req)).await?;
         Ok(resp.into_inner().user_id.into())
     }
 
     /// Вход по email и паролю. Возвращает JWT-токен.
     async fn login(&self, ctx: &Context<'_>, email: String, password: String) -> Result<String> {
+        validation::validate_email(&email)?;
         let clients = ctx_clients(ctx)?;
         let mut client = clients.user.clone();
         let req = Request::new(user_v1::LoginRequest { email, password });
-        let resp = client.login(req).await?;
+        let resp = clients.call("user", || client.login(req)).await?;
         Ok(resp.into_inner().token)
     }
 
@@ -287,6 +327,7 @@ impl Mutation {
         if !identity.is_admin() {
             return Err(ApiError::Forbidden.into());
         }
+        validation::validate_positive_price(price)?;
         let clients = ctx_clients(ctx)?;
 
         let mut client = clients.catalog.clone();
@@ -300,7 +341,9 @@ impl Mutation {
             }),
             Some(identity),
         );
-        let resp = client.create_product(req).await?;
+        let resp = clients
+            .call("catalog", || client.create_product(req))
+            .await?;
         Ok(resp.into_inner().product_id.into())
     }
 
@@ -312,14 +355,17 @@ impl Mutation {
         }
         let clients = ctx_clients(ctx)?;
 
-        let proto_items: Vec<order_v1::OrderItem> = items
-            .into_iter()
-            .map(|i| order_v1::OrderItem {
+        let mut proto_items = Vec::with_capacity(items.len());
+        for i in items {
+            validation::validate_uuid(&i.product_id)?;
+            validation::validate_positive_quantity(i.quantity)?;
+            validation::validate_positive_price(i.price)?;
+            proto_items.push(order_v1::OrderItem {
                 product_id: i.product_id.to_string(),
                 quantity: i.quantity,
                 price_cents: dollars_to_cents(i.price),
-            })
-            .collect();
+            });
+        }
 
         let mut client = clients.order.clone();
         let req = with_auth(
@@ -329,12 +375,13 @@ impl Mutation {
             }),
             Some(identity),
         );
-        let resp = client.create_order(req).await?;
+        let resp = clients.call("order", || client.create_order(req)).await?;
         Ok(resp.into_inner().order_id.into())
     }
 
     /// Отмена заказа.
     async fn cancel_order(&self, ctx: &Context<'_>, order_id: ID) -> Result<bool> {
+        validation::validate_uuid(&order_id)?;
         let identity = require_identity(ctx)?;
         let clients = ctx_clients(ctx)?;
 
@@ -345,7 +392,7 @@ impl Mutation {
             }),
             Some(identity),
         );
-        client.cancel_order(req).await?;
+        clients.call("order", || client.cancel_order(req)).await?;
         Ok(true)
     }
 }

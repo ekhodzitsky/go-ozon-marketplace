@@ -1,8 +1,18 @@
+use crate::clients::Clients;
 use crate::graphql::resolvers::{Mutation, Query};
-use async_graphql::{EmptySubscription, Schema};
+use crate::graphql::subscription::SubscriptionRoot;
+use async_graphql::Schema;
 
-pub type AppSchema = Schema<Query, Mutation, EmptySubscription>;
+pub type AppSchema = Schema<Query, Mutation, SubscriptionRoot>;
 
-pub fn create_schema() -> AppSchema {
-    Schema::build(Query, Mutation, EmptySubscription).finish()
+pub fn create_schema(
+    redis_pool: deadpool_redis::Pool,
+    redis_client: redis::Client,
+    clients: Clients,
+) -> AppSchema {
+    Schema::build(Query, Mutation, SubscriptionRoot)
+        .data(redis_pool)
+        .data(redis_client)
+        .data(clients)
+        .finish()
 }

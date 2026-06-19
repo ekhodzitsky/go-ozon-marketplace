@@ -95,7 +95,12 @@ mod tests {
             role: "user".into(),
             exp: usize::MAX,
         };
-        let token = encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes())).unwrap();
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .unwrap();
 
         let verifier = JwtVerifier::new(secret);
         let identity = verifier.verify(&token).unwrap();
@@ -111,9 +116,34 @@ mod tests {
             role: "user".into(),
             exp: usize::MAX,
         };
-        let token = encode(&Header::default(), &claims, &EncodingKey::from_secret("other-secret".as_bytes())).unwrap();
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret("other-secret".as_bytes()),
+        )
+        .unwrap();
 
         let verifier = JwtVerifier::new(secret);
         assert!(verifier.verify(&token).is_err());
+    }
+
+    #[test]
+    fn recognizes_admin_role() {
+        let secret = "test-secret";
+        let claims = Claims {
+            sub: "admin-1".into(),
+            role: "admin".into(),
+            exp: usize::MAX,
+        };
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .unwrap();
+
+        let verifier = JwtVerifier::new(secret);
+        let identity = verifier.verify(&token).unwrap();
+        assert!(identity.is_admin());
     }
 }

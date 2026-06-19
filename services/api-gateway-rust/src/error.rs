@@ -13,6 +13,10 @@ pub enum ApiError {
     Unauthenticated,
     #[error("forbidden")]
     Forbidden,
+    #[error("rate limited")]
+    RateLimited,
+    #[error("circuit breaker open for service {service}")]
+    CircuitOpen { service: String },
     #[error("downstream error: {0}")]
     Downstream(String),
     #[error("invalid argument: {0}")]
@@ -26,6 +30,8 @@ impl ApiError {
         match self {
             Self::Unauthenticated => StatusCode::UNAUTHORIZED,
             Self::Forbidden => StatusCode::FORBIDDEN,
+            Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+            Self::CircuitOpen { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::InvalidArgument(_) => StatusCode::BAD_REQUEST,
             Self::Downstream(_) | Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -53,6 +59,12 @@ impl From<jsonwebtoken::errors::Error> for ApiError {
 
 impl From<std::env::VarError> for ApiError {
     fn from(err: std::env::VarError) -> Self {
+        Self::Internal(err.to_string())
+    }
+}
+
+impl From<redis::RedisError> for ApiError {
+    fn from(err: redis::RedisError) -> Self {
         Self::Internal(err.to_string())
     }
 }

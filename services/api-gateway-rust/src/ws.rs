@@ -1,11 +1,18 @@
+use crate::graphql::AppSchema;
+use async_graphql_axum::{GraphQLProtocol, GraphQLWebSocket};
 use axum::{
-    extract::ws::WebSocketUpgrade,
+    extract::{Extension, WebSocketUpgrade},
     response::IntoResponse,
 };
 
-/// Заглушка WebSocket-эндпоинта. Реальная логика будет добавлена позже.
-pub async fn handler(ws: WebSocketUpgrade) -> impl IntoResponse {
-    ws.on_upgrade(|_socket| async move {
-        // TODO: подписки на orderStatusChanged / inventoryChanged.
-    })
+/// WebSocket-эндпоинт для GraphQL subscriptions.
+/// Поддерживает протоколы `graphql-ws` и `graphql-transport-ws`.
+pub async fn handler(
+    Extension(schema): Extension<AppSchema>,
+    protocol: GraphQLProtocol,
+    websocket: WebSocketUpgrade,
+) -> impl IntoResponse {
+    websocket
+        .protocols(["graphql-ws", "graphql-transport-ws"])
+        .on_upgrade(move |socket| GraphQLWebSocket::new(socket, schema, protocol).serve())
 }

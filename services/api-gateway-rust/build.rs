@@ -5,7 +5,11 @@ use std::process::Command;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-    let api_dir = manifest_dir.join("..").join("..").join("api").canonicalize()?;
+    let api_dir = manifest_dir
+        .join("..")
+        .join("..")
+        .join("api")
+        .canonicalize()?;
 
     // Пересобираем, если меняются proto-контракты.
     println!("cargo:rerun-if-changed={}", api_dir.join("proto").display());
