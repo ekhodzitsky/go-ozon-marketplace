@@ -11,7 +11,7 @@ import (
 
 const redisKey = "featureflags"
 
-// Flag represents a single feature flag.
+// Flag — один фиче-флаг.
 type Flag struct {
 	Name       string `json:"name"`
 	Enabled    bool   `json:"enabled"`
@@ -19,20 +19,20 @@ type Flag struct {
 	Percentage int    `json:"percentage"`
 }
 
-// RedisStore persists feature flags in a Redis hash.
-// When no Redis client is provided it falls back to an in-memory map.
+// RedisStore хранит фиче-флаги в Redis-хеше.
+// Если Redis-клиент не передан, работает на in-memory мапе.
 type RedisStore struct {
 	client *redis.Client
 	mu     sync.RWMutex
 	local  map[string]*Flag
 }
 
-// NewRedisStore creates a store backed by Redis.
+// NewRedisStore создаёт стор поверх Redis.
 func NewRedisStore(client *redis.Client) *RedisStore {
 	return &RedisStore{client: client, local: make(map[string]*Flag)}
 }
 
-// Get loads a flag by name. A nil flag means the flag does not exist.
+// Get загружает флаг по имени. nil означает, что флага нет.
 func (s *RedisStore) Get(ctx context.Context, name string) (*Flag, error) {
 	if s.client == nil {
 		s.mu.RLock()
@@ -58,7 +58,7 @@ func (s *RedisStore) Get(ctx context.Context, name string) (*Flag, error) {
 	return &f, nil
 }
 
-// Set saves or updates a flag.
+// Set сохраняет или обновляет флаг.
 func (s *RedisStore) Set(ctx context.Context, flag *Flag) error {
 	if s.client == nil {
 		s.mu.Lock()
@@ -105,7 +105,7 @@ func (s *RedisStore) List(ctx context.Context) ([]*Flag, error) {
 	return flags, nil
 }
 
-// SetEnabled updates the enabled state of a flag.
+// SetEnabled меняет состояние включения флага.
 func (s *RedisStore) SetEnabled(ctx context.Context, name string, enabled bool) error {
 	flag, err := s.Get(ctx, name)
 	if err != nil {
@@ -118,7 +118,7 @@ func (s *RedisStore) SetEnabled(ctx context.Context, name string, enabled bool) 
 	return s.Set(ctx, flag)
 }
 
-// SetPercentage updates the percentage rollout of a flag.
+// SetPercentage меняет процент раската флага.
 func (s *RedisStore) SetPercentage(ctx context.Context, name string, percentage int) error {
 	if percentage < 0 || percentage > 100 {
 		return fmt.Errorf("percentage must be 0-100")

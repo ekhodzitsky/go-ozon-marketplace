@@ -14,18 +14,18 @@ import (
 	redisstore "github.com/ulule/limiter/v3/drivers/store/redis"
 )
 
-// RateLimiter is the generic rate-limiter interface.
+// RateLimiter — общий интерфейс rate limiter.
 type RateLimiter interface {
 	Allow(ctx context.Context, key string) bool
 }
 
-// RedisRateLimiter implements a sliding-window rate limiter backed by Redis.
+// RedisRateLimiter — sliding-window rate limiter поверх Redis.
 type RedisRateLimiter struct {
 	limiter *limiter.Limiter
 }
 
-// NewRedisRateLimiter creates a Redis-backed sliding-window rate limiter.
-// Falls back to an in-memory store when Redis is unavailable.
+// NewRedisRateLimiter создаёт Redis-backed sliding-window rate limiter.
+// Если Redis недоступен, падает на in-memory store.
 func NewRedisRateLimiter(client *redis.Client, limit int, window time.Duration) *RedisRateLimiter {
 	if limit <= 0 {
 		limit = 10
@@ -50,8 +50,8 @@ func newLimiterStore(client *redis.Client) limiter.Store {
 	return store
 }
 
-// Allow reports whether one request from key is allowed.
-// Redis errors are treated as fail-closed to prevent abuse when the rate-limiting backend is unavailable.
+// Allow говорит, пропускать ли один запрос от key.
+// Ошибки Redis трактуются как fail-closed, чтобы не дать абьюзу, когда бэкенд rate limiting недоступен.
 func (rl *RedisRateLimiter) Allow(ctx context.Context, key string) bool {
 	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel()
@@ -62,8 +62,8 @@ func (rl *RedisRateLimiter) Allow(ctx context.Context, key string) bool {
 	return !limitCtx.Reached
 }
 
-// ClientIP returns the client IP. It respects X-Forwarded-For only when the
-// immediate peer (RemoteAddr) is within one of the trusted CIDRs.
+// ClientIP возвращает IP клиента. Учитывает X-Forwarded-For только если
+// ближайший пир (RemoteAddr) попадает в один из доверенных CIDR.
 func ClientIP(r *http.Request, trusted []string) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -108,7 +108,7 @@ func ClientIP(r *http.Request, trusted []string) string {
 	return host
 }
 
-// MaxBytesHandler wraps the next handler with http.MaxBytesReader.
+// MaxBytesHandler оборачивает handler в http.MaxBytesReader.
 func MaxBytesHandler(next http.Handler, maxBytes int64) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if maxBytes > 0 {
@@ -118,7 +118,7 @@ func MaxBytesHandler(next http.Handler, maxBytes int64) http.Handler {
 	})
 }
 
-// RateLimitHTTP returns middleware that rate-limits all requests by IP.
+// RateLimitHTTP возвращает middleware, которое rate-limitит все запросы по IP.
 func RateLimitHTTP(rl RateLimiter, trusted []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -134,7 +134,7 @@ func RateLimitHTTP(rl RateLimiter, trusted []string) func(http.Handler) http.Han
 
 type ctxKeyRateLimitIP struct{}
 
-// WithRateLimitIP puts the client IP into the request context.
+// WithRateLimitIP кладёт IP клиента в контекст запроса.
 func WithRateLimitIP(next http.Handler, trusted []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.WithValue(r.Context(), ctxKeyRateLimitIP{}, ClientIP(r, trusted))
@@ -142,7 +142,7 @@ func WithRateLimitIP(next http.Handler, trusted []string) http.Handler {
 	})
 }
 
-// RateLimitIPFromContext extracts the client IP set by WithRateLimitIP.
+// RateLimitIPFromContext достаёт IP клиента, установленный WithRateLimitIP.
 func RateLimitIPFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(ctxKeyRateLimitIP{}).(string)
 	return v
@@ -152,15 +152,15 @@ type noopRateLimiter struct{}
 
 func (n *noopRateLimiter) Allow(ctx context.Context, key string) bool { return true }
 
-// RoleRateLimiter selects a rate limiter based on the role in context.
+// RoleRateLimiter выбирает rate limiter по роли из контекста.
 type RoleRateLimiter struct {
 	user    RateLimiter
 	admin   RateLimiter
 	service RateLimiter
 }
 
-// NewRoleRateLimiter creates a role-based rate limiter.
-// User and admin limits use Redis; service role has no limit.
+// NewRoleRateLimiter создаёт rate limiter, зависящий от роли.
+// Для user и admin используется Redis; service-роль не ограничивается.
 func NewRoleRateLimiter(client *redis.Client, userLimit, adminLimit int, window time.Duration) *RoleRateLimiter {
 	return &RoleRateLimiter{
 		user:    NewRedisRateLimiter(client, userLimit, window),
@@ -169,7 +169,7 @@ func NewRoleRateLimiter(client *redis.Client, userLimit, adminLimit int, window 
 	}
 }
 
-// Allow delegates to the appropriate limiter based on role.
+// Allow делегирует в подходящий limiter в зависимости от роли.
 func (rl *RoleRateLimiter) Allow(ctx context.Context, key string) bool {
 	role, _ := GetRole(ctx)
 	switch role {

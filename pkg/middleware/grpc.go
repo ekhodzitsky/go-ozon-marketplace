@@ -26,12 +26,12 @@ func init() {
 	prometheus.MustRegister(grpcRequestsTotal, grpcRequestDuration)
 }
 
-// LoggingUnaryInterceptor is the default logging interceptor using the default logger.
+// LoggingUnaryInterceptor — дефолтный логирующий интерцептор, использует логгер по умолчанию.
 func LoggingUnaryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 	return NewLoggingInterceptor(nil)(ctx, req, info, handler)
 }
 
-// NewLoggingInterceptor returns a gRPC unary interceptor that logs requests with the provided logger.
+// NewLoggingInterceptor возвращает gRPC unary интерцептор, который логирует запросы заданным логгером.
 func NewLoggingInterceptor(log *zap.Logger) grpc.UnaryServerInterceptor {
 	if log == nil {
 		log = defaultGRPCLog()

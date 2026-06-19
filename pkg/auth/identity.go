@@ -2,7 +2,7 @@ package auth
 
 import "context"
 
-// Identity carries authenticated caller information through the request graph.
+// Identity — данные аутентифицированного вызывающего, которые таскаем через контекст запроса.
 type Identity struct {
 	UserID              string
 	Role                Role
@@ -12,17 +12,15 @@ type Identity struct {
 type contextKey string
 
 const (
-	// ContextKeyUserID carries the authenticated user id in context.
+	// ContextKeyUserID — ключ в контексте, под которым лежит id пользователя.
 	ContextKeyUserID contextKey = "user_id"
-	// ContextKeyRole carries the authenticated user role in context.
+	// ContextKeyRole — ключ в контексте, под которым лежит роль пользователя.
 	ContextKeyRole contextKey = "role"
-	// ContextKeyAuthorizationHeader carries the raw Authorization header for gRPC forwarding.
-	ContextKeyAuthorizationHeader contextKey = "authorization_header"
 
 	contextKeyIdentity contextKey = "auth_identity"
 )
 
-// Role represents user roles.
+// Role — роль пользователя.
 type Role string
 
 const (
@@ -31,12 +29,12 @@ const (
 	RoleService Role = "service"
 )
 
-// WithIdentity injects an Identity into the context.
+// WithIdentity кладёт Identity в контекст.
 func WithIdentity(ctx context.Context, id Identity) context.Context {
 	return context.WithValue(ctx, contextKeyIdentity, id)
 }
 
-// IdentityFromContext extracts an Identity from the context.
+// IdentityFromContext достаёт Identity из контекста.
 func IdentityFromContext(ctx context.Context) (Identity, bool) {
 	id, ok := ctx.Value(contextKeyIdentity).(Identity)
 	return id, ok

@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// New creates a zap logger with the specified level and format.
+// New создаёт zap-логгер с заданным уровнем и форматом.
 // level: debug, info, warn, error
 // format: json or console
 func New(level, format string) (*zap.Logger, error) {

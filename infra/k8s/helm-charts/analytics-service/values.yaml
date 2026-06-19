@@ -33,9 +33,12 @@ resources:
 env:
   GRPC_PORT: "50057"
   CLICKHOUSE_DSN: "clickhouse:9000"
+  KAFKA_BROKERS: "kafka:9092"
+  KAFKA_TOPICS: "order-events"
+  KAFKA_CONSUMER_GROUP: "analytics-service"
 
 secrets:
-  jwtSecret: ""      # required
+  jwtSecret: ""      # обязательно
 
 autoscaling:
   enabled: false

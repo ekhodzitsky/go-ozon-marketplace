@@ -8,7 +8,7 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// ServiceAuthInterceptor attaches a freshly issued service token to outgoing gRPC calls.
+// ServiceAuthInterceptor цепляет свежий сервисный токен к исходящим gRPC-вызовам.
 func ServiceAuthInterceptor(issuer auth.Issuer) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		token, err := issuer.Issue(ctx)

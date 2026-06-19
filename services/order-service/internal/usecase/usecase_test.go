@@ -82,11 +82,8 @@ func newTestOrderUsecase(t *testing.T, ctrl *gomock.Controller) (
 		txm,
 		orderRepo,
 		outboxRepo,
-		sagaRepo,
 		orchestrator,
-		invClient,
-		payClient,
-		catalogClient,
+		grpcclient.NewCatalogClient(catalogClient, 100*time.Millisecond),
 		nil,
 		100*time.Millisecond,
 		100*time.Millisecond,
@@ -393,24 +390,16 @@ func TestOrderUsecase_CancelOrder_DirectlyCancellable(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	uc, _, orderRepo, _, _, invClient, _, _ := newTestOrderUsecase(t, ctrl)
+	uc, _, orderRepo, _, _, _, _, _ := newTestOrderUsecase(t, ctrl)
 
 	id := uuid.New()
-	productID := uuid.New()
 	order := &domain.Order{
 		ID:     id,
 		Status: domain.OrderStatusPending,
-		Items:  []domain.OrderItem{{ProductID: productID, Quantity: 2}},
 	}
 
 	orderRepo.EXPECT().GetByID(gomock.Any(), id).Return(order, nil)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), id, domain.OrderStatusCancelled).Return(nil)
-	invClient.EXPECT().Release(gomock.Any(), &inventoryv1.ReleaseRequest{
-		ProductId:      productID.String(),
-		Quantity:       2,
-		OrderId:        id.String(),
-		IdempotencyKey: fmt.Sprintf("release:%s:%s", id.String(), productID.String()),
-	}).Return(&inventoryv1.ReleaseResponse{}, nil)
 
 	err := uc.CancelOrder(context.Background(), id)
 	require.NoError(t, err)
@@ -431,7 +420,7 @@ func TestOrderUsecase_CancelOrder_PaidWithRefund(t *testing.T) {
 		Status: domain.OrderStatusPaid,
 		Items:  []domain.OrderItem{{ProductID: productID, Quantity: 1}},
 	}
-	s := &domain.Saga{PaymentID: "pay-123"}
+	s := &saga.Saga{PaymentID: "pay-123", ReservedItems: []saga.SagaReservedItem{{ProductID: productID.String(), Quantity: 1}}}
 
 	orderRepo.EXPECT().GetByID(gomock.Any(), id).Return(order, nil)
 	sagaRepo.EXPECT().GetByOrderID(gomock.Any(), id).Return(s, nil)
@@ -446,6 +435,7 @@ func TestOrderUsecase_CancelOrder_PaidWithRefund(t *testing.T) {
 		IdempotencyKey: fmt.Sprintf("release:%s:%s", id.String(), productID.String()),
 	}).Return(&inventoryv1.ReleaseResponse{}, nil)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), id, domain.OrderStatusCancelled).Return(nil)
+	sagaRepo.EXPECT().Save(gomock.Any(), gomock.Any()).Return(nil)
 
 	err := uc.CancelOrder(context.Background(), id)
 	require.NoError(t, err)
@@ -466,14 +456,14 @@ func TestOrderUsecase_CancelOrder_PaidRefundFails(t *testing.T) {
 		Status: domain.OrderStatusPaid,
 		Items:  []domain.OrderItem{{ProductID: productID, Quantity: 1}},
 	}
-	s := &domain.Saga{PaymentID: "pay-123"}
+	s := &saga.Saga{PaymentID: "pay-123"}
 
 	orderRepo.EXPECT().GetByID(gomock.Any(), id).Return(order, nil)
 	sagaRepo.EXPECT().GetByOrderID(gomock.Any(), id).Return(s, nil)
 	payClient.EXPECT().Refund(gomock.Any(), &paymentv1.RefundRequest{
 		PaymentId:      "pay-123",
 		IdempotencyKey: fmt.Sprintf("refund:%s:%s", id.String(), "pay-123"),
-	}).Return(nil, errors.New("refund declined"))
+	}).Return(nil, errors.New("refund declined")).Times(3)
 
 	err := uc.CancelOrder(context.Background(), id)
 	require.Error(t, err)

@@ -85,7 +85,7 @@ func TestRecoveryWorker_ContextCancellation(t *testing.T) {
 	defer ctrl.Finish()
 
 	orchestrator, _, sagaRepo, _, _ := newTestOrchestrator(ctrl)
-	sagaRepo.EXPECT().ListIncomplete(gomock.Any(), 100).Return([]domain.Saga{}, nil).AnyTimes()
+	sagaRepo.EXPECT().ListIncomplete(gomock.Any(), 100).Return([]saga.Saga{}, nil).AnyTimes()
 
 	log := zap.NewNop()
 	w := saga.NewRecoveryWorker(orchestrator, log, saga.WithRecoveryInterval(50*time.Millisecond))
@@ -131,10 +131,10 @@ func TestRecoveryWorker_ProcessesIncompleteSagas(t *testing.T) {
 	)
 
 	orderID := uuid.New()
-	incompleteSaga := domain.Saga{
+	incompleteSaga := saga.Saga{
 		ID:      uuid.New(),
 		OrderID: orderID,
-		Status:  domain.SagaStatusReserved,
+		Status:  saga.SagaStatusReserved,
 	}
 	order := &domain.Order{
 		ID:     orderID,
@@ -143,7 +143,7 @@ func TestRecoveryWorker_ProcessesIncompleteSagas(t *testing.T) {
 		Status: domain.OrderStatusAwaitingPayment,
 	}
 
-	sagaRepo.EXPECT().ListIncomplete(gomock.Any(), 100).Return([]domain.Saga{incompleteSaga}, nil).AnyTimes()
+	sagaRepo.EXPECT().ListIncomplete(gomock.Any(), 100).Return([]saga.Saga{incompleteSaga}, nil).AnyTimes()
 	orderRepo.EXPECT().GetByID(gomock.Any(), orderID).Return(order, nil).AnyTimes()
 	sagaRepo.EXPECT().GetByOrderID(gomock.Any(), orderID).Return(&incompleteSaga, nil).AnyTimes()
 	// ProcessOrder from Reserved state will transition to Paying, Paid, Confirming, Confirmed

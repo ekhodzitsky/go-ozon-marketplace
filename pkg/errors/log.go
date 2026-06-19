@@ -2,8 +2,8 @@ package errors
 
 import "go.uber.org/zap"
 
-// Fields extracts structured zap fields from an error. Adapters can attach
-// these fields to a logger near the call site without knowing the transport.
+// Fields вытаскивает из ошибки структурированные поля для zap.
+// Адаптеры могут прикреплять их к логгеру рядом с местом вызова, не зная про транспорт.
 func Fields(err error) []zap.Field {
 	if err == nil {
 		return nil

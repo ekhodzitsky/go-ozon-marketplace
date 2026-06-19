@@ -31,6 +31,9 @@ spec:
               name: otlp-http
             - containerPort: 9411
               name: zipkin
+          env:
+            - name: COLLECTOR_OTLP_ENABLED
+              value: "true"
           resources:
             requests:
               cpu: 100m

@@ -46,6 +46,10 @@ spec:
           env:
             - name: GRPC_PORT
               value: {{ .Values.env.GRPC_PORT | quote }}
+            - name: KAFKA_BROKERS
+              value: {{ .Values.env.KAFKA_BROKERS | quote }}
+            - name: DLQ_TOPIC
+              value: {{ .Values.env.DLQ_TOPIC | quote }}
             - name: METRICS_PORT
               value: {{ .Values.service.metricsPort | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

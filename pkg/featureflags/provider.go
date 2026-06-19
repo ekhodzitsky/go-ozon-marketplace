@@ -7,32 +7,32 @@ import (
 	"github.com/open-feature/go-sdk/openfeature"
 )
 
-// Provider is an OpenFeature provider backed by RedisStore.
+// Provider — OpenFeature-провайдер поверх RedisStore.
 type Provider struct {
 	store *RedisStore
 }
 
-// NewProvider creates a new OpenFeature provider from a Redis store.
+// NewProvider создаёт OpenFeature-провайдер из Redis-сторе.
 func NewProvider(store *RedisStore) *Provider {
 	return &Provider{store: store}
 }
 
-// Metadata returns provider metadata.
+// Metadata возвращает метаданные провайдера.
 func (p *Provider) Metadata() openfeature.Metadata {
 	return openfeature.Metadata{Name: "redis-featureflags"}
 }
 
-// Hooks returns hooks attached to the provider.
+// Hooks возвращает хуки, прикреплённые к провайдеру.
 func (p *Provider) Hooks() []openfeature.Hook {
 	return nil
 }
 
-// Init initializes the provider.
+// Init инициализирует провайдер.
 func (p *Provider) Init(_ openfeature.EvaluationContext) error {
 	return nil
 }
 
-// Shutdown cleans up the provider.
+// Shutdown освобождает ресурсы провайдера.
 func (p *Provider) Shutdown() {}
 
 func (p *Provider) BooleanEvaluation(ctx context.Context, flag string, defaultValue bool, flatCtx openfeature.FlattenedContext) openfeature.BoolResolutionDetail {

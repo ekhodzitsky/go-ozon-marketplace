@@ -27,9 +27,14 @@ const (
 // AnalyticsServiceClient is the client API for AnalyticsService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Сервис аналитики: события и выручка.
 type AnalyticsServiceClient interface {
+	// Зафиксировать произвольное событие.
 	TrackEvent(ctx context.Context, in *TrackEventRequest, opts ...grpc.CallOption) (*TrackEventResponse, error)
+	// Получить дневную выручку.
 	GetDailyRevenue(ctx context.Context, in *GetDailyRevenueRequest, opts ...grpc.CallOption) (*GetDailyRevenueResponse, error)
+	// Зафиксировать событие A/B-теста.
 	TrackABTestEvent(ctx context.Context, in *TrackABTestEventRequest, opts ...grpc.CallOption) (*TrackABTestEventResponse, error)
 }
 
@@ -74,9 +79,14 @@ func (c *analyticsServiceClient) TrackABTestEvent(ctx context.Context, in *Track
 // AnalyticsServiceServer is the server API for AnalyticsService service.
 // All implementations should embed UnimplementedAnalyticsServiceServer
 // for forward compatibility
+//
+// Сервис аналитики: события и выручка.
 type AnalyticsServiceServer interface {
+	// Зафиксировать произвольное событие.
 	TrackEvent(context.Context, *TrackEventRequest) (*TrackEventResponse, error)
+	// Получить дневную выручку.
 	GetDailyRevenue(context.Context, *GetDailyRevenueRequest) (*GetDailyRevenueResponse, error)
+	// Зафиксировать событие A/B-теста.
 	TrackABTestEvent(context.Context, *TrackABTestEventRequest) (*TrackABTestEventResponse, error)
 }
 

@@ -17,7 +17,7 @@ import (
 
 var propagator = propagation.TraceContext{}
 
-// InitTracer creates an OTLP HTTP exporter, batch span processor and tracer provider.
+// InitTracer создаёт OTLP HTTP exporter, batch span processor и tracer provider.
 func InitTracer(serviceName, otlpEndpoint string) (*sdktrace.TracerProvider, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -42,7 +42,7 @@ func InitTracer(serviceName, otlpEndpoint string) (*sdktrace.TracerProvider, err
 	return tp, nil
 }
 
-// ShutdownTracer gracefully shuts down the tracer provider.
+// ShutdownTracer аккуратно останавливает tracer provider.
 func ShutdownTracer(tp *sdktrace.TracerProvider, ctx context.Context) error {
 	if tp == nil {
 		return nil
@@ -52,10 +52,10 @@ func ShutdownTracer(tp *sdktrace.TracerProvider, ctx context.Context) error {
 	return tp.Shutdown(ctx)
 }
 
-// MetadataCarrier adapts gRPC metadata to OpenTelemetry TextMapCarrier.
+// MetadataCarrier адаптирует gRPC-метаданные под OpenTelemetry TextMapCarrier.
 type MetadataCarrier metadata.MD
 
-// Get returns the first value associated with the key.
+// Get возвращает первое значение по ключу.
 func (m MetadataCarrier) Get(key string) string {
 	vals := metadata.MD(m).Get(key)
 	if len(vals) == 0 {
@@ -64,12 +64,12 @@ func (m MetadataCarrier) Get(key string) string {
 	return vals[0]
 }
 
-// Set stores the key-value pair.
+// Set сохраняет пару ключ-значение.
 func (m MetadataCarrier) Set(key, value string) {
 	metadata.MD(m).Set(key, value)
 }
 
-// Keys lists the keys stored in this carrier.
+// Keys возвращает список ключей в carrier.
 func (m MetadataCarrier) Keys() []string {
 	keys := make([]string, 0, len(m))
 	for k := range metadata.MD(m) {
@@ -78,7 +78,7 @@ func (m MetadataCarrier) Keys() []string {
 	return keys
 }
 
-// UnaryClientInterceptor injects trace context into outgoing gRPC metadata.
+// UnaryClientInterceptor внедряет контекст трассировки в исходящие gRPC-метаданные.
 func UnaryClientInterceptor() grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		md, ok := metadata.FromOutgoingContext(ctx)
@@ -93,7 +93,7 @@ func UnaryClientInterceptor() grpc.UnaryClientInterceptor {
 	}
 }
 
-// UnaryServerInterceptor extracts trace context from incoming gRPC metadata.
+// UnaryServerInterceptor извлекает контекст трассировки из входящих gRPC-метаданных.
 func UnaryServerInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		md, ok := metadata.FromIncomingContext(ctx)

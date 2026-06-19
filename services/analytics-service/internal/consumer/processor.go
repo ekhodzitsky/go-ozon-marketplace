@@ -34,18 +34,19 @@ func NewProcessor(uc usecase.AnalyticsUsecase, log *zap.Logger) *Processor {
 	return &Processor{uc: uc, log: log}
 }
 
-// Process implements kafka.Processor.
+// Process реализует kafka.Processor. Ошибки парсинга и неизвестного типа возвращаем
+// вызывающему, чтобы сообщение не коммитилось и ушло в DLQ/ретрай.
 func (p *Processor) Process(ctx context.Context, msg *sarama.ConsumerMessage) error {
 	var event Event
 	if err := json.Unmarshal(msg.Value, &event); err != nil {
 		p.log.Warn("failed to unmarshal analytics event", zap.Error(err))
-		return nil
+		return fmt.Errorf("unmarshal analytics event: %w", err)
 	}
 
 	eventType, ok := mapEventType(event.EventType)
 	if !ok {
 		p.log.Warn("unknown analytics event type", zap.String("event_type", event.EventType))
-		return nil
+		return fmt.Errorf("unknown analytics event type: %s", event.EventType)
 	}
 
 	amount := event.Amount

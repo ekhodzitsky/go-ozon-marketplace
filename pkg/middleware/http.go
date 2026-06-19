@@ -14,7 +14,7 @@ type contextKey string
 
 const contextKeyRequestID contextKey = "request_id"
 
-// RequestID adds X-Request-ID header to every request.
+// RequestID добавляет заголовок X-Request-ID к каждому запросу.
 func RequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqID := r.Header.Get("X-Request-ID")
@@ -27,7 +27,7 @@ func RequestID(next http.Handler) http.Handler {
 	})
 }
 
-// GetRequestID extracts request-id from context.
+// GetRequestID достаёт request-id из контекста.
 func GetRequestID(ctx context.Context) string {
 	v, _ := ctx.Value(contextKeyRequestID).(string)
 	return v
@@ -43,12 +43,12 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
-// AccessLog logs every HTTP request using the default zap logger.
+// AccessLog логирует каждый HTTP-запрос через дефолтный zap-логгер.
 func AccessLog(next http.Handler) http.Handler {
 	return NewAccessLog(defaultHTTPLog())(next)
 }
 
-// NewAccessLog returns HTTP access-log middleware that uses the provided logger.
+// NewAccessLog возвращает HTTP access-log middleware с заданным логгером.
 func NewAccessLog(log *zap.Logger) func(http.Handler) http.Handler {
 	if log == nil {
 		log = defaultHTTPLog()

@@ -8,8 +8,8 @@ import (
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/repository"
-	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/unitofwork"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -17,17 +17,23 @@ const (
 	DefaultQueryTimeout = 3 * time.Second
 )
 
+// txRunner выполняет функцию внутри БД-транзакции.
+// В продакшене это txmanager.RunTx, в тестах — заглушка.
+type txRunner func(ctx context.Context, fn func(pgx.Tx) error) error
+
 type catalogUsecase struct {
-	txm          unitofwork.Manager
+	runTx        txRunner
 	productRepo  repository.ProductRepository
+	outboxRepo   repository.OutboxRepository
 	searchRepo   repository.ProductSearchRepository
 	callTimeout  time.Duration
 	queryTimeout time.Duration
 }
 
 func NewCatalogUsecase(
-	txm unitofwork.Manager,
+	runTx txRunner,
 	productRepo repository.ProductRepository,
+	outboxRepo repository.OutboxRepository,
 	searchRepo repository.ProductSearchRepository,
 	callTimeout time.Duration,
 	queryTimeout time.Duration,
@@ -39,8 +45,9 @@ func NewCatalogUsecase(
 		queryTimeout = DefaultQueryTimeout
 	}
 	return &catalogUsecase{
-		txm:          txm,
+		runTx:        runTx,
 		productRepo:  productRepo,
+		outboxRepo:   outboxRepo,
 		searchRepo:   searchRepo,
 		callTimeout:  callTimeout,
 		queryTimeout: queryTimeout,
@@ -76,14 +83,17 @@ func (u *catalogUsecase) CreateProduct(ctx context.Context, name, description st
 	defer cancel()
 
 	var createdID uuid.UUID
-	if err := u.txm.Run(txCtx, func(uow unitofwork.UnitOfWork) error {
-		id, err := uow.ProductRepo().Create(txCtx, product)
+	if err := u.runTx(txCtx, func(tx pgx.Tx) error {
+		productTx := u.productRepo.WithTx(tx)
+		outboxTx := u.outboxRepo.WithTx(tx)
+
+		id, err := productTx.Create(txCtx, product)
 		createdID = id
 		if err != nil {
 			return fmt.Errorf("create product: %w", err)
 		}
 
-		if err := uow.OutboxRepo().Create(txCtx, event); err != nil {
+		if err := outboxTx.Create(txCtx, event); err != nil {
 			return fmt.Errorf("create outbox event: %w", err)
 		}
 
@@ -101,30 +111,34 @@ func (u *catalogUsecase) GetProduct(ctx context.Context, id uuid.UUID) (*domain.
 	return u.productRepo.GetByID(ctx, id)
 }
 
-func (u *catalogUsecase) UpdateProduct(ctx context.Context, id uuid.UUID, name, description string, price int64, categories []string) error {
+func (u *catalogUsecase) UpdateProduct(ctx context.Context, id uuid.UUID, name, description *string, price *int64, categories []string) error {
 	txCtx, cancel := context.WithTimeout(ctx, u.queryTimeout)
 	defer cancel()
 
-	return u.txm.Run(txCtx, func(uow unitofwork.UnitOfWork) error {
-		existing, err := uow.ProductRepo().GetByID(txCtx, id)
+	return u.runTx(txCtx, func(tx pgx.Tx) error {
+		productTx := u.productRepo.WithTx(tx)
+		outboxTx := u.outboxRepo.WithTx(tx)
+
+		existing, err := productTx.GetByID(txCtx, id)
 		if err != nil {
 			return fmt.Errorf("get product: %w", err)
 		}
 
-		if name != "" {
-			existing.Name = name
+		// Обновляем только явно переданные поля. nil означает «не прислали».
+		if name != nil {
+			existing.Name = *name
 		}
-		if description != "" {
-			existing.Description = description
+		if description != nil {
+			existing.Description = *description
 		}
-		if price > 0 {
-			existing.Price = price
+		if price != nil {
+			existing.Price = *price
 		}
 		if len(categories) > 0 {
 			existing.Categories = categories
 		}
 
-		if err := uow.ProductRepo().Update(txCtx, existing); err != nil {
+		if err := productTx.Update(txCtx, existing); err != nil {
 			return fmt.Errorf("update product: %w", err)
 		}
 
@@ -142,7 +156,7 @@ func (u *catalogUsecase) UpdateProduct(ctx context.Context, id uuid.UUID, name, 
 			CreatedAt:     time.Now().UTC(),
 		}
 
-		if err := uow.OutboxRepo().Create(txCtx, event); err != nil {
+		if err := outboxTx.Create(txCtx, event); err != nil {
 			return fmt.Errorf("create outbox event: %w", err)
 		}
 
@@ -154,8 +168,11 @@ func (u *catalogUsecase) DeleteProduct(ctx context.Context, id uuid.UUID) error 
 	txCtx, cancel := context.WithTimeout(ctx, u.queryTimeout)
 	defer cancel()
 
-	return u.txm.Run(txCtx, func(uow unitofwork.UnitOfWork) error {
-		if err := uow.ProductRepo().Delete(txCtx, id); err != nil {
+	return u.runTx(txCtx, func(tx pgx.Tx) error {
+		productTx := u.productRepo.WithTx(tx)
+		outboxTx := u.outboxRepo.WithTx(tx)
+
+		if err := productTx.Delete(txCtx, id); err != nil {
 			return fmt.Errorf("delete product: %w", err)
 		}
 
@@ -173,7 +190,7 @@ func (u *catalogUsecase) DeleteProduct(ctx context.Context, id uuid.UUID) error 
 			CreatedAt:     time.Now().UTC(),
 		}
 
-		if err := uow.OutboxRepo().Create(txCtx, event); err != nil {
+		if err := outboxTx.Create(txCtx, event); err != nil {
 			return fmt.Errorf("create outbox event: %w", err)
 		}
 

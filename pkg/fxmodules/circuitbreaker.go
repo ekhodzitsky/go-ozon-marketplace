@@ -7,7 +7,7 @@ import (
 	"go.uber.org/fx"
 )
 
-// CircuitBreaker provides a pre-configured sony/gobreaker instance as an fx module.
+// CircuitBreaker отдаёт настроенный sony/gobreaker как fx-модуль.
 func CircuitBreaker(name string) fx.Option {
 	return fx.Provide(func() *gobreaker.CircuitBreaker {
 		return gobreaker.NewCircuitBreaker(gobreaker.Settings{

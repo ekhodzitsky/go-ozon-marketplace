@@ -4,12 +4,15 @@ package postgres_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/txmanager"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/domain"
 	catalogpostgres "github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/repository/postgres"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -154,10 +157,15 @@ func TestOutboxPostgres_Integration_TransactionRollback(t *testing.T) {
 	pool := newPool(t, dsn)
 	repo := catalogpostgres.NewOutboxPostgres(pool)
 
-	require.NoError(t, repo.Begin(context.Background()))
 	event := newOutboxEvent(t)
-	require.NoError(t, repo.Create(context.Background(), event))
-	require.NoError(t, repo.Rollback(context.Background()))
+	err := txmanager.RunTx(context.Background(), pool, func(tx pgx.Tx) error {
+		if err := repo.WithTx(tx).Create(context.Background(), event); err != nil {
+			return err
+		}
+		// Принудительно откатываем транзакцию, чтобы проверить, что событие не записалось.
+		return errors.New("intentional rollback")
+	})
+	require.Error(t, err)
 
 	events, err := repo.GetUnprocessed(context.Background(), 10)
 	require.NoError(t, err)
@@ -174,10 +182,11 @@ func TestOutboxPostgres_Integration_TransactionCommit(t *testing.T) {
 	pool := newPool(t, dsn)
 	repo := catalogpostgres.NewOutboxPostgres(pool)
 
-	require.NoError(t, repo.Begin(context.Background()))
 	event := newOutboxEvent(t)
-	require.NoError(t, repo.Create(context.Background(), event))
-	require.NoError(t, repo.Commit(context.Background()))
+	err := txmanager.RunTx(context.Background(), pool, func(tx pgx.Tx) error {
+		return repo.WithTx(tx).Create(context.Background(), event)
+	})
+	require.NoError(t, err)
 
 	events, err := repo.GetUnprocessed(context.Background(), 10)
 	require.NoError(t, err)

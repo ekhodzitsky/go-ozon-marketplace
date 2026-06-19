@@ -9,13 +9,12 @@ import (
 	"go.uber.org/zap"
 )
 
-// eventBatcher buffers analytics events and flushes them to ClickHouse in batches.
+// eventBatcher буферизует события и сбрасывает пачками в ClickHouse.
 type eventBatcher struct {
 	repo          EventRepository
 	log           *zap.Logger
 	mu            sync.Mutex
 	buffer        []domain.Event
-	seen          map[string]struct{}
 	size          int
 	flushInterval time.Duration
 	callTimeout   time.Duration
@@ -28,7 +27,6 @@ func newEventBatcher(repo EventRepository, log *zap.Logger, size int, flushInter
 		repo:          repo,
 		log:           log,
 		buffer:        make([]domain.Event, 0, size),
-		seen:          make(map[string]struct{}),
 		size:          size,
 		flushInterval: flushInterval,
 		callTimeout:   callTimeout,
@@ -39,16 +37,9 @@ func newEventBatcher(repo EventRepository, log *zap.Logger, size int, flushInter
 	return b
 }
 
-// Add buffers an event. Duplicate aggregation keys are dropped in-process.
+// Add кладёт событие в буфер. Дедупликация — на стороне хранилища.
 func (b *eventBatcher) Add(ctx context.Context, event domain.Event) error {
 	b.mu.Lock()
-	if event.AggregationKey != "" {
-		if _, exists := b.seen[event.AggregationKey]; exists {
-			b.mu.Unlock()
-			return nil
-		}
-		b.seen[event.AggregationKey] = struct{}{}
-	}
 	b.buffer = append(b.buffer, event)
 	shouldFlush := len(b.buffer) >= b.size
 	b.mu.Unlock()

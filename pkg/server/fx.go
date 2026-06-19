@@ -11,10 +11,10 @@ import (
 	"google.golang.org/grpc"
 )
 
-// RegisterGRPCService wires a standard gRPC service into an fx application.
-// It composes logging, metrics, protovalidate, tracing and JWT-auth interceptors,
-// starts the gRPC server and its metrics sidecar on lifecycle start, and stops
-// them gracefully on lifecycle stop.
+// RegisterGRPCService подключает стандартный gRPC-сервис к fx-приложению.
+// Собирает интерцепторы логирования, метрик, protovalidate, трассировки и JWT-auth,
+// стартует gRPC-сервер и sidecar метрик на lifecycle start и аккуратно останавливает
+// их на lifecycle stop.
 func RegisterGRPCService(lc fx.Lifecycle, cfg ServiceConfig, register RegisterFn, jwtSecret string, log *zap.Logger) {
 	protoValidateInterceptor, err := middleware.ProtoValidateInterceptor()
 	if err != nil {

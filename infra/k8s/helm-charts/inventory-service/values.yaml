@@ -35,8 +35,8 @@ env:
   REDIS_ADDR: "redis:6379"
 
 secrets:
-  jwtSecret: ""      # required
-  postgresDSN: ""    # required
+  jwtSecret: ""      # обязательно
+  postgresDSN: ""    # обязательно
 
 autoscaling:
   enabled: false

@@ -7,9 +7,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// ToStatus translates a domain error into a gRPC status. The signature is
-// preserved for backward compatibility; the implementation now consults the
-// Kind registry first and falls back to legacy sentinel switching.
+// ToStatus превращает доменную ошибку в gRPC-статус. Сигнатура сохранена
+// для совместимости; реализация сначала смотрит в registry Kind, а потом
+// откатывается на старое переключение по sentinel-ошибкам.
 func ToStatus(err error) error {
 	if err == nil {
 		return nil
@@ -49,9 +49,8 @@ func ToStatus(err error) error {
 	}
 }
 
-// FromStatus converts a gRPC status back into a domain error. It is the
-// adapter-side counterpart to ToStatus and lets callers leverage the same
-// registry in both directions.
+// FromStatus превращает gRPC-статус обратно в доменную ошибку.
+// Это зеркало к ToStatus: тот же registry работает в обе стороны.
 func FromStatus(err error) *AppError {
 	if err == nil {
 		return nil
@@ -72,8 +71,7 @@ func FromStatus(err error) *AppError {
 	}
 }
 
-// Code returns the gRPC code for an error. It is a convenience adapter over
-// ToStatus for callers that only need the code.
+// Code возвращает gRPC-код ошибки. Удобная обёртка над ToStatus, если нужен только код.
 func Code(err error) codes.Code {
 	if err == nil {
 		return codes.OK
@@ -85,7 +83,7 @@ func Code(err error) codes.Code {
 	return st.Code()
 }
 
-// IsKind reports whether err or any error it wraps carries the given Kind.
+// IsKind проверяет, что err или любая из обёрнутых в неё ошибок имеет заданный Kind.
 func IsKind(err error, kind Kind) bool {
 	for err != nil {
 		if ae, ok := err.(*AppError); ok && ae.Kind == kind {

@@ -28,8 +28,9 @@ if [ -z "$JWT_SECRET" ]; then
     exit 1
 fi
 
-TOKEN=$(cd "$PROJECT_ROOT" && go run "$PROJECT_ROOT/tests/bench/grpc/gen_jwt.go" -secret "$JWT_SECRET")
-export AUTH_TOKEN="$TOKEN"
+USER_TOKEN=$(cd "$PROJECT_ROOT" && go run "$PROJECT_ROOT/tests/bench/grpc/gen_jwt.go" -secret "$JWT_SECRET" -role user)
+ADMIN_TOKEN=$(cd "$PROJECT_ROOT" && go run "$PROJECT_ROOT/tests/bench/grpc/gen_jwt.go" -secret "$JWT_SECRET" -role admin)
+export AUTH_TOKEN="$USER_TOKEN"
 export GRAPHQL_URL="${GRAPHQL_URL:-http://localhost:8080/query}"
 
 echo "=== GraphQL Benchmark Suite ==="
@@ -48,7 +49,7 @@ k6 run --summary-trend-stats="avg,min,med,max,p(75),p(90),p(95),p(99)" \
 
 echo ""
 echo "--- createProduct ---"
-k6 run --summary-trend-stats="avg,min,med,max,p(75),p(90),p(95),p(99)" \
+AUTH_TOKEN="$ADMIN_TOKEN" k6 run --summary-trend-stats="avg,min,med,max,p(75),p(90),p(95),p(99)" \
     "$SCRIPT_DIR/create_product.js" || echo "Benchmark failed"
 
 echo ""

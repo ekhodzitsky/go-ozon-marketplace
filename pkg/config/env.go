@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// GetEnv returns env var or default
+// GetEnv возвращает переменную окружения или значение по умолчанию.
 func GetEnv(key, defaultVal string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -15,7 +15,7 @@ func GetEnv(key, defaultVal string) string {
 	return defaultVal
 }
 
-// GetEnvInt returns env var as int or default
+// GetEnvInt возвращает переменную окружения как int или значение по умолчанию.
 func GetEnvInt(key string, defaultVal int) int {
 	v := os.Getenv(key)
 	if v == "" {
@@ -28,7 +28,7 @@ func GetEnvInt(key string, defaultVal int) int {
 	return n
 }
 
-// GetEnvInt64 returns env var as int64 or default
+// GetEnvInt64 возвращает переменную окружения как int64 или значение по умолчанию.
 func GetEnvInt64(key string, defaultVal int64) int64 {
 	v := os.Getenv(key)
 	if v == "" {
@@ -41,7 +41,7 @@ func GetEnvInt64(key string, defaultVal int64) int64 {
 	return n
 }
 
-// GetEnvDuration returns env var as time.Duration or default
+// GetEnvDuration возвращает переменную окружения как time.Duration или значение по умолчанию.
 func GetEnvDuration(key string, defaultVal time.Duration) time.Duration {
 	v := os.Getenv(key)
 	if v == "" {
@@ -54,7 +54,7 @@ func GetEnvDuration(key string, defaultVal time.Duration) time.Duration {
 	return d
 }
 
-// GetEnvSlice returns env var split by comma or default
+// GetEnvSlice возвращает переменную окружения, разбитую по запятым, или значение по умолчанию.
 func GetEnvSlice(key string, defaultVal []string) []string {
 	v := os.Getenv(key)
 	if v == "" {

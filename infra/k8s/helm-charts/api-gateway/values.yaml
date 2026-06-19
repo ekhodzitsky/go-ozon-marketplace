@@ -37,9 +37,14 @@ env:
   PORT: "8080"
   USER_SERVICE_ADDR: "user-service:50051"
   CATALOG_SERVICE_ADDR: "catalog-service:50052"
+  ORDER_SERVICE_ADDR: "order-service:50055"
+  INVENTORY_SERVICE_ADDR: "inventory-service:50053"
+  PAYMENT_SERVICE_ADDR: "payment-service:50054"
+  ANALYTICS_SERVICE_ADDR: "analytics-service:50057"
+  REDIS_ADDR: "redis:6379"
 
 secrets:
-  jwtSecret: ""      # required
+  jwtSecret: ""      # обязательно
 
 autoscaling:
   enabled: false

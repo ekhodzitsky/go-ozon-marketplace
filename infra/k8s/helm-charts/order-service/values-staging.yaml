@@ -34,6 +34,10 @@ env:
   GRPC_PORT: "50055"
   INVENTORY_ADDR: "inventory-service:50053"
   PAYMENT_ADDR: "payment-service:50054"
+  CATALOG_ADDR: "catalog-service:50052"
+  KAFKA_BROKERS: "kafka:9092"
+  KAFKA_TOPIC: "order-events"
+  REDIS_ADDR: "redis:6379"
 
 secrets:
   jwtSecret: ""

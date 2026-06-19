@@ -6,22 +6,17 @@ import (
 	"time"
 )
 
-// RateLimiter разрешает или запрещает запрос по ключу.
-// Например, по email при логине или регистрации.
+// RateLimiter режет частоту запросов по ключу.
 type RateLimiter interface {
 	Allow(ctx context.Context, key string) bool
 }
 
-type noopRateLimiter struct{}
+// NoopLimiter пропускает всё. Используем, когда ограничение не настроено.
+type NoopLimiter struct{}
 
-func (n *noopRateLimiter) Allow(ctx context.Context, key string) bool { return true }
+func (n *NoopLimiter) Allow(ctx context.Context, key string) bool { return true }
 
-// NewNoopLimiter возвращает лимитер, который всегда разрешает запрос.
-func NewNoopLimiter() RateLimiter {
-	return &noopRateLimiter{}
-}
-
-// MemoryRateLimiter — простой in-memory лимитер с скользящим окном.
+// MemoryRateLimiter — простой in-memory rate limiter с скользящим окном.
 type MemoryRateLimiter struct {
 	limit  int
 	window time.Duration
@@ -29,7 +24,7 @@ type MemoryRateLimiter struct {
 	hits   map[string][]time.Time
 }
 
-// NewMemoryRateLimiter создаёт in-memory лимитер: limit запросов за window.
+// NewMemoryRateLimiter создаёт лимитер: limit вызовов за window.
 func NewMemoryRateLimiter(limit int, window time.Duration) *MemoryRateLimiter {
 	if limit <= 0 {
 		limit = 10
@@ -44,7 +39,7 @@ func NewMemoryRateLimiter(limit int, window time.Duration) *MemoryRateLimiter {
 	}
 }
 
-// Allow возвращает true, если запрос по ключу укладывается в лимит.
+// Allow возвращает true, если вызов по ключу укладывается в лимит.
 func (r *MemoryRateLimiter) Allow(ctx context.Context, key string) bool {
 	now := time.Now()
 	cutoff := now.Add(-r.window)

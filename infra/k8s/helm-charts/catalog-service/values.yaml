@@ -35,8 +35,8 @@ env:
   ES_URL: "http://elasticsearch:9200"
 
 secrets:
-  jwtSecret: ""      # required
-  postgresDSN: ""    # required
+  jwtSecret: ""      # обязательно
+  postgresDSN: ""    # обязательно
 
 autoscaling:
   enabled: false

@@ -15,7 +15,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// mockUserRepository — тестовая реализация UserRepository.
+// mockUserRepository is a test double for UserRepository
 type mockUserRepository struct {
 	users map[string]*domain.User // email -> user
 	byID  map[uuid.UUID]*domain.User
@@ -88,9 +88,9 @@ func TestUserUsecase_Register(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			repo := newMockUserRepository()
-			uc := NewUserUsecase(repo, "test-secret", time.Second, nil)
+			uc := NewUserUsecase(repo, "test-secret", time.Second, time.Second, nil)
 
-			// Подготавливаем существующего пользователя для теста дубля.
+			// Pre-seed existing user for duplicate test
 			if tt.name == "duplicate_email" {
 				_ = repo.Create(context.Background(), &domain.User{
 					ID:        uuid.New(),
@@ -113,13 +113,13 @@ func TestUserUsecase_Register(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotEqual(t, uuid.Nil, id)
 
-			// Проверяем, что email нормализован.
+			// Verify email was normalized
 			expectedEmail := normalizeEmail(tt.email)
 			user, _ := repo.GetByEmail(context.Background(), expectedEmail)
 			require.NotNil(t, user)
 			assert.Equal(t, expectedEmail, user.Email)
 
-			// Проверяем, что пароль захеширован.
+			// Verify password was hashed
 			assert.NoError(t, bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(tt.password)))
 		})
 	}
@@ -129,9 +129,9 @@ func TestUserUsecase_Login(t *testing.T) {
 	t.Parallel()
 
 	repo := newMockUserRepository()
-	uc := NewUserUsecase(repo, "test-secret", time.Second, nil)
+	uc := NewUserUsecase(repo, "test-secret", time.Second, time.Second, nil)
 
-	// Сначала регистрируем пользователя.
+	// Register a user first
 	email := "login@ozon.ru"
 	password := "mypassword"
 	_, err := uc.Register(context.Background(), email, password, "Login User")
@@ -195,7 +195,7 @@ func TestUserUsecase_GetUser(t *testing.T) {
 	t.Parallel()
 
 	repo := newMockUserRepository()
-	uc := NewUserUsecase(repo, "test-secret", time.Second, nil)
+	uc := NewUserUsecase(repo, "test-secret", time.Second, time.Second, nil)
 
 	id, err := uc.Register(context.Background(), "get@ozon.ru", "password", "Get User")
 	require.NoError(t, err)
@@ -205,7 +205,7 @@ func TestUserUsecase_GetUser(t *testing.T) {
 	assert.Equal(t, "get@ozon.ru", user.Email)
 	assert.Equal(t, "Get User", user.Name)
 
-	// Пользователь не найден.
+	// Not found
 	_, err = uc.GetUser(context.Background(), uuid.New())
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrNotFound))
@@ -215,32 +215,31 @@ func TestUserUsecase_RateLimit(t *testing.T) {
 	t.Parallel()
 
 	repo := newMockUserRepository()
-	// Строгий лимитер: 2 запроса в час на ключ.
+	// Very strict limiter: 2 requests per hour per key.
 	rl := ratelimit.NewMemoryRateLimiter(2, time.Hour)
-	uc := NewUserUsecase(repo, "test-secret", time.Second, rl)
+	uc := NewUserUsecase(repo, "test-secret", time.Second, time.Second, rl)
 
 	email := "ratelimit@ozon.ru"
 	password := "password123"
 	_, err := uc.Register(context.Background(), email, password, "Rate Limited")
 	require.NoError(t, err)
 
-	// Два логина разрешены.
+	// Two login attempts allowed.
 	_, err = uc.Login(context.Background(), email, password)
 	require.NoError(t, err)
 	_, err = uc.Login(context.Background(), email, password)
 	require.NoError(t, err)
-
-	// Третий должен быть отсечён.
+	// Third should be rate limited.
 	_, err = uc.Login(context.Background(), email, password)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrFailedPrecondition))
 }
 
-func TestUserUsecase_DefaultTimeoutAndRateLimiter(t *testing.T) {
+func TestUserUsecase_DefaultTimeoutsAndRateLimiter(t *testing.T) {
 	t.Parallel()
 
 	repo := newMockUserRepository()
-	uc := NewUserUsecase(repo, "test-secret", 0, nil)
+	uc := NewUserUsecase(repo, "test-secret", 0, 0, nil)
 
 	assert.Equal(t, DefaultCallTimeout, uc.(*userUsecase).callTimeout)
 	assert.NotNil(t, uc.(*userUsecase).rateLimiter)
@@ -250,12 +249,12 @@ func TestUserUsecase_Login_NormalizesEmailBeforeLookup(t *testing.T) {
 	t.Parallel()
 
 	repo := newMockUserRepository()
-	uc := NewUserUsecase(repo, "test-secret", time.Second, nil)
+	uc := NewUserUsecase(repo, "test-secret", time.Second, time.Second, nil)
 
 	_, err := uc.Register(context.Background(), "Mixed@Ozon.RU", "password123", "User")
 	require.NoError(t, err)
 
-	// Логин с другим регистром должен найти нормализованный email.
+	// Login with different casing should find the normalized stored email.
 	token, err := uc.Login(context.Background(), "MIXED@OZON.RU", "password123")
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
@@ -265,7 +264,7 @@ func TestUserUsecase_Register_DuplicateAfterNormalization(t *testing.T) {
 	t.Parallel()
 
 	repo := newMockUserRepository()
-	uc := NewUserUsecase(repo, "test-secret", time.Second, nil)
+	uc := NewUserUsecase(repo, "test-secret", time.Second, time.Second, nil)
 
 	_, err := uc.Register(context.Background(), "Duplicate@Ozon.RU", "password123", "User")
 	require.NoError(t, err)
@@ -279,14 +278,14 @@ func TestUserUsecase_Login_EmptyRoleDefaultsToUser(t *testing.T) {
 	t.Parallel()
 
 	repo := newMockUserRepository()
-	uc := NewUserUsecase(repo, "test-secret", time.Second, nil)
+	uc := NewUserUsecase(repo, "test-secret", time.Second, time.Second, nil)
 
 	email := "role@ozon.ru"
 	password := "password123"
 	id, err := uc.Register(context.Background(), email, password, "Role User")
 	require.NoError(t, err)
 
-	// Имитируем legacy-пользователя с пустой ролью в хранилище.
+	// Simulate a legacy user with an empty role in storage.
 	user, ok := repo.byID[id]
 	require.True(t, ok)
 	user.Role = ""
@@ -301,7 +300,7 @@ func TestUserUsecase_Register_RateLimited(t *testing.T) {
 
 	repo := newMockUserRepository()
 	rl := ratelimit.NewMemoryRateLimiter(1, time.Hour)
-	uc := NewUserUsecase(repo, "test-secret", time.Second, rl)
+	uc := NewUserUsecase(repo, "test-secret", time.Second, time.Second, rl)
 
 	email := "register-limit@ozon.ru"
 	_, err := uc.Register(context.Background(), email, "password123", "User")
@@ -316,7 +315,7 @@ func TestUserUsecase_GetUser_NotFound(t *testing.T) {
 	t.Parallel()
 
 	repo := newMockUserRepository()
-	uc := NewUserUsecase(repo, "test-secret", time.Second, nil)
+	uc := NewUserUsecase(repo, "test-secret", time.Second, time.Second, nil)
 
 	_, err := uc.GetUser(context.Background(), uuid.Nil)
 	require.Error(t, err)
@@ -327,7 +326,7 @@ func TestUserUsecase_Register_TrimsAndLowercasesEmail(t *testing.T) {
 	t.Parallel()
 
 	repo := newMockUserRepository()
-	uc := NewUserUsecase(repo, "test-secret", time.Second, nil)
+	uc := NewUserUsecase(repo, "test-secret", time.Second, time.Second, nil)
 
 	id, err := uc.Register(context.Background(), "  Spaced@Ozon.RU  ", "password123", "User")
 	require.NoError(t, err)

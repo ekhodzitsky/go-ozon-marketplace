@@ -90,7 +90,7 @@ func (h *PaymentHandler) Refund(ctx context.Context, req *paymentv1.RefundReques
 		return nil, status.Error(codes.PermissionDenied, "payment does not belong to user")
 	}
 
-	payment, _, err = h.usecase.Refund(ctx, paymentID, req.IdempotencyKey)
+	payment, _, err = h.usecase.Refund(ctx, paymentID, req.AmountCents, req.IdempotencyKey)
 	if err != nil {
 		return nil, apperrors.ToStatus(err)
 	}

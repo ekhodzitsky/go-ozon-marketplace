@@ -3,4 +3,4 @@ kind: Namespace
 metadata:
   name: marketplace-staging
   labels:
-    istio-injection: enabled
+    name: marketplace-staging

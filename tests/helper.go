@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -132,7 +133,12 @@ func RunMigrations(ctx context.Context, t *testing.T, dsn string, migrationDirs 
 				files = append(files, entry.Name())
 			}
 		}
-		sort.Strings(files)
+		// Сортируем по числовому префиксу, чтобы 2.up.sql шёл раньше 10.up.sql.
+		sort.Slice(files, func(i, j int) bool {
+			prefixI, _ := strconv.Atoi(strings.SplitN(files[i], "_", 2)[0])
+			prefixJ, _ := strconv.Atoi(strings.SplitN(files[j], "_", 2)[0])
+			return prefixI < prefixJ
+		})
 
 		for _, file := range files {
 			content, err := os.ReadFile(filepath.Join(dir, file))

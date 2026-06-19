@@ -7,7 +7,7 @@ import (
 	"github.com/IBM/sarama"
 )
 
-// Config contains everything needed to start a consumer group.
+// Config — всё, что нужно для запуска consumer group.
 type Config struct {
 	Brokers           []string
 	GroupID           string

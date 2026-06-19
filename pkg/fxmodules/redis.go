@@ -9,14 +9,14 @@ import (
 	"go.uber.org/fx"
 )
 
-// RedisConfig exposes Redis connection settings.
+// RedisConfig — настройки подключения к Redis.
 type RedisConfig interface {
 	GetRedisAddr() string
 	GetDefaultQueryTimeout() time.Duration
 }
 
-// Redis provides a Redis client as an fx module, closing it on shutdown.
-// Settings are resolved from RedisConfig via DI, so tests can override them.
+// Redis отдаёт Redis-клиент как fx-модуль и закрывает его при остановке.
+// Настройки берутся из RedisConfig через DI, чтобы тесты могли их переопределять.
 func Redis(cfg RedisConfig) fx.Option {
 	return fx.Options(
 		fx.Provide(func() RedisConfig { return cfg }),

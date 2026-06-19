@@ -10,7 +10,7 @@ spec:
     namespaces:
       - marketplace-staging
     labelSelectors:
-      app: kafka
+      app.kubernetes.io/name: kafka
   delay:
     latency: "200ms"
     correlation: "100"

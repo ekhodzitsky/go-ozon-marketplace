@@ -50,6 +50,14 @@ spec:
               value: {{ .Values.env.INVENTORY_ADDR | quote }}
             - name: PAYMENT_ADDR
               value: {{ .Values.env.PAYMENT_ADDR | quote }}
+            - name: CATALOG_ADDR
+              value: {{ .Values.env.CATALOG_ADDR | quote }}
+            - name: KAFKA_BROKERS
+              value: {{ .Values.env.KAFKA_BROKERS | quote }}
+            - name: KAFKA_TOPIC
+              value: {{ .Values.env.KAFKA_TOPIC | quote }}
+            - name: REDIS_ADDR
+              value: {{ .Values.env.REDIS_ADDR | quote }}
             - name: METRICS_PORT
               value: {{ .Values.service.metricsPort | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

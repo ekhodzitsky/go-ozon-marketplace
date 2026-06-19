@@ -85,7 +85,7 @@ func TestPaymentUsecase_Refund_CreateRefundError(t *testing.T) {
 	payment := &domain.Payment{ID: uuid.New(), Status: domain.StatusSuccess}
 	require.NoError(t, repo.Create(context.Background(), payment))
 
-	payment, refund, err := uc.Refund(context.Background(), payment.ID, uuid.New().String())
+	payment, refund, err := uc.Refund(context.Background(), payment.ID, 0, uuid.New().String())
 	require.Error(t, err)
 	assert.Nil(t, payment)
 	assert.Nil(t, refund)
@@ -100,7 +100,7 @@ func TestPaymentUsecase_Refund_TxManagerError(t *testing.T) {
 	payment := &domain.Payment{ID: uuid.New(), Status: domain.StatusSuccess}
 	require.NoError(t, repo.Create(context.Background(), payment))
 
-	payment, refund, err := uc.Refund(context.Background(), payment.ID, uuid.New().String())
+	payment, refund, err := uc.Refund(context.Background(), payment.ID, 0, uuid.New().String())
 	require.Error(t, err)
 	assert.Nil(t, payment)
 	assert.Nil(t, refund)
@@ -112,19 +112,47 @@ func TestPaymentUsecase_Refund_IdempotencyKeyReuse(t *testing.T) {
 	txm := &stubTxManager{repo: repo}
 	uc := NewPaymentUsecase(repo, txm, zap.NewNop(), time.Second, time.Second)
 
-	payment := &domain.Payment{ID: uuid.New(), Status: domain.StatusSuccess}
+	payment := &domain.Payment{ID: uuid.New(), Status: domain.StatusSuccess, Amount: 1000}
 	require.NoError(t, repo.Create(context.Background(), payment))
 
 	idemKey := uuid.New().String()
-	_, refund1, err := uc.Refund(context.Background(), payment.ID, idemKey)
+	_, refund1, err := uc.Refund(context.Background(), payment.ID, 0, idemKey)
 	require.NoError(t, err)
 	require.NotNil(t, refund1)
 
-	// Reset payment status to success to bypass the status guard and hit the unique index.
-	payment.Status = domain.StatusSuccess
+	// Повторный вызов с тем же ключом должен вернуть тот же возврат.
+	_, refund2, err := uc.Refund(context.Background(), payment.ID, 0, idemKey)
+	require.NoError(t, err)
+	assert.Equal(t, refund1.ID, refund2.ID)
+}
 
-	_, _, err = uc.Refund(context.Background(), payment.ID, idemKey)
+func TestPaymentUsecase_Refund_PartialAmount(t *testing.T) {
+	t.Parallel()
+	repo := newMockPaymentRepository()
+	txm := &stubTxManager{repo: repo}
+	uc := NewPaymentUsecase(repo, txm, zap.NewNop(), time.Second, time.Second)
+
+	payment := &domain.Payment{ID: uuid.New(), Status: domain.StatusSuccess, Amount: 1000}
+	require.NoError(t, repo.Create(context.Background(), payment))
+
+	_, refund, err := uc.Refund(context.Background(), payment.ID, 400, uuid.New().String())
+	require.NoError(t, err)
+	require.NotNil(t, refund)
+	assert.Equal(t, int64(400), refund.Amount)
+}
+
+func TestPaymentUsecase_Refund_AmountExceedsPayment(t *testing.T) {
+	t.Parallel()
+	repo := newMockPaymentRepository()
+	txm := &stubTxManager{repo: repo}
+	uc := NewPaymentUsecase(repo, txm, zap.NewNop(), time.Second, time.Second)
+
+	payment := &domain.Payment{ID: uuid.New(), Status: domain.StatusSuccess, Amount: 1000}
+	require.NoError(t, repo.Create(context.Background(), payment))
+
+	_, _, err := uc.Refund(context.Background(), payment.ID, 2000, uuid.New().String())
 	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrInvalidArgument)
 }
 
 func TestPaymentUsecase_GetByID_NotFound(t *testing.T) {

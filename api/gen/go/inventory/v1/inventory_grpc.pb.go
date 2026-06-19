@@ -28,10 +28,16 @@ const (
 // InventoryServiceClient is the client API for InventoryService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Сервис складских остатков: резервирование, освобождение, журнал.
 type InventoryServiceClient interface {
+	// Зарезервировать товар под заказ.
 	Reserve(ctx context.Context, in *ReserveRequest, opts ...grpc.CallOption) (*ReserveResponse, error)
+	// Освободить ранее зарезервированный товар.
 	Release(ctx context.Context, in *ReleaseRequest, opts ...grpc.CallOption) (*ReleaseResponse, error)
+	// Получить доступный и зарезервированный остаток.
 	GetStock(ctx context.Context, in *GetStockRequest, opts ...grpc.CallOption) (*GetStockResponse, error)
+	// Получить журнал движений по товару.
 	GetLedger(ctx context.Context, in *GetLedgerRequest, opts ...grpc.CallOption) (*GetLedgerResponse, error)
 }
 
@@ -86,10 +92,16 @@ func (c *inventoryServiceClient) GetLedger(ctx context.Context, in *GetLedgerReq
 // InventoryServiceServer is the server API for InventoryService service.
 // All implementations should embed UnimplementedInventoryServiceServer
 // for forward compatibility
+//
+// Сервис складских остатков: резервирование, освобождение, журнал.
 type InventoryServiceServer interface {
+	// Зарезервировать товар под заказ.
 	Reserve(context.Context, *ReserveRequest) (*ReserveResponse, error)
+	// Освободить ранее зарезервированный товар.
 	Release(context.Context, *ReleaseRequest) (*ReleaseResponse, error)
+	// Получить доступный и зарезервированный остаток.
 	GetStock(context.Context, *GetStockRequest) (*GetStockResponse, error)
+	// Получить журнал движений по товару.
 	GetLedger(context.Context, *GetLedgerRequest) (*GetLedgerResponse, error)
 }
 

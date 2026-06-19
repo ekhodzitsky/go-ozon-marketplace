@@ -10,24 +10,24 @@ import (
 	"go.uber.org/zap"
 )
 
-// Processor handles a single Kafka message. Implementations decide how to parse
-// the message and what business action to perform.
+// Processor обрабатывает одно Kafka-сообщение. Реализации решают, как парсить
+// сообщение и какое бизнес-действие выполнить.
 type Processor interface {
 	Process(ctx context.Context, msg *sarama.ConsumerMessage) error
 }
 
-// ProcessorFunc adapts a plain function to the Processor interface.
+// ProcessorFunc адаптирует обычную функцию к интерфейсу Processor.
 type ProcessorFunc func(ctx context.Context, msg *sarama.ConsumerMessage) error
 
 func (f ProcessorFunc) Process(ctx context.Context, msg *sarama.ConsumerMessage) error {
 	return f(ctx, msg)
 }
 
-// IsPermanentError is used by the consumer to decide whether a processing error
-// should skip retries and go straight to the DLQ.
+// IsPermanentError помогает консьюмеру решить, стоит ли пропустить ретраи
+// и сразу отправить сообщение в DLQ.
 type IsPermanentError func(error) bool
 
-// Consumer wraps a Sarama consumer group with retries, DLQ support and graceful shutdown.
+// Consumer оборачивает Sarama consumer group с ретраями, DLQ и graceful shutdown.
 type Consumer struct {
 	group     sarama.ConsumerGroup
 	dlq       Producer
@@ -36,7 +36,7 @@ type Consumer struct {
 	log       *zap.Logger
 }
 
-// NewConsumer builds a consumer from a list of brokers.
+// NewConsumer собирает консьюмер из списка брокеров.
 func NewConsumer(cfg Config, processor Processor, log *zap.Logger) (*Consumer, error) {
 	cfg.setDefaults()
 
@@ -69,8 +69,8 @@ func newDLQProducer(brokers []string, log *zap.Logger) Producer {
 	return producer
 }
 
-// NewConsumerFromGroup builds a consumer from an existing Sarama consumer group.
-// Useful for tests and for callers that manage their own Sarama client.
+// NewConsumerFromGroup собирает консьюмер из готовой Sarama consumer group.
+// Удобно для тестов и для тех, кто управляет Sarama-клиентом сам.
 func NewConsumerFromGroup(group sarama.ConsumerGroup, cfg Config, processor Processor, log *zap.Logger) *Consumer {
 	cfg.setDefaults()
 	return newConsumer(group, cfg, processor, log)
@@ -88,14 +88,14 @@ func newConsumer(group sarama.ConsumerGroup, cfg Config, processor Processor, lo
 	}
 }
 
-// SetDLQProducer attaches a DLQ producer after construction. If DLQTopic is empty
-// the producer is never used.
+// SetDLQProducer прицепляет DLQ-продюсер после создания консьюмера.
+// Если DLQTopic пустой, продюсер не используется.
 func (c *Consumer) SetDLQProducer(p Producer) {
 	c.dlq = p
 }
 
-// Start begins consuming messages in a background goroutine. The consumer restarts
-// automatically after recoverable errors until ctx is cancelled.
+// Start начинает чтение сообщений в фоновой горутине. После recoverable-ошибок
+// консьюмер перезапускается сам, пока не отменится ctx.
 func (c *Consumer) Start(ctx context.Context) {
 	go func() {
 		for {
@@ -122,7 +122,7 @@ func (c *Consumer) Start(ctx context.Context) {
 	}()
 }
 
-// Close shuts down the consumer group and the optional DLQ producer.
+// Close останавливает consumer group и опциональный DLQ-продюсер.
 func (c *Consumer) Close() error {
 	if c.dlq != nil {
 		if err := c.dlq.Close(); err != nil {

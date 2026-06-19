@@ -24,9 +24,8 @@ func New(cfg *config.Config) *fx.App {
 		fx.Provide(
 			postgres.NewUserPostgres,
 			func(repo repository.UserRepository, cfg *config.Config) usecase.UserUsecase {
-				// Лимит на регистрацию/логин: 5 попыток в минуту с одного email.
 				rl := ratelimit.NewMemoryRateLimiter(5, time.Minute)
-				return usecase.NewUserUsecase(repo, cfg.JWTSecret, cfg.DefaultCallTimeout, rl)
+				return usecase.NewUserUsecase(repo, cfg.JWTSecret, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout, rl)
 			},
 		),
 	)

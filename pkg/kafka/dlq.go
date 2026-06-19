@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// DLQEnvelope is the default payload written to the dead-letter topic.
+// DLQEnvelope — стандартное тело сообщения в dead-letter topic.
 type DLQEnvelope struct {
 	OriginalTopic string    `json:"original_topic"`
 	Partition     int32     `json:"partition"`

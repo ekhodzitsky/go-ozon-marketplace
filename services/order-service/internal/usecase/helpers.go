@@ -42,11 +42,3 @@ func outboxEventFromOrder(order *domain.Order) (*domain.OutboxEvent, error) {
 		CreatedAt:     order.CreatedAt,
 	}, nil
 }
-
-func releaseIdempotencyKey(orderID, productID string) string {
-	return fmt.Sprintf("release:%s:%s", orderID, productID)
-}
-
-func refundIdempotencyKey(orderID, paymentID string) string {
-	return fmt.Sprintf("refund:%s:%s", orderID, paymentID)
-}

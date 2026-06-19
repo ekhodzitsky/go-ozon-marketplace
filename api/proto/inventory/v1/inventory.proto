@@ -6,65 +6,92 @@ import "buf/validate/validate.proto";
 
 option go_package = "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1;inventoryv1";
 
+// Тип операции в журнале остатков.
 enum LedgerOperation {
   LEDGER_OPERATION_UNSPECIFIED = 0;
+  // Резерв товара под заказ.
   LEDGER_OPERATION_RESERVE = 1;
+  // Снятие резерва.
   LEDGER_OPERATION_RELEASE = 2;
+  // Возврат товара на склад.
   LEDGER_OPERATION_REFUND = 3;
+  // Ручная корректировка остатков.
   LEDGER_OPERATION_ADJUST = 4;
 }
 
+// Сервис складских остатков: резервирование, освобождение, журнал.
 service InventoryService {
+  // Зарезервировать товар под заказ.
   rpc Reserve(ReserveRequest) returns (ReserveResponse);
+  // Освободить ранее зарезервированный товар.
   rpc Release(ReleaseRequest) returns (ReleaseResponse);
+  // Получить доступный и зарезервированный остаток.
   rpc GetStock(GetStockRequest) returns (GetStockResponse);
+  // Получить журнал движений по товару.
   rpc GetLedger(GetLedgerRequest) returns (GetLedgerResponse);
 }
 
+// Запрос на резервирование товара.
 message ReserveRequest {
   string product_id = 1 [(buf.validate.field).string.min_len = 1];
+  // Количество, которое резервируем, больше нуля.
   int32 quantity = 2 [(buf.validate.field).int32.gt = 0];
   string order_id = 3 [(buf.validate.field).string.min_len = 1];
+  // Ключ идемпотентности резерва.
   string idempotency_key = 4 [(buf.validate.field).string.min_len = 1];
 }
 
+// Ответ на резервирование.
 message ReserveResponse {
   bool success = 1;
 }
 
+// Запрос на снятие резерва.
 message ReleaseRequest {
   string product_id = 1 [(buf.validate.field).string.min_len = 1];
+  // Количество, которое освобождаем, больше нуля.
   int32 quantity = 2 [(buf.validate.field).int32.gt = 0];
   string order_id = 3 [(buf.validate.field).string.min_len = 1];
+  // Ключ идемпотентности освобождения.
   string idempotency_key = 4 [(buf.validate.field).string.min_len = 1];
 }
 
+// Ответ на снятие резерва.
 message ReleaseResponse {
   bool success = 1;
 }
 
+// Запрос остатков товара.
 message GetStockRequest {
   string product_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
+// Ответ с остатками.
 message GetStockResponse {
+  // Доступное к продаже количество.
   int32 available = 1;
+  // Зарезервированное под заказы количество.
   int32 reserved = 2;
 }
 
+// Запрос журнала движений по товару.
 message GetLedgerRequest {
   string product_id = 1 [(buf.validate.field).string.min_len = 1];
 }
 
+// Одна запись журнала остатков.
 message LedgerEntry {
   string id = 1;
   string product_id = 2;
   string order_id = 3;
+  // Изменение количества: положительное — приход, отрицательное — расход.
   int32 quantity_change = 4;
   LedgerOperation operation_type = 5;
+  // Дата создания в формате RFC3339 (строка пока оставлена сознательно).
   string created_at = 6;
 }
 
+// Ответ с журналом движений.
 message GetLedgerResponse {
   repeated LedgerEntry entries = 1;
 }

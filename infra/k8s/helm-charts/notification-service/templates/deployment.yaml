@@ -46,6 +46,24 @@ spec:
           env:
             - name: GRPC_PORT
               value: {{ .Values.env.GRPC_PORT | quote }}
+            - name: KAFKA_BROKERS
+              value: {{ .Values.env.KAFKA_BROKERS | quote }}
+            - name: KAFKA_TOPICS
+              value: {{ .Values.env.KAFKA_TOPICS | quote }}
+            - name: KAFKA_CONSUMER_GROUP
+              value: {{ .Values.env.KAFKA_CONSUMER_GROUP | quote }}
+            - name: KAFKA_DLQ_TOPIC
+              value: {{ .Values.env.KAFKA_DLQ_TOPIC | quote }}
+            - name: SMTP_HOST
+              value: {{ .Values.env.SMTP_HOST | quote }}
+            - name: SMTP_PORT
+              value: {{ .Values.env.SMTP_PORT | quote }}
+            - name: SMTP_FROM
+              value: {{ .Values.env.SMTP_FROM | quote }}
+            - name: SMTP_USER
+              value: {{ .Values.env.SMTP_USER | quote }}
+            - name: SMTP_PASSWORD
+              value: {{ .Values.env.SMTP_PASSWORD | quote }}
             - name: METRICS_PORT
               value: {{ .Values.service.metricsPort | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

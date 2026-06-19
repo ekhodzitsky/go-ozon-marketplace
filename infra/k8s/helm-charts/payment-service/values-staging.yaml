@@ -32,6 +32,8 @@ resources:
 
 env:
   GRPC_PORT: "50054"
+  KAFKA_BROKERS: "kafka:9092"
+  DLQ_TOPIC: "payment-dlq"
 
 secrets:
   jwtSecret: ""

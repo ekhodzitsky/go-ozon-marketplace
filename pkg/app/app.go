@@ -1,4 +1,4 @@
-// Package app provides a minimal, reusable application bootstrapper for fx-based services.
+// Package app — минимальный загрузчик fx-приложений для сервисов.
 package app
 
 import (
@@ -12,15 +12,15 @@ import (
 	"go.uber.org/zap"
 )
 
-// Config exposes the fields every service needs to bootstrap logging and tracing.
+// Config — общие настройки, нужные каждому сервису для логирования и трассировки.
 type Config interface {
 	GetLogLevel() string
 	GetLogFormat() string
 	GetOTELExporterOTLPEndpoint() string
 }
 
-// Run loads configuration, initializes the logger and tracer, builds the fx application
-// and runs it. It blocks until the application shuts down.
+// Run загружает конфиг, инициализирует логгер и трассировку, собирает fx-приложение
+// и запускает его. Блокируется до остановки приложения.
 func Run(serviceName string, loadConfig func() (Config, error), buildApp func(Config) (*fx.App, error)) {
 	cfg, err := loadConfig()
 	if err != nil {
@@ -51,8 +51,7 @@ func Run(serviceName string, loadConfig func() (Config, error), buildApp func(Co
 	application.Run()
 }
 
-// RunService is a typed convenience wrapper around Run. It removes the boilerplate
-// of asserting the concrete config type in every service main.go.
+// RunService — типизированная обёртка над Run, чтобы не писать приведение типов в каждом main.go.
 func RunService[T Config](serviceName string, loadConfig func() (T, error), buildApp func(T) *fx.App) {
 	Run(serviceName,
 		func() (Config, error) { return loadConfig() },

@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -28,27 +29,23 @@ type userUsecase struct {
 	rateLimiter ratelimit.RateLimiter
 }
 
-// NewUserUsecase собирает usecase для пользователей.
-func NewUserUsecase(repo repository.UserRepository, jwtSecret string, callTimeout time.Duration, rateLimiter ratelimit.RateLimiter) UserUsecase {
+func NewUserUsecase(repo repository.UserRepository, jwtSecret string, callTimeout time.Duration, queryTimeout time.Duration, rateLimiter ratelimit.RateLimiter) UserUsecase {
 	if callTimeout == 0 {
 		callTimeout = DefaultCallTimeout
 	}
+	if queryTimeout == 0 {
+		queryTimeout = DefaultQueryTimeout
+	}
 	if rateLimiter == nil {
-		rateLimiter = ratelimit.NewNoopLimiter()
+		rateLimiter = &ratelimit.NoopLimiter{}
 	}
-	return &userUsecase{
-		repo:        repo,
-		jwtSecret:   jwtSecret,
-		callTimeout: callTimeout,
-		rateLimiter: rateLimiter,
-	}
+	return &userUsecase{repo: repo, jwtSecret: jwtSecret, callTimeout: callTimeout, rateLimiter: rateLimiter}
 }
 
 func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
-// hashPassword хеширует пароль через bcrypt.
 func (u *userUsecase) hashPassword(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -57,19 +54,16 @@ func (u *userUsecase) hashPassword(password string) (string, error) {
 	return string(hash), nil
 }
 
-// verifyPassword сверяет пароль с хешем.
-func (u *userUsecase) verifyPassword(hash, password string) error {
-	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+func (u *userUsecase) verifyPassword(hash, password string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
-// issueToken выпускает JWT для пользователя.
 func (u *userUsecase) issueToken(user *domain.User) (string, error) {
 	now := time.Now()
 	role := user.Role
 	if role == "" {
 		role = string(auth.RoleUser)
 	}
-
 	claims := auth.CustomClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   user.ID.String(),
@@ -82,7 +76,6 @@ func (u *userUsecase) issueToken(user *domain.User) (string, error) {
 		},
 		Role: role,
 	}
-
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString([]byte(u.jwtSecret))
 	if err != nil {
@@ -93,12 +86,11 @@ func (u *userUsecase) issueToken(user *domain.User) (string, error) {
 
 func (u *userUsecase) Register(ctx context.Context, email, password, name string) (uuid.UUID, error) {
 	email = normalizeEmail(email)
-
 	if !u.rateLimiter.Allow(ctx, "register:"+email) {
 		return uuid.Nil, apperrors.Wrap(apperrors.ErrFailedPrecondition, "failed_precondition", "rate limit exceeded")
 	}
 
-	passwordHash, err := u.hashPassword(password)
+	hash, err := u.hashPassword(password)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -106,7 +98,7 @@ func (u *userUsecase) Register(ctx context.Context, email, password, name string
 	user := &domain.User{
 		ID:           uuid.New(),
 		Email:        email,
-		PasswordHash: passwordHash,
+		PasswordHash: hash,
 		Name:         name,
 		Role:         string(auth.RoleUser),
 		CreatedAt:    time.Now().UTC(),
@@ -114,7 +106,6 @@ func (u *userUsecase) Register(ctx context.Context, email, password, name string
 
 	ctx, cancel := context.WithTimeout(ctx, u.callTimeout)
 	defer cancel()
-
 	if err := u.repo.Create(ctx, user); err != nil {
 		return uuid.Nil, fmt.Errorf("create user: %w", err)
 	}
@@ -123,23 +114,21 @@ func (u *userUsecase) Register(ctx context.Context, email, password, name string
 
 func (u *userUsecase) Login(ctx context.Context, email, password string) (string, error) {
 	email = normalizeEmail(email)
-
 	if !u.rateLimiter.Allow(ctx, "login:"+email) {
 		return "", apperrors.Wrap(apperrors.ErrFailedPrecondition, "failed_precondition", "rate limit exceeded")
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, u.callTimeout)
 	defer cancel()
-
 	user, err := u.repo.GetByEmail(ctx, email)
 	if err != nil {
-		if apperrors.ErrNotFound == err {
+		if errors.Is(err, apperrors.ErrNotFound) {
 			return "", apperrors.ErrInvalidCredentials
 		}
-		return "", apperrors.Wrapf(err, "internal", "get user by email: %v", err)
+		return "", fmt.Errorf("lookup user: %w", err)
 	}
 
-	if err := u.verifyPassword(user.PasswordHash, password); err != nil {
+	if !u.verifyPassword(user.PasswordHash, password) {
 		return "", apperrors.ErrInvalidCredentials
 	}
 

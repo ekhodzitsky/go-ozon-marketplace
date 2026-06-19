@@ -8,9 +8,9 @@ import (
 	"google.golang.org/grpc"
 )
 
-// GRPCClient provides a typed gRPC client as an fx dependency and manages the
-// underlying connection lifecycle. The caller supplies the service address and
-// the generated constructor (e.g. userv1.NewUserServiceClient).
+// GRPCClient отдаёт типизированный gRPC-клиент как fx-зависимость и управляет
+// жизнью соединения. Вызывающий передаёт адрес сервиса и сгенерированный
+// конструктор (например, userv1.NewUserServiceClient).
 func GRPCClient[T any](addr string, newClient func(grpc.ClientConnInterface) T) fx.Option {
 	return fx.Provide(func(lc fx.Lifecycle, factory *grpcclient.Factory) (T, error) {
 		var zero T

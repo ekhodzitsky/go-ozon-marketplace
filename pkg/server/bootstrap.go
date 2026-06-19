@@ -17,18 +17,18 @@ import (
 
 const defaultShutdownTimeout = 10 * time.Second
 
-// ServiceConfig configures a gRPC service server and its metrics sidecar.
+// ServiceConfig — настройки gRPC-сервиса и sidecar-сервера метрик.
 type ServiceConfig struct {
 	GRPCPort    int
 	MetricsPort int
 	CertPath    string
 }
 
-// RegisterFn registers service implementations on the provided gRPC registrar.
+// RegisterFn регистрирует реализации сервисов на переданном gRPC-регистраторе.
 type RegisterFn func(grpc.ServiceRegistrar)
 
-// StartService creates and starts a gRPC server plus a metrics HTTP server.
-// It returns two shutdown functions that must be called on stop.
+// StartService создаёт и запускает gRPC-сервер и HTTP-сервер метрик.
+// Возвращает два shutdown-объекта, которые нужно вызвать при остановке.
 func StartService(cfg ServiceConfig, register RegisterFn, interceptors []grpc.UnaryServerInterceptor, log *zap.Logger) (*GRPCServer, *HTTPServer, error) {
 	opts := []grpc.ServerOption{}
 	if len(interceptors) > 0 {
@@ -62,7 +62,7 @@ func StartService(cfg ServiceConfig, register RegisterFn, interceptors []grpc.Un
 	return grpcServer, metricsServer, nil
 }
 
-// RunService starts both servers and blocks until the context is cancelled or a fatal error occurs.
+// RunService запускает оба сервера и блокируется, пока не отменится контекст или не случится фатальная ошибка.
 func RunService(ctx context.Context, cfg ServiceConfig, register RegisterFn, interceptors []grpc.UnaryServerInterceptor, log *zap.Logger) error {
 	grpcServer, metricsServer, err := StartService(cfg, register, interceptors, log)
 	if err != nil {

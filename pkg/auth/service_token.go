@@ -11,14 +11,14 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// ServiceTokenIssuer signs short-lived JWTs for service-to-service calls.
+// ServiceTokenIssuer подписывает короткоживущие JWT для вызовов между сервисами.
 type ServiceTokenIssuer struct {
 	secret   string
 	subject  string
 	audience string
 }
 
-// NewServiceTokenIssuer creates an issuer for the given service identity.
+// NewServiceTokenIssuer создаёт issuer для заданного сервиса.
 func NewServiceTokenIssuer(secret, subject, audience string) *ServiceTokenIssuer {
 	return &ServiceTokenIssuer{
 		secret:   secret,
@@ -27,7 +27,7 @@ func NewServiceTokenIssuer(secret, subject, audience string) *ServiceTokenIssuer
 	}
 }
 
-// Issue returns a signed Bearer token valid for 1 hour.
+// Issue возвращает подписанный Bearer-токен, действительный час.
 func (i *ServiceTokenIssuer) Issue(ctx context.Context) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, CustomClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -46,12 +46,12 @@ func (i *ServiceTokenIssuer) Issue(ctx context.Context) (string, error) {
 	return "Bearer " + signed, nil
 }
 
-// UserAuthInterceptor forwards an existing end-user authorization header from
-// the incoming context to outgoing gRPC metadata.
+// UserAuthInterceptor пробрасывает Authorization-заголовок пользователя из контекста
+// в исходящий gRPC-запрос. Заголовок берём из auth.Identity, который ставит HTTP-middleware.
 func UserAuthInterceptor() grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		if authHeader, ok := ctx.Value(ContextKeyAuthorizationHeader).(string); ok && authHeader != "" {
-			ctx = metadata.AppendToOutgoingContext(ctx, "authorization", authHeader)
+		if id, ok := IdentityFromContext(ctx); ok && id.AuthorizationHeader != "" {
+			ctx = metadata.AppendToOutgoingContext(ctx, "authorization", id.AuthorizationHeader)
 		}
 		return invoker(ctx, method, req, reply, cc, opts...)
 	}

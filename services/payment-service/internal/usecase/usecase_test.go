@@ -118,6 +118,15 @@ func (m *mockPaymentRepository) GetRefund(ctx context.Context, id uuid.UUID) (*d
 	return refund, nil
 }
 
+func (m *mockPaymentRepository) GetRefundByIdempotencyKey(ctx context.Context, key string) (*domain.Refund, error) {
+	for _, refund := range m.refunds {
+		if refund.IdempotencyKey == key {
+			return refund, nil
+		}
+	}
+	return nil, apperrors.ErrNotFound
+}
+
 func (m *mockPaymentRepository) ListRefunds(ctx context.Context, paymentID uuid.UUID) ([]*domain.Refund, error) {
 	var out []*domain.Refund
 	for _, refund := range m.refunds {
@@ -290,7 +299,7 @@ func TestPaymentUsecase_Refund(t *testing.T) {
 				paymentID = uuid.New()
 			}
 
-			payment, refund, err := uc.Refund(context.Background(), paymentID, uuid.New().String())
+			payment, refund, err := uc.Refund(context.Background(), paymentID, 0, uuid.New().String())
 
 			if tt.wantErr {
 				require.Error(t, err)

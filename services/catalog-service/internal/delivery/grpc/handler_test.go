@@ -294,6 +294,9 @@ func authCtxWithRole(role auth.Role) context.Context {
 	return context.WithValue(context.Background(), auth.ContextKeyRole, string(role))
 }
 
+func strPtr(s string) *string { return &s }
+func int64Ptr(v int64) *int64 { return &v }
+
 func TestCatalogHandler_UpdateProduct(t *testing.T) {
 	t.Parallel()
 
@@ -312,13 +315,22 @@ func TestCatalogHandler_UpdateProduct(t *testing.T) {
 			ctx:  authCtxWithRole(auth.RoleAdmin),
 			req: &catalogv1.UpdateProductRequest{
 				ProductId:  productID.String(),
-				Name:       "NewName",
-				PriceCents: 2000,
+				Name:       strPtr("NewName"),
+				PriceCents: int64Ptr(2000),
 				Categories: []string{"c"},
 			},
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
 				m := mocks.NewMockCatalogUsecase(ctrl)
-				m.EXPECT().UpdateProduct(gomock.Any(), productID, "NewName", "", int64(2000), []string{"c"}).Return(nil)
+				m.EXPECT().UpdateProduct(gomock.Any(), productID, gomock.Any(), gomock.Any(), gomock.Any(), []string{"c"}).DoAndReturn(
+					func(_ context.Context, _ uuid.UUID, name, description *string, price *int64, categories []string) error {
+						require.NotNil(t, name)
+						assert.Equal(t, "NewName", *name)
+						assert.Nil(t, description)
+						require.NotNil(t, price)
+						assert.Equal(t, int64(2000), *price)
+						assert.Equal(t, []string{"c"}, categories)
+						return nil
+					})
 				return m
 			},
 			wantCode: codes.OK,
@@ -329,7 +341,7 @@ func TestCatalogHandler_UpdateProduct(t *testing.T) {
 			ctx:  context.Background(),
 			req: &catalogv1.UpdateProductRequest{
 				ProductId: productID.String(),
-				Name:      "NewName",
+				Name:      strPtr("NewName"),
 			},
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
 				return mocks.NewMockCatalogUsecase(ctrl)
@@ -342,7 +354,7 @@ func TestCatalogHandler_UpdateProduct(t *testing.T) {
 			ctx:  authCtxWithRole(auth.RoleAdmin),
 			req: &catalogv1.UpdateProductRequest{
 				ProductId: "bad",
-				Name:      "NewName",
+				Name:      strPtr("NewName"),
 			},
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
 				return mocks.NewMockCatalogUsecase(ctrl)
@@ -355,11 +367,18 @@ func TestCatalogHandler_UpdateProduct(t *testing.T) {
 			ctx:  authCtxWithRole(auth.RoleAdmin),
 			req: &catalogv1.UpdateProductRequest{
 				ProductId: productID.String(),
-				Name:      "NewName",
+				Name:      strPtr("NewName"),
 			},
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
 				m := mocks.NewMockCatalogUsecase(ctrl)
-				m.EXPECT().UpdateProduct(gomock.Any(), productID, "NewName", "", int64(0), gomock.Any()).Return(apperrors.ErrNotFound)
+				m.EXPECT().UpdateProduct(gomock.Any(), productID, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, _ uuid.UUID, name, description *string, price *int64, categories []string) error {
+						require.NotNil(t, name)
+						assert.Equal(t, "NewName", *name)
+						assert.Nil(t, description)
+						assert.Nil(t, price)
+						return apperrors.ErrNotFound
+					})
 				return m
 			},
 			wantCode: codes.NotFound,
@@ -370,11 +389,18 @@ func TestCatalogHandler_UpdateProduct(t *testing.T) {
 			ctx:  authCtxWithRole(auth.RoleAdmin),
 			req: &catalogv1.UpdateProductRequest{
 				ProductId: productID.String(),
-				Name:      "NewName",
+				Name:      strPtr("NewName"),
 			},
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
 				m := mocks.NewMockCatalogUsecase(ctrl)
-				m.EXPECT().UpdateProduct(gomock.Any(), productID, "NewName", "", int64(0), gomock.Any()).Return(errors.New("boom"))
+				m.EXPECT().UpdateProduct(gomock.Any(), productID, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, _ uuid.UUID, name, description *string, price *int64, categories []string) error {
+						require.NotNil(t, name)
+						assert.Equal(t, "NewName", *name)
+						assert.Nil(t, description)
+						assert.Nil(t, price)
+						return errors.New("boom")
+					})
 				return m
 			},
 			wantCode: codes.Internal,

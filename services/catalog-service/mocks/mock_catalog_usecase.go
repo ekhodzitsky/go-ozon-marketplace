@@ -119,7 +119,7 @@ func (mr *MockCatalogUsecaseMockRecorder) SearchProducts(ctx, query, page, pageS
 }
 
 // UpdateProduct mocks base method.
-func (m *MockCatalogUsecase) UpdateProduct(ctx context.Context, id uuid.UUID, name, description string, price int64, categories []string) error {
+func (m *MockCatalogUsecase) UpdateProduct(ctx context.Context, id uuid.UUID, name, description *string, price *int64, categories []string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateProduct", ctx, id, name, description, price, categories)
 	ret0, _ := ret[0].(error)

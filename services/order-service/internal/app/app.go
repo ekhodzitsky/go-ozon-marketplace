@@ -53,7 +53,7 @@ func New(cfg *config.Config) *fx.App {
 				postgres.NewSagaPostgres,
 				func(
 					orderRepo repository.OrderRepository,
-					sagaRepo repository.SagaRepository,
+					sagaRepo saga.SagaRepository,
 					invClient inventoryv1.InventoryServiceClient,
 					payClient paymentv1.PaymentServiceClient,
 					log *zap.Logger,
@@ -70,17 +70,14 @@ func New(cfg *config.Config) *fx.App {
 					txm *txmanager.Manager[unitofwork.UnitOfWork],
 					orderRepo repository.OrderRepository,
 					outboxRepo repository.OutboxRepository,
-					sagaRepo repository.SagaRepository,
 					orchestrator *saga.Orchestrator,
-					invClient inventoryv1.InventoryServiceClient,
-					payClient paymentv1.PaymentServiceClient,
 					catalogClient catalogv1.CatalogServiceClient,
 					redisClient *redis.Client,
 					cfg *config.Config,
 				) usecase.OrderUsecase {
 					return usecase.NewOrderUsecase(
-						txm, orderRepo, outboxRepo, sagaRepo, orchestrator,
-						invClient, payClient, catalogClient,
+						txm, orderRepo, outboxRepo, orchestrator,
+						grpcclient.NewCatalogClient(catalogClient, cfg.DefaultCallTimeout),
 						redisClient, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout,
 					)
 				},

@@ -84,7 +84,20 @@ func (h *CatalogHandler) UpdateProduct(ctx context.Context, req *catalogv1.Updat
 		return nil, status.Error(codes.InvalidArgument, "invalid product_id")
 	}
 
-	if err := h.usecase.UpdateProduct(ctx, id, req.Name, req.Description, req.PriceCents, req.Categories); err != nil {
+	// Для optional-полей проверяем указатель: nil — значит клиент не прислал это поле.
+	var name, description *string
+	if req.Name != nil {
+		name = req.Name
+	}
+	if req.Description != nil {
+		description = req.Description
+	}
+	var price *int64
+	if req.PriceCents != nil {
+		price = req.PriceCents
+	}
+
+	if err := h.usecase.UpdateProduct(ctx, id, name, description, price, req.Categories); err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, err.Error())
 		}

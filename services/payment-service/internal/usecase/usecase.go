@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"time"
@@ -94,7 +95,7 @@ func (u *paymentUsecase) ProcessPayment(ctx context.Context, orderID, userID uui
 	return result, nil
 }
 
-func (u *paymentUsecase) Refund(ctx context.Context, paymentID uuid.UUID, idempotencyKey string) (*domain.Payment, *domain.Refund, error) {
+func (u *paymentUsecase) Refund(ctx context.Context, paymentID uuid.UUID, amountCents int64, idempotencyKey string) (*domain.Payment, *domain.Refund, error) {
 	ctx, cancel := context.WithTimeout(ctx, u.callTimeout)
 	defer cancel()
 
@@ -102,6 +103,21 @@ func (u *paymentUsecase) Refund(ctx context.Context, paymentID uuid.UUID, idempo
 	var resultRefund *domain.Refund
 
 	err := u.txm.Run(ctx, func(repo repository.PaymentRepository) error {
+		// Повторный вызов с тем же ключом должен вернуть уже созданный возврат.
+		if idempotencyKey != "" {
+			if existingRefund, err := repo.GetRefundByIdempotencyKey(ctx, idempotencyKey); err == nil {
+				payment, err := repo.GetByID(ctx, existingRefund.PaymentID)
+				if err != nil {
+					return fmt.Errorf("get payment for existing refund: %w", err)
+				}
+				resultPayment = payment
+				resultRefund = existingRefund
+				return nil
+			} else if !errors.Is(err, apperrors.ErrNotFound) {
+				return fmt.Errorf("check refund idempotency: %w", err)
+			}
+		}
+
 		payment, err := repo.GetByID(ctx, paymentID)
 		if err != nil {
 			return fmt.Errorf("get payment: %w", err)
@@ -111,10 +127,19 @@ func (u *paymentUsecase) Refund(ctx context.Context, paymentID uuid.UUID, idempo
 			return fmt.Errorf("%w: payment status %s cannot be refunded", apperrors.ErrFailedPrecondition, payment.Status)
 		}
 
+		// Если сумму не передали — возвращаем полную стоимость платежа.
+		refundAmount := amountCents
+		if refundAmount == 0 {
+			refundAmount = payment.Amount
+		}
+		if refundAmount > payment.Amount {
+			return fmt.Errorf("%w: refund amount exceeds payment amount", apperrors.ErrInvalidArgument)
+		}
+
 		refund := &domain.Refund{
 			ID:             uuid.New(),
 			PaymentID:      payment.ID,
-			Amount:         payment.Amount,
+			Amount:         refundAmount,
 			Reason:         "",
 			Status:         domain.StatusRefunded,
 			IdempotencyKey: idempotencyKey,

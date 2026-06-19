@@ -28,10 +28,16 @@ const (
 // PaymentServiceClient is the client API for PaymentService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Сервис платежей: обработка оплат и возвратов.
 type PaymentServiceClient interface {
+	// Списать средства по заказу.
 	ProcessPayment(ctx context.Context, in *ProcessPaymentRequest, opts ...grpc.CallOption) (*ProcessPaymentResponse, error)
+	// Вернуть средства по платежу. Можно указать полную или частичную сумму.
 	Refund(ctx context.Context, in *RefundRequest, opts ...grpc.CallOption) (*RefundResponse, error)
+	// Получить информацию о конкретном возврате.
 	GetRefund(ctx context.Context, in *GetRefundRequest, opts ...grpc.CallOption) (*GetRefundResponse, error)
+	// Список возвратов по платежу.
 	ListRefunds(ctx context.Context, in *ListRefundsRequest, opts ...grpc.CallOption) (*ListRefundsResponse, error)
 }
 
@@ -86,10 +92,16 @@ func (c *paymentServiceClient) ListRefunds(ctx context.Context, in *ListRefundsR
 // PaymentServiceServer is the server API for PaymentService service.
 // All implementations should embed UnimplementedPaymentServiceServer
 // for forward compatibility
+//
+// Сервис платежей: обработка оплат и возвратов.
 type PaymentServiceServer interface {
+	// Списать средства по заказу.
 	ProcessPayment(context.Context, *ProcessPaymentRequest) (*ProcessPaymentResponse, error)
+	// Вернуть средства по платежу. Можно указать полную или частичную сумму.
 	Refund(context.Context, *RefundRequest) (*RefundResponse, error)
+	// Получить информацию о конкретном возврате.
 	GetRefund(context.Context, *GetRefundRequest) (*GetRefundResponse, error)
+	// Список возвратов по платежу.
 	ListRefunds(context.Context, *ListRefundsRequest) (*ListRefundsResponse, error)
 }
 

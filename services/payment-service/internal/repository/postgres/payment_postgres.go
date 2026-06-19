@@ -120,6 +120,19 @@ func (r *PaymentPostgres) GetRefund(ctx context.Context, id uuid.UUID) (*domain.
 	return &refund, nil
 }
 
+func (r *PaymentPostgres) GetRefundByIdempotencyKey(ctx context.Context, key string) (*domain.Refund, error) {
+	query := `SELECT id, payment_id, amount, reason, status, idempotency_key, created_at FROM refunds WHERE idempotency_key=$1`
+	row := r.db.QueryRow(ctx, query, key)
+	var refund domain.Refund
+	if err := row.Scan(&refund.ID, &refund.PaymentID, &refund.Amount, &refund.Reason, &refund.Status, &refund.IdempotencyKey, &refund.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: refund", apperrors.ErrNotFound)
+		}
+		return nil, fmt.Errorf("get refund by idempotency key: %w", err)
+	}
+	return &refund, nil
+}
+
 func (r *PaymentPostgres) ListRefunds(ctx context.Context, paymentID uuid.UUID) ([]*domain.Refund, error) {
 	query := `SELECT id, payment_id, amount, reason, status, idempotency_key, created_at FROM refunds WHERE payment_id=$1 ORDER BY created_at DESC`
 	rows, err := r.db.Query(ctx, query, paymentID)

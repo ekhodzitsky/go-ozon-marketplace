@@ -8,32 +8,32 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// Verifier validates a raw token and returns an authenticated Identity.
+// Verifier проверяет сырой токен и возвращает аутентифицированную Identity.
 type Verifier interface {
 	Verify(ctx context.Context, token string) (Identity, error)
 }
 
-// JWTVerifier validates HS256 JWTs against a secret, issuer and audience.
+// JWTVerifier проверяет HS256 JWT по секрету, issuer и audience.
 type JWTVerifier struct {
 	secret   string
 	issuer   string
 	audience string
 }
 
-// VerifyOption customizes a JWTVerifier.
+// VerifyOption настраивает JWTVerifier.
 type VerifyOption func(*JWTVerifier)
 
-// WithIssuer overrides the default issuer.
+// WithIssuer меняет issuer по умолчанию.
 func WithIssuer(issuer string) VerifyOption {
 	return func(v *JWTVerifier) { v.issuer = issuer }
 }
 
-// WithAudience overrides the default audience.
+// WithAudience меняет audience по умолчанию.
 func WithAudience(audience string) VerifyOption {
 	return func(v *JWTVerifier) { v.audience = audience }
 }
 
-// NewJWTVerifier creates a verifier for the given HS256 secret.
+// NewJWTVerifier создаёт верификатор для заданного HS256-секрета.
 func NewJWTVerifier(secret string, opts ...VerifyOption) *JWTVerifier {
 	v := &JWTVerifier{
 		secret:   secret,
@@ -46,7 +46,7 @@ func NewJWTVerifier(secret string, opts ...VerifyOption) *JWTVerifier {
 	return v
 }
 
-// Verify parses and validates a JWT token string and returns the caller Identity.
+// Verify парсит и проверяет JWT, возвращает Identity вызывающего.
 func (v *JWTVerifier) Verify(ctx context.Context, token string) (Identity, error) {
 	claims, err := parseJWT(token, v.secret, v.issuer, v.audience)
 	if err != nil {
