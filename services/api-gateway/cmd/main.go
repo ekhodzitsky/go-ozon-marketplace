@@ -2,9 +2,6 @@ package main
 
 import (
 	"context"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/tracing"
@@ -30,11 +27,13 @@ func main() {
 		}
 	}()
 
-	if err := app.New(cfg).Run(); err != nil {
+	application, cleanup, err := app.New(cfg)
+	if err != nil {
+		log.Fatal("init app", zap.Error(err))
+	}
+	defer cleanup()
+
+	if err := application.Run(); err != nil {
 		log.Fatal("gateway error", zap.Error(err))
 	}
-
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
 }

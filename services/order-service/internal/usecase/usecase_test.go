@@ -9,6 +9,7 @@ import (
 	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/saga"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/unitofwork"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/usecase"
@@ -27,9 +28,29 @@ func testLogger(t *testing.T) *zap.Logger {
 	return logger
 }
 
+type fakeUnitOfWork struct {
+	orderRepo  repository.OrderRepository
+	outboxRepo repository.OutboxRepository
+}
+
+func (f *fakeUnitOfWork) OrderRepo() repository.OrderRepository   { return f.orderRepo }
+func (f *fakeUnitOfWork) OutboxRepo() repository.OutboxRepository { return f.outboxRepo }
+
+type fakeTxManager struct {
+	uow unitofwork.UnitOfWork
+	err error
+}
+
+func (f *fakeTxManager) Run(ctx context.Context, fn func(unitofwork.UnitOfWork) error) error {
+	if f.err != nil {
+		return f.err
+	}
+	return fn(f.uow)
+}
+
 func newTestOrderUsecase(t *testing.T, ctrl *gomock.Controller) (
 	usecase.OrderUsecase,
-	*mocks.MockUnitOfWork,
+	*fakeTxManager,
 	*mocks.MockOrderRepository,
 	*mocks.MockOutboxRepository,
 	*mocks.MockSagaRepository,
@@ -37,7 +58,6 @@ func newTestOrderUsecase(t *testing.T, ctrl *gomock.Controller) (
 	*mocks.MockPaymentClient,
 	*mocks.MockCatalogClient,
 ) {
-	uow := mocks.NewMockUnitOfWork(ctrl)
 	orderRepo := mocks.NewMockOrderRepository(ctrl)
 	outboxRepo := mocks.NewMockOutboxRepository(ctrl)
 	sagaRepo := mocks.NewMockSagaRepository(ctrl)
@@ -47,10 +67,10 @@ func newTestOrderUsecase(t *testing.T, ctrl *gomock.Controller) (
 
 	orchestrator := saga.NewOrchestrator(orderRepo, sagaRepo, invClient, payClient, testLogger(t), 100*time.Millisecond, 100*time.Millisecond)
 
-	uowFactory := func() unitofwork.UnitOfWork { return uow }
+	txm := &fakeTxManager{uow: &fakeUnitOfWork{orderRepo: orderRepo, outboxRepo: outboxRepo}}
 
 	uc := usecase.NewOrderUsecase(
-		uowFactory,
+		txm,
 		orderRepo,
 		outboxRepo,
 		sagaRepo,
@@ -62,7 +82,7 @@ func newTestOrderUsecase(t *testing.T, ctrl *gomock.Controller) (
 		100*time.Millisecond,
 		100*time.Millisecond,
 	)
-	return uc, uow, orderRepo, outboxRepo, sagaRepo, invClient, payClient, catalogClient
+	return uc, txm, orderRepo, outboxRepo, sagaRepo, invClient, payClient, catalogClient
 }
 
 func validItem() domain.OrderItem {
@@ -79,7 +99,7 @@ func TestOrderUsecase_CreateOrder_Success(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	uc, uow, orderRepo, outboxRepo, sagaRepo, invClient, payClient, catalogClient := newTestOrderUsecase(t, ctrl)
+	uc, _, orderRepo, outboxRepo, sagaRepo, invClient, payClient, catalogClient := newTestOrderUsecase(t, ctrl)
 
 	item := validItem()
 	items := []domain.OrderItem{item}
@@ -88,12 +108,6 @@ func TestOrderUsecase_CreateOrder_Success(t *testing.T) {
 		ProductId:  item.ProductID.String(),
 		PriceCents: item.Price,
 	}, nil).Times(1)
-
-	uow.EXPECT().Begin(gomock.Any()).Return(nil).Times(1)
-	uow.EXPECT().OrderRepo().Return(orderRepo).AnyTimes()
-	uow.EXPECT().OutboxRepo().Return(outboxRepo).AnyTimes()
-	uow.EXPECT().Rollback(gomock.Any()).Return(nil).AnyTimes()
-	uow.EXPECT().Commit(gomock.Any()).Return(nil).Times(1)
 
 	orderRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 	outboxRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil).Times(1)
@@ -231,13 +245,13 @@ func TestOrderUsecase_CreateOrder_ProductNotFound(t *testing.T) {
 	assert.Equal(t, uuid.Nil, orderID)
 }
 
-func TestOrderUsecase_CreateOrder_UowBeginError(t *testing.T) {
+func TestOrderUsecase_CreateOrder_TxRunError(t *testing.T) {
 	t.Parallel()
 
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	uc, uow, _, _, _, _, _, catalogClient := newTestOrderUsecase(t, ctrl)
+	uc, txm, _, _, _, _, _, catalogClient := newTestOrderUsecase(t, ctrl)
 
 	item := validItem()
 	catalogClient.EXPECT().GetProduct(gomock.Any(), item.ProductID.String()).Return(&catalogv1.Product{
@@ -245,12 +259,11 @@ func TestOrderUsecase_CreateOrder_UowBeginError(t *testing.T) {
 		PriceCents: item.Price,
 	}, nil).Times(1)
 
-	uow.EXPECT().Begin(gomock.Any()).Return(errors.New("begin failed"))
-	uow.EXPECT().Rollback(gomock.Any()).Return(nil).AnyTimes()
+	txm.err = errors.New("tx run failed")
 
 	_, err := uc.CreateOrder(context.Background(), uuid.New(), []domain.OrderItem{item}, "idemp-key")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "begin uow")
+	assert.Contains(t, err.Error(), "tx run failed")
 }
 
 func TestOrderUsecase_CreateOrder_CreateOrderError(t *testing.T) {
@@ -259,7 +272,7 @@ func TestOrderUsecase_CreateOrder_CreateOrderError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	uc, uow, orderRepo, _, _, _, _, catalogClient := newTestOrderUsecase(t, ctrl)
+	uc, _, orderRepo, _, _, _, _, catalogClient := newTestOrderUsecase(t, ctrl)
 
 	item := validItem()
 	catalogClient.EXPECT().GetProduct(gomock.Any(), item.ProductID.String()).Return(&catalogv1.Product{
@@ -267,10 +280,7 @@ func TestOrderUsecase_CreateOrder_CreateOrderError(t *testing.T) {
 		PriceCents: item.Price,
 	}, nil).Times(1)
 
-	uow.EXPECT().Begin(gomock.Any()).Return(nil)
-	uow.EXPECT().OrderRepo().Return(orderRepo)
 	orderRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(errors.New("insert failed"))
-	uow.EXPECT().Rollback(gomock.Any()).Return(nil)
 
 	_, err := uc.CreateOrder(context.Background(), uuid.New(), []domain.OrderItem{item}, "idemp-key")
 	require.Error(t, err)
@@ -283,7 +293,7 @@ func TestOrderUsecase_CreateOrder_CreateOutboxError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	uc, uow, orderRepo, outboxRepo, _, _, _, catalogClient := newTestOrderUsecase(t, ctrl)
+	uc, _, orderRepo, outboxRepo, _, _, _, catalogClient := newTestOrderUsecase(t, ctrl)
 
 	item := validItem()
 	catalogClient.EXPECT().GetProduct(gomock.Any(), item.ProductID.String()).Return(&catalogv1.Product{
@@ -291,43 +301,12 @@ func TestOrderUsecase_CreateOrder_CreateOutboxError(t *testing.T) {
 		PriceCents: item.Price,
 	}, nil).Times(1)
 
-	uow.EXPECT().Begin(gomock.Any()).Return(nil)
-	uow.EXPECT().OrderRepo().Return(orderRepo)
 	orderRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-	uow.EXPECT().OutboxRepo().Return(outboxRepo)
 	outboxRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(errors.New("outbox failed"))
-	uow.EXPECT().Rollback(gomock.Any()).Return(nil)
 
 	_, err := uc.CreateOrder(context.Background(), uuid.New(), []domain.OrderItem{item}, "idemp-key")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "create outbox event")
-}
-
-func TestOrderUsecase_CreateOrder_CommitError(t *testing.T) {
-	t.Parallel()
-
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	uc, uow, orderRepo, outboxRepo, _, _, _, catalogClient := newTestOrderUsecase(t, ctrl)
-
-	item := validItem()
-	catalogClient.EXPECT().GetProduct(gomock.Any(), item.ProductID.String()).Return(&catalogv1.Product{
-		ProductId:  item.ProductID.String(),
-		PriceCents: item.Price,
-	}, nil).Times(1)
-
-	uow.EXPECT().Begin(gomock.Any()).Return(nil)
-	uow.EXPECT().OrderRepo().Return(orderRepo)
-	orderRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-	uow.EXPECT().OutboxRepo().Return(outboxRepo)
-	outboxRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-	uow.EXPECT().Commit(gomock.Any()).Return(errors.New("commit failed"))
-	uow.EXPECT().Rollback(gomock.Any()).Return(nil)
-
-	_, err := uc.CreateOrder(context.Background(), uuid.New(), []domain.OrderItem{item}, "idemp-key")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "commit uow")
 }
 
 func TestOrderUsecase_CreateOrder_SagaReserveError(t *testing.T) {
@@ -336,7 +315,7 @@ func TestOrderUsecase_CreateOrder_SagaReserveError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	uc, uow, orderRepo, outboxRepo, sagaRepo, invClient, _, catalogClient := newTestOrderUsecase(t, ctrl)
+	uc, _, orderRepo, outboxRepo, sagaRepo, invClient, _, catalogClient := newTestOrderUsecase(t, ctrl)
 
 	item := domain.OrderItem{ProductID: uuid.New(), Quantity: 1, Price: 100}
 
@@ -345,13 +324,8 @@ func TestOrderUsecase_CreateOrder_SagaReserveError(t *testing.T) {
 		PriceCents: item.Price,
 	}, nil).Times(1)
 
-	uow.EXPECT().Begin(gomock.Any()).Return(nil)
-	uow.EXPECT().OrderRepo().Return(orderRepo)
 	orderRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-	uow.EXPECT().OutboxRepo().Return(outboxRepo)
 	outboxRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-	uow.EXPECT().Commit(gomock.Any()).Return(nil)
-	uow.EXPECT().Rollback(gomock.Any()).Return(nil)
 
 	sagaRepo.EXPECT().GetByOrderID(gomock.Any(), gomock.Any()).Return(nil, apperrors.ErrNotFound)
 	sagaRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)

@@ -2,16 +2,15 @@ package middleware
 
 import (
 	"context"
-	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
+
+type contextKey string
 
 const contextKeyRequestID contextKey = "request_id"
 
@@ -32,51 +31,6 @@ func RequestID(next http.Handler) http.Handler {
 func GetRequestID(ctx context.Context) string {
 	v, _ := ctx.Value(contextKeyRequestID).(string)
 	return v
-}
-
-// AuthHTTP parses JWT from Authorization header and injects user_id/role into request context.
-// If an Authorization header is present but invalid, the request is rejected with 401.
-func AuthHTTP(jwtSecret string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			auth := r.Header.Get("Authorization")
-			if auth == "" {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			tokenStr := strings.TrimPrefix(auth, "Bearer ")
-			if tokenStr == auth {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-
-			token, err := jwt.ParseWithClaims(tokenStr, &CustomClaims{}, func(t *jwt.Token) (interface{}, error) {
-				if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-					return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-				}
-				return []byte(jwtSecret), nil
-			})
-			if err != nil || !token.Valid {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-
-			claims, ok := token.Claims.(*CustomClaims)
-			if !ok || claims.Subject == "" || claims.Issuer != "go-ozon-marketplace" || !audienceContains(claims.Audience, "api-gateway") {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-
-			ctx := context.WithValue(r.Context(), ContextKeyUserID, claims.Subject)
-			role := claims.Role
-			if role == "" {
-				role = string(RoleUser)
-			}
-			ctx = context.WithValue(ctx, ContextKeyRole, role)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
 }
 
 type responseWriter struct {

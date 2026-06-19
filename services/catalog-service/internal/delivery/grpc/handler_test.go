@@ -7,8 +7,8 @@ import (
 	"time"
 
 	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/mocks"
@@ -302,8 +302,8 @@ func TestCatalogHandler_SearchProducts(t *testing.T) {
 	}
 }
 
-func authCtxWithRole(role middleware.Role) context.Context {
-	return context.WithValue(context.Background(), middleware.ContextKeyRole, string(role))
+func authCtxWithRole(role auth.Role) context.Context {
+	return context.WithValue(context.Background(), auth.ContextKeyRole, string(role))
 }
 
 func TestCatalogHandler_UpdateProduct(t *testing.T) {
@@ -321,7 +321,7 @@ func TestCatalogHandler_UpdateProduct(t *testing.T) {
 	}{
 		{
 			name: "success",
-			ctx:  authCtxWithRole(middleware.RoleAdmin),
+			ctx:  authCtxWithRole(auth.RoleAdmin),
 			req: &catalogv1.UpdateProductRequest{
 				ProductId:  productID.String(),
 				Name:       "NewName",
@@ -351,7 +351,7 @@ func TestCatalogHandler_UpdateProduct(t *testing.T) {
 		},
 		{
 			name: "invalid_product_id",
-			ctx:  authCtxWithRole(middleware.RoleAdmin),
+			ctx:  authCtxWithRole(auth.RoleAdmin),
 			req: &catalogv1.UpdateProductRequest{
 				ProductId: "bad",
 				Name:      "NewName",
@@ -364,7 +364,7 @@ func TestCatalogHandler_UpdateProduct(t *testing.T) {
 		},
 		{
 			name: "not_found",
-			ctx:  authCtxWithRole(middleware.RoleAdmin),
+			ctx:  authCtxWithRole(auth.RoleAdmin),
 			req: &catalogv1.UpdateProductRequest{
 				ProductId: productID.String(),
 				Name:      "NewName",
@@ -379,7 +379,7 @@ func TestCatalogHandler_UpdateProduct(t *testing.T) {
 		},
 		{
 			name: "internal_error",
-			ctx:  authCtxWithRole(middleware.RoleAdmin),
+			ctx:  authCtxWithRole(auth.RoleAdmin),
 			req: &catalogv1.UpdateProductRequest{
 				ProductId: productID.String(),
 				Name:      "NewName",
@@ -434,7 +434,7 @@ func TestCatalogHandler_DeleteProduct(t *testing.T) {
 	}{
 		{
 			name: "success",
-			ctx:  authCtxWithRole(middleware.RoleAdmin),
+			ctx:  authCtxWithRole(auth.RoleAdmin),
 			req:  &catalogv1.DeleteProductRequest{ProductId: productID.String()},
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
 				m := mocks.NewMockCatalogUsecase(ctrl)
@@ -456,7 +456,7 @@ func TestCatalogHandler_DeleteProduct(t *testing.T) {
 		},
 		{
 			name: "invalid_product_id",
-			ctx:  authCtxWithRole(middleware.RoleAdmin),
+			ctx:  authCtxWithRole(auth.RoleAdmin),
 			req:  &catalogv1.DeleteProductRequest{ProductId: "bad"},
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
 				return mocks.NewMockCatalogUsecase(ctrl)
@@ -466,7 +466,7 @@ func TestCatalogHandler_DeleteProduct(t *testing.T) {
 		},
 		{
 			name: "not_found",
-			ctx:  authCtxWithRole(middleware.RoleAdmin),
+			ctx:  authCtxWithRole(auth.RoleAdmin),
 			req:  &catalogv1.DeleteProductRequest{ProductId: productID.String()},
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
 				m := mocks.NewMockCatalogUsecase(ctrl)
@@ -478,7 +478,7 @@ func TestCatalogHandler_DeleteProduct(t *testing.T) {
 		},
 		{
 			name: "internal_error",
-			ctx:  authCtxWithRole(middleware.RoleAdmin),
+			ctx:  authCtxWithRole(auth.RoleAdmin),
 			req:  &catalogv1.DeleteProductRequest{ProductId: productID.String()},
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockCatalogUsecase {
 				m := mocks.NewMockCatalogUsecase(ctrl)

@@ -1,0 +1,38 @@
+# Graphify
+
+This project has Graphify integration for codebase navigation and AI-assisted development.
+
+## When to use Graphify
+
+Use Graphify when you need to understand cross-service dependencies, find related code, or explain existing components:
+
+- Before refactoring a shared package or gRPC contract.
+- When adding a feature that touches multiple services.
+- To find the shortest dependency path between two components.
+- To identify which migrations, tests, or docs relate to a service.
+
+## Available tools
+
+- `/graphify query "<question>"` — ask a natural-language question against the knowledge graph.
+- `/graphify path "<source>" "<target>"` — find the shortest path between two nodes.
+- `/graphify explain "<node>"` — get a plain-language explanation of a node and its neighbors.
+- `./scripts/graphify.sh` — regenerate the offline code-only graph locally.
+- `./scripts/graphify.sh --semantic` — trigger full semantic extraction (requires API key, run inside an assistant).
+
+## MCP server
+
+If the Graphify MCP server is configured, prefer these tools for structured graph access:
+
+- `query_graph` — semantic subgraph query.
+- `get_node` — fetch node details.
+- `get_neighbors` — fetch neighbor nodes.
+- `shortest_path` — find the shortest path between two nodes.
+- `graph_stats` — high-level graph statistics.
+
+## Graph location
+
+The generated graph is at `graphify-out/graph.json` and is ignored by git. It is rebuilt by CI on every push to `master` and uploaded as a workflow artifact.
+
+## Keep the graph fresh
+
+If the graph feels stale, run `./scripts/graphify.sh` to rebuild it. For semantic/doc extraction, set an LLM API key and run `./scripts/graphify.sh --semantic`.

@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
@@ -15,7 +17,8 @@ import (
 func TestAuthHTTP_NoAuth_AllowsPublic(t *testing.T) {
 	t.Parallel()
 
-	handler := AuthHTTP("secret")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	verifier := auth.NewJWTVerifier("secret")
+	handler := AuthHTTP(verifier)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -29,7 +32,8 @@ func TestAuthHTTP_NoAuth_AllowsPublic(t *testing.T) {
 func TestAuthHTTP_InvalidAuth_Rejects(t *testing.T) {
 	t.Parallel()
 
-	handler := AuthHTTP("secret")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	verifier := auth.NewJWTVerifier("secret")
+	handler := AuthHTTP(verifier)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("next handler must not be called for invalid auth")
 	}))
 
@@ -57,20 +61,23 @@ func TestAuthHTTP_ValidAuth_SetsContext(t *testing.T) {
 	t.Parallel()
 
 	secret := "secret"
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, CustomClaims{
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, auth.CustomClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:  "user-1",
-			Issuer:   "go-ozon-marketplace",
-			Audience: jwt.ClaimStrings{"api-gateway"},
+			Subject:   "user-1",
+			Issuer:    "go-ozon-marketplace",
+			Audience:  jwt.ClaimStrings{"api-gateway"},
+			ID:        "tok-1",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		},
-		Role: string(RoleAdmin),
+		Role: string(auth.RoleAdmin),
 	})
 	tokenStr, err := token.SignedString([]byte(secret))
 	requireNoError(t, err)
 
 	var userID string
-	var role Role
-	handler := AuthHTTP(secret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var role auth.Role
+	verifier := auth.NewJWTVerifier(secret)
+	handler := AuthHTTP(verifier)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		userID, _ = GetUserID(r.Context())
 		role, _ = GetRole(r.Context())
 		w.WriteHeader(http.StatusOK)
@@ -83,7 +90,7 @@ func TestAuthHTTP_ValidAuth_SetsContext(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.Equal(t, "user-1", userID)
-	assert.Equal(t, RoleAdmin, role)
+	assert.Equal(t, auth.RoleAdmin, role)
 }
 
 func TestNewAccessLog_LogsRequest(t *testing.T) {

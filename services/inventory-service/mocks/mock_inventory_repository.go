@@ -14,7 +14,9 @@ import (
 	reflect "reflect"
 
 	domain "github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/domain"
+	repository "github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/repository"
 	uuid "github.com/google/uuid"
+	pgx "github.com/jackc/pgx/v5"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -72,30 +74,157 @@ func (mr *MockInventoryRepositoryMockRecorder) GetStock(ctx, productID any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStock", reflect.TypeOf((*MockInventoryRepository)(nil).GetStock), ctx, productID)
 }
 
-// Release mocks base method.
-func (m *MockInventoryRepository) Release(ctx context.Context, productID uuid.UUID, quantity int, orderID uuid.UUID) error {
+// InsertLedger mocks base method.
+func (m *MockInventoryRepository) InsertLedger(ctx context.Context, productID, orderID uuid.UUID, quantityChange int, operationType string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Release", ctx, productID, quantity, orderID)
+	ret := m.ctrl.Call(m, "InsertLedger", ctx, productID, orderID, quantityChange, operationType)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// Release indicates an expected call of Release.
-func (mr *MockInventoryRepositoryMockRecorder) Release(ctx, productID, quantity, orderID any) *gomock.Call {
+// InsertLedger indicates an expected call of InsertLedger.
+func (mr *MockInventoryRepositoryMockRecorder) InsertLedger(ctx, productID, orderID, quantityChange, operationType any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Release", reflect.TypeOf((*MockInventoryRepository)(nil).Release), ctx, productID, quantity, orderID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertLedger", reflect.TypeOf((*MockInventoryRepository)(nil).InsertLedger), ctx, productID, orderID, quantityChange, operationType)
 }
 
-// Reserve mocks base method.
-func (m *MockInventoryRepository) Reserve(ctx context.Context, productID uuid.UUID, quantity int, orderID uuid.UUID) error {
+// InsertReservation mocks base method.
+func (m *MockInventoryRepository) InsertReservation(ctx context.Context, orderID, productID uuid.UUID, quantity int) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Reserve", ctx, productID, quantity, orderID)
+	ret := m.ctrl.Call(m, "InsertReservation", ctx, orderID, productID, quantity)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// InsertReservation indicates an expected call of InsertReservation.
+func (mr *MockInventoryRepositoryMockRecorder) InsertReservation(ctx, orderID, productID, quantity any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertReservation", reflect.TypeOf((*MockInventoryRepository)(nil).InsertReservation), ctx, orderID, productID, quantity)
+}
+
+// SelectReservation mocks base method.
+func (m *MockInventoryRepository) SelectReservation(ctx context.Context, orderID, productID uuid.UUID) (*repository.ReservationRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectReservation", ctx, orderID, productID)
+	ret0, _ := ret[0].(*repository.ReservationRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectReservation indicates an expected call of SelectReservation.
+func (mr *MockInventoryRepositoryMockRecorder) SelectReservation(ctx, orderID, productID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectReservation", reflect.TypeOf((*MockInventoryRepository)(nil).SelectReservation), ctx, orderID, productID)
+}
+
+// SelectReservationForUpdate mocks base method.
+func (m *MockInventoryRepository) SelectReservationForUpdate(ctx context.Context, orderID, productID uuid.UUID) (*repository.ReservationRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectReservationForUpdate", ctx, orderID, productID)
+	ret0, _ := ret[0].(*repository.ReservationRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectReservationForUpdate indicates an expected call of SelectReservationForUpdate.
+func (mr *MockInventoryRepositoryMockRecorder) SelectReservationForUpdate(ctx, orderID, productID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectReservationForUpdate", reflect.TypeOf((*MockInventoryRepository)(nil).SelectReservationForUpdate), ctx, orderID, productID)
+}
+
+// UpdateReservationStatus mocks base method.
+func (m *MockInventoryRepository) UpdateReservationStatus(ctx context.Context, orderID, productID uuid.UUID, status string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateReservationStatus", ctx, orderID, productID, status)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// Reserve indicates an expected call of Reserve.
-func (mr *MockInventoryRepositoryMockRecorder) Reserve(ctx, productID, quantity, orderID any) *gomock.Call {
+// UpdateReservationStatus indicates an expected call of UpdateReservationStatus.
+func (mr *MockInventoryRepositoryMockRecorder) UpdateReservationStatus(ctx, orderID, productID, status any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Reserve", reflect.TypeOf((*MockInventoryRepository)(nil).Reserve), ctx, productID, quantity, orderID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateReservationStatus", reflect.TypeOf((*MockInventoryRepository)(nil).UpdateReservationStatus), ctx, orderID, productID, status)
+}
+
+// UpdateStockForRelease mocks base method.
+func (m *MockInventoryRepository) UpdateStockForRelease(ctx context.Context, productID uuid.UUID, quantity int) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateStockForRelease", ctx, productID, quantity)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateStockForRelease indicates an expected call of UpdateStockForRelease.
+func (mr *MockInventoryRepositoryMockRecorder) UpdateStockForRelease(ctx, productID, quantity any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateStockForRelease", reflect.TypeOf((*MockInventoryRepository)(nil).UpdateStockForRelease), ctx, productID, quantity)
+}
+
+// UpdateStockForReserve mocks base method.
+func (m *MockInventoryRepository) UpdateStockForReserve(ctx context.Context, productID uuid.UUID, quantity int) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateStockForReserve", ctx, productID, quantity)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateStockForReserve indicates an expected call of UpdateStockForReserve.
+func (mr *MockInventoryRepositoryMockRecorder) UpdateStockForReserve(ctx, productID, quantity any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateStockForReserve", reflect.TypeOf((*MockInventoryRepository)(nil).UpdateStockForReserve), ctx, productID, quantity)
+}
+
+// WithTx mocks base method.
+func (m *MockInventoryRepository) WithTx(tx pgx.Tx) repository.InventoryRepository {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WithTx", tx)
+	ret0, _ := ret[0].(repository.InventoryRepository)
+	return ret0
+}
+
+// WithTx indicates an expected call of WithTx.
+func (mr *MockInventoryRepositoryMockRecorder) WithTx(tx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithTx", reflect.TypeOf((*MockInventoryRepository)(nil).WithTx), tx)
+}
+
+// MockTxManager is a mock of TxManager interface.
+type MockTxManager struct {
+	ctrl     *gomock.Controller
+	recorder *MockTxManagerMockRecorder
+	isgomock struct{}
+}
+
+// MockTxManagerMockRecorder is the mock recorder for MockTxManager.
+type MockTxManagerMockRecorder struct {
+	mock *MockTxManager
+}
+
+// NewMockTxManager creates a new mock instance.
+func NewMockTxManager(ctrl *gomock.Controller) *MockTxManager {
+	mock := &MockTxManager{ctrl: ctrl}
+	mock.recorder = &MockTxManagerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockTxManager) EXPECT() *MockTxManagerMockRecorder {
+	return m.recorder
+}
+
+// Run mocks base method.
+func (m *MockTxManager) Run(ctx context.Context, fn func(repository.InventoryRepository) error) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Run", ctx, fn)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Run indicates an expected call of Run.
+func (mr *MockTxManagerMockRecorder) Run(ctx, fn any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockTxManager)(nil).Run), ctx, fn)
 }

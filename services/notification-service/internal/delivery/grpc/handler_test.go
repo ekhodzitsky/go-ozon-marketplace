@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	notificationv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/notification/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/notification-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/notification-service/mocks"
 	"github.com/stretchr/testify/assert"
@@ -16,8 +16,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func authCtxWithRole(role middleware.Role) context.Context {
-	return context.WithValue(context.Background(), middleware.ContextKeyRole, string(role))
+func authCtxWithRole(role auth.Role) context.Context {
+	return context.WithValue(context.Background(), auth.ContextKeyRole, string(role))
 }
 
 func newSendEmailRequest(to, subject, body string) *notificationv1.SendEmailRequest {
@@ -41,7 +41,7 @@ func TestNotificationHandler_SendEmail(t *testing.T) {
 	}{
 		{
 			name: "success",
-			ctx:  authCtxWithRole(middleware.RoleService),
+			ctx:  authCtxWithRole(auth.RoleService),
 			req:  newSendEmailRequest("a@b.c", "S", "B"),
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockNotificationUsecase {
 				m := mocks.NewMockNotificationUsecase(ctrl)
@@ -60,35 +60,35 @@ func TestNotificationHandler_SendEmail(t *testing.T) {
 		},
 		{
 			name:     "external_denied",
-			ctx:      authCtxWithRole(middleware.RoleUser),
+			ctx:      authCtxWithRole(auth.RoleUser),
 			req:      newSendEmailRequest("a@b.c", "S", "B"),
 			wantCode: codes.PermissionDenied,
 			wantErr:  true,
 		},
 		{
 			name:     "invalid_email",
-			ctx:      authCtxWithRole(middleware.RoleService),
+			ctx:      authCtxWithRole(auth.RoleService),
 			req:      newSendEmailRequest("not-an-email", "S", "B"),
 			wantCode: codes.InvalidArgument,
 			wantErr:  true,
 		},
 		{
 			name:     "missing_subject",
-			ctx:      authCtxWithRole(middleware.RoleService),
+			ctx:      authCtxWithRole(auth.RoleService),
 			req:      newSendEmailRequest("a@b.c", "", "B"),
 			wantCode: codes.InvalidArgument,
 			wantErr:  true,
 		},
 		{
 			name:     "missing_body",
-			ctx:      authCtxWithRole(middleware.RoleService),
+			ctx:      authCtxWithRole(auth.RoleService),
 			req:      newSendEmailRequest("a@b.c", "S", ""),
 			wantCode: codes.InvalidArgument,
 			wantErr:  true,
 		},
 		{
 			name: "usecase_not_found",
-			ctx:  authCtxWithRole(middleware.RoleService),
+			ctx:  authCtxWithRole(auth.RoleService),
 			req:  newSendEmailRequest("a@b.c", "S", "B"),
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockNotificationUsecase {
 				m := mocks.NewMockNotificationUsecase(ctrl)
@@ -100,7 +100,7 @@ func TestNotificationHandler_SendEmail(t *testing.T) {
 		},
 		{
 			name: "usecase_invalid_argument",
-			ctx:  authCtxWithRole(middleware.RoleService),
+			ctx:  authCtxWithRole(auth.RoleService),
 			req:  newSendEmailRequest("a@b.c", "S", "B"),
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockNotificationUsecase {
 				m := mocks.NewMockNotificationUsecase(ctrl)
@@ -112,7 +112,7 @@ func TestNotificationHandler_SendEmail(t *testing.T) {
 		},
 		{
 			name: "usecase_generic_error",
-			ctx:  authCtxWithRole(middleware.RoleService),
+			ctx:  authCtxWithRole(auth.RoleService),
 			req:  newSendEmailRequest("a@b.c", "S", "B"),
 			setupMock: func(ctrl *gomock.Controller) *mocks.MockNotificationUsecase {
 				m := mocks.NewMockNotificationUsecase(ctrl)

@@ -6,8 +6,8 @@ import (
 	"time"
 
 	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/delivery/grpc"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/mocks"
@@ -19,8 +19,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func authCtxWithRole(role middleware.Role) context.Context {
-	return context.WithValue(context.Background(), middleware.ContextKeyRole, string(role))
+func authCtxWithRole(role auth.Role) context.Context {
+	return context.WithValue(context.Background(), auth.ContextKeyRole, string(role))
 }
 
 func TestInventoryHandler_Reserve(t *testing.T) {
@@ -39,7 +39,7 @@ func TestInventoryHandler_Reserve(t *testing.T) {
 	}{
 		{
 			name: "success",
-			ctx:  authCtxWithRole(middleware.RoleService),
+			ctx:  authCtxWithRole(auth.RoleService),
 			req:  &inventoryv1.ReserveRequest{ProductId: validProduct, OrderId: validOrder, Quantity: 1, IdempotencyKey: uuid.New().String()},
 			setupMock: func(m *mocks.MockInventoryUsecase) {
 				m.EXPECT().Reserve(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
@@ -56,35 +56,35 @@ func TestInventoryHandler_Reserve(t *testing.T) {
 		},
 		{
 			name:     "external_role_denied",
-			ctx:      authCtxWithRole(middleware.RoleUser),
+			ctx:      authCtxWithRole(auth.RoleUser),
 			req:      &inventoryv1.ReserveRequest{ProductId: validProduct, OrderId: validOrder, Quantity: 1, IdempotencyKey: uuid.New().String()},
 			wantCode: codes.PermissionDenied,
 			wantErr:  true,
 		},
 		{
 			name:     "invalid_product_id",
-			ctx:      authCtxWithRole(middleware.RoleService),
+			ctx:      authCtxWithRole(auth.RoleService),
 			req:      &inventoryv1.ReserveRequest{ProductId: "bad", OrderId: validOrder, Quantity: 1, IdempotencyKey: uuid.New().String()},
 			wantCode: codes.InvalidArgument,
 			wantErr:  true,
 		},
 		{
 			name:     "invalid_order_id",
-			ctx:      authCtxWithRole(middleware.RoleService),
+			ctx:      authCtxWithRole(auth.RoleService),
 			req:      &inventoryv1.ReserveRequest{ProductId: validProduct, OrderId: "bad", Quantity: 1, IdempotencyKey: uuid.New().String()},
 			wantCode: codes.InvalidArgument,
 			wantErr:  true,
 		},
 		{
 			name:     "missing_idempotency_key",
-			ctx:      authCtxWithRole(middleware.RoleService),
+			ctx:      authCtxWithRole(auth.RoleService),
 			req:      &inventoryv1.ReserveRequest{ProductId: validProduct, OrderId: validOrder, Quantity: 1},
 			wantCode: codes.InvalidArgument,
 			wantErr:  true,
 		},
 		{
 			name: "usecase_error",
-			ctx:  authCtxWithRole(middleware.RoleService),
+			ctx:  authCtxWithRole(auth.RoleService),
 			req:  &inventoryv1.ReserveRequest{ProductId: validProduct, OrderId: validOrder, Quantity: 1, IdempotencyKey: uuid.New().String()},
 			setupMock: func(m *mocks.MockInventoryUsecase) {
 				m.EXPECT().Reserve(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(assert.AnError)
@@ -134,7 +134,7 @@ func TestInventoryHandler_Release(t *testing.T) {
 	}{
 		{
 			name: "success",
-			ctx:  authCtxWithRole(middleware.RoleService),
+			ctx:  authCtxWithRole(auth.RoleService),
 			req:  &inventoryv1.ReleaseRequest{ProductId: validProduct, OrderId: validOrder, Quantity: 1, IdempotencyKey: uuid.New().String()},
 			setupMock: func(m *mocks.MockInventoryUsecase) {
 				m.EXPECT().Release(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
@@ -151,35 +151,35 @@ func TestInventoryHandler_Release(t *testing.T) {
 		},
 		{
 			name:     "external_role_denied",
-			ctx:      authCtxWithRole(middleware.RoleUser),
+			ctx:      authCtxWithRole(auth.RoleUser),
 			req:      &inventoryv1.ReleaseRequest{ProductId: validProduct, OrderId: validOrder, Quantity: 1, IdempotencyKey: uuid.New().String()},
 			wantCode: codes.PermissionDenied,
 			wantErr:  true,
 		},
 		{
 			name:     "invalid_product_id",
-			ctx:      authCtxWithRole(middleware.RoleService),
+			ctx:      authCtxWithRole(auth.RoleService),
 			req:      &inventoryv1.ReleaseRequest{ProductId: "bad", OrderId: validOrder, Quantity: 1, IdempotencyKey: uuid.New().String()},
 			wantCode: codes.InvalidArgument,
 			wantErr:  true,
 		},
 		{
 			name:     "invalid_order_id",
-			ctx:      authCtxWithRole(middleware.RoleService),
+			ctx:      authCtxWithRole(auth.RoleService),
 			req:      &inventoryv1.ReleaseRequest{ProductId: validProduct, OrderId: "bad", Quantity: 1, IdempotencyKey: uuid.New().String()},
 			wantCode: codes.InvalidArgument,
 			wantErr:  true,
 		},
 		{
 			name:     "missing_idempotency_key",
-			ctx:      authCtxWithRole(middleware.RoleService),
+			ctx:      authCtxWithRole(auth.RoleService),
 			req:      &inventoryv1.ReleaseRequest{ProductId: validProduct, OrderId: validOrder, Quantity: 1},
 			wantCode: codes.InvalidArgument,
 			wantErr:  true,
 		},
 		{
 			name: "usecase_error",
-			ctx:  authCtxWithRole(middleware.RoleService),
+			ctx:  authCtxWithRole(auth.RoleService),
 			req:  &inventoryv1.ReleaseRequest{ProductId: validProduct, OrderId: validOrder, Quantity: 1, IdempotencyKey: uuid.New().String()},
 			setupMock: func(m *mocks.MockInventoryUsecase) {
 				m.EXPECT().Release(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(assert.AnError)

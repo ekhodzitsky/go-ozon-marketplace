@@ -5,6 +5,7 @@ import (
 	"time"
 
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/dlq"
@@ -97,7 +98,7 @@ func (h *PaymentHandler) Refund(ctx context.Context, req *paymentv1.RefundReques
 		return nil, apperrors.ToStatus(err)
 	}
 
-	if role != middleware.RoleAdmin && payment.UserID.String() != authUserID {
+	if role != auth.RoleAdmin && payment.UserID.String() != authUserID {
 		return nil, status.Error(codes.PermissionDenied, "payment does not belong to user")
 	}
 
@@ -132,7 +133,7 @@ func (h *PaymentHandler) GetRefund(ctx context.Context, req *paymentv1.GetRefund
 		return nil, apperrors.ToStatus(err)
 	}
 
-	if role != middleware.RoleAdmin && payment.UserID.String() != authUserID {
+	if role != auth.RoleAdmin && payment.UserID.String() != authUserID {
 		return nil, status.Error(codes.PermissionDenied, "refund does not belong to user")
 	}
 
@@ -158,7 +159,7 @@ func (h *PaymentHandler) ListRefunds(ctx context.Context, req *paymentv1.ListRef
 		return nil, apperrors.ToStatus(err)
 	}
 
-	if role != middleware.RoleAdmin && payment.UserID.String() != authUserID {
+	if role != auth.RoleAdmin && payment.UserID.String() != authUserID {
 		return nil, status.Error(codes.PermissionDenied, "payment does not belong to user")
 	}
 

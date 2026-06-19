@@ -13,19 +13,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func setupHandler() *admin.Handler {
+func setupRouter() http.Handler {
 	engine := featureflags.NewEngine(nil)
 	engine.Register(&featureflags.Flag{Name: "new-checkout-flow", Enabled: false, Strategy: "default"})
 	engine.Register(&featureflags.Flag{Name: "fast-search", Enabled: false, Strategy: "default"})
-	return admin.NewHandler(engine)
+	return admin.NewRouter(admin.NewHandler(engine), nil)
 }
 
 func TestListFlags(t *testing.T) {
-	h := setupHandler()
-	req := httptest.NewRequest(http.MethodGet, "/admin/flags", nil)
+	router := setupRouter()
+	req := httptest.NewRequest(http.MethodGet, "/flags", nil)
 	rec := httptest.NewRecorder()
 
-	h.ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Header().Get("Content-Type"), "application/json")
@@ -36,33 +36,33 @@ func TestListFlags(t *testing.T) {
 }
 
 func TestEnableFlag(t *testing.T) {
-	h := setupHandler()
-	req := httptest.NewRequest(http.MethodPost, "/admin/flags/fast-search/enable", nil)
+	router := setupRouter()
+	req := httptest.NewRequest(http.MethodPost, "/flags/fast-search/enable", nil)
 	rec := httptest.NewRecorder()
 
-	h.ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "enabled")
 }
 
 func TestDisableFlag(t *testing.T) {
-	h := setupHandler()
-	req := httptest.NewRequest(http.MethodPost, "/admin/flags/fast-search/disable", nil)
+	router := setupRouter()
+	req := httptest.NewRequest(http.MethodPost, "/flags/fast-search/disable", nil)
 	rec := httptest.NewRecorder()
 
-	h.ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "disabled")
 }
 
 func TestSetPercentage(t *testing.T) {
-	h := setupHandler()
-	req := httptest.NewRequest(http.MethodPost, "/admin/flags/fast-search/percentage/42", nil)
+	router := setupRouter()
+	req := httptest.NewRequest(http.MethodPost, "/flags/fast-search/percentage/42", nil)
 	rec := httptest.NewRecorder()
 
-	h.ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "percentage_set")
@@ -70,32 +70,32 @@ func TestSetPercentage(t *testing.T) {
 }
 
 func TestSetPercentage_InvalidValue(t *testing.T) {
-	h := setupHandler()
-	req := httptest.NewRequest(http.MethodPost, "/admin/flags/fast-search/percentage/abc", nil)
+	router := setupRouter()
+	req := httptest.NewRequest(http.MethodPost, "/flags/fast-search/percentage/abc", nil)
 	rec := httptest.NewRecorder()
 
-	h.ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "invalid percentage")
 }
 
 func TestUnknownRoute(t *testing.T) {
-	h := setupHandler()
-	req := httptest.NewRequest(http.MethodGet, "/admin/flags/unknown/route", nil)
+	router := setupRouter()
+	req := httptest.NewRequest(http.MethodGet, "/flags/unknown/route", nil)
 	rec := httptest.NewRecorder()
 
-	h.ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestInvalidMethod(t *testing.T) {
-	h := setupHandler()
-	req := httptest.NewRequest(http.MethodDelete, "/admin/flags", bytes.NewReader(nil))
+	router := setupRouter()
+	req := httptest.NewRequest(http.MethodDelete, "/flags", bytes.NewReader(nil))
 	rec := httptest.NewRecorder()
 
-	h.ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }

@@ -14,7 +14,7 @@ import (
 	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/ekhodzitsky/go-ozon-marketplace/tests"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -68,7 +68,7 @@ func (s *mockCatalogServer) GetProduct(_ context.Context, req *catalogv1.GetProd
 
 func authContext(ctx context.Context, userID, secret string) context.Context {
 	now := time.Now().UTC()
-	claims := middleware.CustomClaims{
+	claims := auth.CustomClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
 			Issuer:    "go-ozon-marketplace",
@@ -78,7 +78,7 @@ func authContext(ctx context.Context, userID, secret string) context.Context {
 			NotBefore: jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
 		},
-		Role: string(middleware.RoleUser),
+		Role: string(auth.RoleUser),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenStr, err := token.SignedString([]byte(secret))

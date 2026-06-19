@@ -2,69 +2,37 @@ package auth
 
 import (
 	"fmt"
-	"time"
+	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 )
 
-const (
-	Issuer   = "go-ozon-marketplace"
-	Audience = "go-ozon-marketplace"
-)
-
-// Claims extends jwt.RegisteredClaims with application-specific fields.
-type Claims struct {
+// CustomClaims extends jwt.RegisteredClaims with a role claim.
+type CustomClaims struct {
 	jwt.RegisteredClaims
-	UserID string `json:"user_id"`
-	Role   string `json:"role"`
+	Role string `json:"role"`
 }
 
-// GenerateToken creates a new JWT with full registered claims.
-func GenerateToken(secret string, userID string, role string, ttl time.Duration) (string, error) {
-	now := time.Now().UTC()
-	claims := Claims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    Issuer,
-			Audience:  jwt.ClaimStrings{Audience},
-			Subject:   userID,
-			IssuedAt:  jwt.NewNumericDate(now),
-			NotBefore: jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
-			ID:        uuid.NewString(), // jti
-		},
-		UserID: userID,
-		Role:   role,
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString([]byte(secret))
-	if err != nil {
-		return "", fmt.Errorf("sign token: %w", err)
-	}
-	return tokenString, nil
+// ParseJWT validates a JWT token string and returns parsed claims.
+// It uses the default issuer and audience expected by the marketplace.
+func ParseJWT(tokenStr, secret string) (*CustomClaims, error) {
+	return parseJWT(tokenStr, secret, "go-ozon-marketplace", "api-gateway")
 }
 
-// ParseToken validates and parses a JWT string.
-func ParseToken(tokenStr string, secret string) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (interface{}, error) {
-		return []byte(secret), nil
-	},
-		jwt.WithValidMethods([]string{"HS256"}),
-		jwt.WithExpirationRequired(),
-		jwt.WithIssuer(Issuer),
-		jwt.WithAudience(Audience),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("invalid token: %w", err)
+// ParseBearer extracts the token from "Bearer <token>" and parses it.
+func ParseBearer(bearer, secret string) (*CustomClaims, error) {
+	tokenStr := strings.TrimPrefix(bearer, "Bearer ")
+	if tokenStr == bearer {
+		return nil, fmt.Errorf("invalid authorization header format")
 	}
-	if !token.Valid {
-		return nil, fmt.Errorf("invalid token")
-	}
+	return ParseJWT(tokenStr, secret)
+}
 
-	claims, ok := token.Claims.(*Claims)
-	if !ok {
-		return nil, fmt.Errorf("invalid token claims")
+func audienceContains(aud jwt.ClaimStrings, target string) bool {
+	for _, a := range aud {
+		if a == target {
+			return true
+		}
 	}
-	return claims, nil
+	return false
 }

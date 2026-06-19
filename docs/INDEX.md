@@ -24,6 +24,7 @@
 |----------|----------|--------------|
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Как участвовать в разработке | 10 мин |
 | [API.md](API.md) | GraphQL, gRPC, WebSocket, JWT | 20 мин |
+| [GRAPHIFY.md](GRAPHIFY.md) | Graphify — knowledge graph для навигации по codebase | 10 мин |
 | [CHANGELOG](../CHANGELOG.md) | История изменений по версиям | 5 мин |
 
 ### Безопасность и надёжность

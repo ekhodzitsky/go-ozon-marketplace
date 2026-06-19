@@ -19,40 +19,31 @@ import (
 )
 
 type fakeUoW struct {
-	beginErr       error
-	commitErr      error
-	rollbackErr    error
-	productRepo    repository.ProductRepository
-	outboxRepo     repository.OutboxRepository
-	beginCalled    bool
-	commitCalled   bool
-	rollbackCalled bool
-}
-
-func (f *fakeUoW) Begin(ctx context.Context) error {
-	f.beginCalled = true
-	return f.beginErr
-}
-
-func (f *fakeUoW) Commit(ctx context.Context) error {
-	f.commitCalled = true
-	return f.commitErr
-}
-
-func (f *fakeUoW) Rollback(ctx context.Context) error {
-	f.rollbackCalled = true
-	return f.rollbackErr
+	productRepo repository.ProductRepository
+	outboxRepo  repository.OutboxRepository
 }
 
 func (f *fakeUoW) ProductRepo() repository.ProductRepository { return f.productRepo }
 func (f *fakeUoW) OutboxRepo() repository.OutboxRepository   { return f.outboxRepo }
+
+type fakeTxManager struct {
+	uow unitofwork.UnitOfWork
+	err error
+}
+
+func (f *fakeTxManager) Run(ctx context.Context, fn func(unitofwork.UnitOfWork) error) error {
+	if f.err != nil {
+		return f.err
+	}
+	return fn(f.uow)
+}
 
 type testDeps struct {
 	ctrl        *gomock.Controller
 	productRepo *mocks.MockProductRepository
 	searchRepo  *mocks.MockProductSearchRepository
 	outboxRepo  *mocks.MockOutboxRepository
-	uow         *fakeUoW
+	txm         *fakeTxManager
 	uc          usecase.CatalogUsecase
 }
 
@@ -62,14 +53,15 @@ func newTestDeps(t *testing.T) *testDeps {
 	searchRepo := mocks.NewMockProductSearchRepository(ctrl)
 	outboxRepo := mocks.NewMockOutboxRepository(ctrl)
 	uow := &fakeUoW{productRepo: productRepo, outboxRepo: outboxRepo}
+	txm := &fakeTxManager{uow: uow}
 	uc := usecase.NewCatalogUsecase(
-		func() unitofwork.UnitOfWork { return uow },
+		txm,
 		productRepo,
 		searchRepo,
 		100*time.Millisecond,
 		100*time.Millisecond,
 	)
-	return &testDeps{ctrl: ctrl, productRepo: productRepo, searchRepo: searchRepo, outboxRepo: outboxRepo, uow: uow, uc: uc}
+	return &testDeps{ctrl: ctrl, productRepo: productRepo, searchRepo: searchRepo, outboxRepo: outboxRepo, txm: txm, uc: uc}
 }
 
 func TestCatalogUsecase_CreateProduct_Success(t *testing.T) {
@@ -81,8 +73,6 @@ func TestCatalogUsecase_CreateProduct_Success(t *testing.T) {
 	id, err := d.uc.CreateProduct(context.Background(), "Name", "Desc", 1000, []string{"cat"}, "key")
 	require.NoError(t, err)
 	assert.Equal(t, existingID, id)
-	assert.True(t, d.uow.beginCalled)
-	assert.True(t, d.uow.commitCalled)
 }
 
 func TestCatalogUsecase_CreateProduct_IdempotencyKeyReuse(t *testing.T) {
@@ -94,17 +84,15 @@ func TestCatalogUsecase_CreateProduct_IdempotencyKeyReuse(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, apperrors.ErrAlreadyExists))
 	assert.Equal(t, existingID, id)
-	assert.True(t, d.uow.beginCalled)
-	assert.False(t, d.uow.commitCalled)
 }
 
-func TestCatalogUsecase_CreateProduct_BeginError(t *testing.T) {
+func TestCatalogUsecase_CreateProduct_TxManagerError(t *testing.T) {
 	d := newTestDeps(t)
-	d.uow.beginErr = errors.New("begin failed")
+	d.txm.err = errors.New("tx manager failed")
 
 	_, err := d.uc.CreateProduct(context.Background(), "Name", "Desc", 1000, []string{"cat"}, "key")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "begin uow")
+	assert.Contains(t, err.Error(), "tx manager failed")
 }
 
 func TestCatalogUsecase_CreateProduct_CreateError(t *testing.T) {
@@ -114,7 +102,6 @@ func TestCatalogUsecase_CreateProduct_CreateError(t *testing.T) {
 	_, err := d.uc.CreateProduct(context.Background(), "Name", "Desc", 1000, []string{"cat"}, "key")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "create product")
-	assert.True(t, d.uow.rollbackCalled)
 }
 
 func TestCatalogUsecase_CreateProduct_OutboxError(t *testing.T) {
@@ -125,28 +112,6 @@ func TestCatalogUsecase_CreateProduct_OutboxError(t *testing.T) {
 	_, err := d.uc.CreateProduct(context.Background(), "Name", "Desc", 1000, []string{"cat"}, "key")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "create outbox event")
-	assert.True(t, d.uow.rollbackCalled)
-}
-
-func TestCatalogUsecase_CreateProduct_CommitError(t *testing.T) {
-	d := newTestDeps(t)
-	d.productRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(uuid.New(), nil)
-	d.outboxRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-	d.uow.commitErr = errors.New("commit failed")
-
-	_, err := d.uc.CreateProduct(context.Background(), "Name", "Desc", 1000, []string{"cat"}, "key")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "commit uow")
-}
-
-func TestCatalogUsecase_CreateProduct_RollbackErrorOverridesNilError(t *testing.T) {
-	d := newTestDeps(t)
-	d.productRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(uuid.Nil, errors.New("create failed"))
-	d.uow.rollbackErr = errors.New("rollback failed")
-
-	_, err := d.uc.CreateProduct(context.Background(), "Name", "Desc", 1000, []string{"cat"}, "key")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "create product")
 }
 
 func TestCatalogUsecase_GetProduct_Success(t *testing.T) {
@@ -180,7 +145,6 @@ func TestCatalogUsecase_UpdateProduct_Success(t *testing.T) {
 
 	err := d.uc.UpdateProduct(context.Background(), id, "New", "NewDesc", 2000, []string{"new"})
 	require.NoError(t, err)
-	assert.True(t, d.uow.commitCalled)
 }
 
 func TestCatalogUsecase_UpdateProduct_PartialFields(t *testing.T) {
@@ -219,18 +183,13 @@ func TestCatalogUsecase_UpdateProduct_RowsAffectedZero(t *testing.T) {
 	assert.True(t, errors.Is(err, apperrors.ErrNotFound))
 }
 
-func TestCatalogUsecase_UpdateProduct_CommitError(t *testing.T) {
+func TestCatalogUsecase_UpdateProduct_TxManagerError(t *testing.T) {
 	d := newTestDeps(t)
-	id := uuid.New()
-	existing := &domain.Product{ID: id, Name: "Old"}
-	d.productRepo.EXPECT().GetByID(gomock.Any(), id).Return(existing, nil)
-	d.productRepo.EXPECT().Update(gomock.Any(), gomock.Any()).Return(nil)
-	d.outboxRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-	d.uow.commitErr = errors.New("commit failed")
+	d.txm.err = errors.New("tx manager failed")
 
-	err := d.uc.UpdateProduct(context.Background(), id, "New", "", 0, nil)
+	err := d.uc.UpdateProduct(context.Background(), uuid.New(), "New", "", 0, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "commit uow")
+	assert.Contains(t, err.Error(), "tx manager failed")
 }
 
 func TestCatalogUsecase_DeleteProduct_Success(t *testing.T) {
@@ -241,7 +200,6 @@ func TestCatalogUsecase_DeleteProduct_Success(t *testing.T) {
 
 	err := d.uc.DeleteProduct(context.Background(), id)
 	require.NoError(t, err)
-	assert.True(t, d.uow.commitCalled)
 }
 
 func TestCatalogUsecase_DeleteProduct_NotFound(t *testing.T) {
@@ -254,16 +212,24 @@ func TestCatalogUsecase_DeleteProduct_NotFound(t *testing.T) {
 	assert.True(t, errors.Is(err, apperrors.ErrNotFound))
 }
 
-func TestCatalogUsecase_DeleteProduct_CommitError(t *testing.T) {
+func TestCatalogUsecase_DeleteProduct_OutboxError(t *testing.T) {
 	d := newTestDeps(t)
 	id := uuid.New()
 	d.productRepo.EXPECT().Delete(gomock.Any(), id).Return(nil)
-	d.outboxRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(nil)
-	d.uow.commitErr = errors.New("commit failed")
+	d.outboxRepo.EXPECT().Create(gomock.Any(), gomock.Any()).Return(errors.New("outbox down"))
 
 	err := d.uc.DeleteProduct(context.Background(), id)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "commit uow")
+	assert.Contains(t, err.Error(), "create outbox event")
+}
+
+func TestCatalogUsecase_DeleteProduct_TxManagerError(t *testing.T) {
+	d := newTestDeps(t)
+	d.txm.err = errors.New("tx manager failed")
+
+	err := d.uc.DeleteProduct(context.Background(), uuid.New())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tx manager failed")
 }
 
 func TestCatalogUsecase_ListProducts(t *testing.T) {

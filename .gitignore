@@ -35,3 +35,11 @@ Thumbs.db
 infra/docker/data/
 .omc/
 scripts/scripts
+
+# Worktrees
+.worktrees/
+# Graphify
+graphify-out/
+.graphify/cache/
+.graphify/venv/
+services/*/main

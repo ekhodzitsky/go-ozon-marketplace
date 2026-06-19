@@ -5,17 +5,18 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/gorilla/websocket"
 )
 
 // Config holds WebSocket security configuration.
 type Config struct {
 	AllowedOrigins []string
-	JWTSecret      string
+	Verifier       auth.Verifier
 }
 
 func originAllowed(r *http.Request, allowed []string) bool {
@@ -34,41 +35,27 @@ func originAllowed(r *http.Request, allowed []string) bool {
 	return false
 }
 
-func authenticateUpgrade(r *http.Request, jwtSecret string) (string, error) {
-	if jwtSecret == "" {
+func authenticateUpgrade(r *http.Request, verifier auth.Verifier) (string, error) {
+	if verifier == nil {
 		return "", nil
 	}
 	// Prefer token from query parameter for WebSocket clients.
 	tokenStr := r.URL.Query().Get("token")
 	if tokenStr == "" {
-		auth := r.Header.Get("Authorization")
-		if len(auth) > 7 && auth[:7] == "Bearer " {
-			tokenStr = auth[7:]
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			tokenStr = authHeader[7:]
 		}
 	}
 	if tokenStr == "" {
 		return "", fmt.Errorf("missing token")
 	}
 
-	token, err := jwt.ParseWithClaims(tokenStr, &customClaims{}, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-		}
-		return []byte(jwtSecret), nil
-	})
-	if err != nil || !token.Valid {
-		return "", fmt.Errorf("invalid token")
+	identity, err := verifier.Verify(r.Context(), tokenStr)
+	if err != nil {
+		return "", err
 	}
-	claims, ok := token.Claims.(*customClaims)
-	if !ok || claims.Subject == "" {
-		return "", fmt.Errorf("invalid token claims")
-	}
-	return claims.Subject, nil
-}
-
-type customClaims struct {
-	jwt.RegisteredClaims
-	Role string `json:"role"`
+	return identity.UserID, nil
 }
 
 // WSMessage is the envelope broadcast to WebSocket clients.
@@ -256,7 +243,7 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, cfg Config) {
 		},
 	}
 
-	userID, err := authenticateUpgrade(r, cfg.JWTSecret)
+	userID, err := authenticateUpgrade(r, cfg.Verifier)
 	if err != nil {
 		log.Printf("websocket auth error: %v", err)
 		w.WriteHeader(http.StatusUnauthorized)

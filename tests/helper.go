@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -40,7 +40,7 @@ var portMu sync.Mutex
 // The claims mirror the ones validated by the service auth middleware.
 func AuthContext(ctx context.Context, userID, secret string) context.Context {
 	now := time.Now().UTC()
-	claims := middleware.CustomClaims{
+	claims := auth.CustomClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
 			Issuer:    "go-ozon-marketplace",
@@ -50,7 +50,7 @@ func AuthContext(ctx context.Context, userID, secret string) context.Context {
 			NotBefore: jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
 		},
-		Role: string(middleware.RoleUser),
+		Role: string(auth.RoleUser),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenStr, err := token.SignedString([]byte(secret))

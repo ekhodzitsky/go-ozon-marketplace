@@ -12,8 +12,8 @@ import (
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/abtesting"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/featureflags"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph/model"
 	"github.com/stretchr/testify/assert"
@@ -169,15 +169,15 @@ func (m *mockAnalyticsServiceClient) TrackABTestEvent(ctx context.Context, req *
 
 func userContext(userID string) context.Context {
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, middleware.ContextKeyUserID, userID)
-	ctx = context.WithValue(ctx, middleware.ContextKeyRole, string(middleware.RoleUser))
+	ctx = context.WithValue(ctx, auth.ContextKeyUserID, userID)
+	ctx = context.WithValue(ctx, auth.ContextKeyRole, string(auth.RoleUser))
 	return ctx
 }
 
 func adminContext(userID string) context.Context {
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, middleware.ContextKeyUserID, userID)
-	ctx = context.WithValue(ctx, middleware.ContextKeyRole, string(middleware.RoleAdmin))
+	ctx = context.WithValue(ctx, auth.ContextKeyUserID, userID)
+	ctx = context.WithValue(ctx, auth.ContextKeyRole, string(auth.RoleAdmin))
 	return ctx
 }
 

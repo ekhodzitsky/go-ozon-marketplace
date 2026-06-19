@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
@@ -33,7 +33,7 @@ func TestRateLimiterWithoutRedis(t *testing.T) {
 	}
 
 	// Request with valid auth token
-	claims := middleware.CustomClaims{
+	claims := auth.CustomClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   uuid.New().String(),
 			Issuer:    "go-ozon-marketplace",
@@ -41,7 +41,7 @@ func TestRateLimiterWithoutRedis(t *testing.T) {
 			ID:        uuid.New().String(),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		},
-		Role: string(middleware.RoleUser),
+		Role: string(auth.RoleUser),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenStr, _ := token.SignedString([]byte(jwtSecret))
