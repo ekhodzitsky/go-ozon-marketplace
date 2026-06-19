@@ -43,3 +43,6 @@ graphify-out/
 .graphify/cache/
 .graphify/venv/
 services/*/main
+
+# Rust
+services/api-gateway-rust/target/
