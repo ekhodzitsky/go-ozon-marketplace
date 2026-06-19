@@ -1,26 +1,23 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"math/rand"
-	"net/http"
 	"os"
-	"strings"
+	"path/filepath"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 
 	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
 	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/graphqlclient"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/server"
 )
 
 const (
@@ -37,7 +34,7 @@ type config struct {
 	inventoryGRPC string
 	postgresDSN   string
 	certPath      string
-	httpClient    *http.Client
+	graphqlClient *graphqlclient.Client
 }
 
 func loadConfig() config {
@@ -47,9 +44,7 @@ func loadConfig() config {
 		inventoryGRPC: getenv("INVENTORY_ADDR", defaultInventoryGRPC),
 		postgresDSN:   getenv("POSTGRES_DSN", defaultPostgresDSN),
 		certPath:      getenv("CERT_PATH", defaultCertPath),
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		graphqlClient: graphqlclient.NewClient(getenv("GRAPHQL_URL", defaultGraphQLURL)),
 	}
 }
 
@@ -240,95 +235,24 @@ func closeConn(conn *grpc.ClientConn, name string) {
 	}
 }
 
-func newGRPCConn(ctx context.Context, addr, certPath string) (*grpc.ClientConn, error) {
-	var creds credentials.TransportCredentials
+func newGRPCConn(_ context.Context, addr, certPath string) (*grpc.ClientConn, error) {
+	var opts []grpc.DialOption
 	if certPath != "" {
-		certFile := fmt.Sprintf("%s/server-cert.pem", certPath)
-		keyFile := fmt.Sprintf("%s/server-key.pem", certPath)
-		caFile := fmt.Sprintf("%s/ca-cert.pem", certPath)
-
-		tlsConfig, err := loadClientTLS(certFile, keyFile, caFile)
+		creds, err := server.LoadClientMTLSCredentials(
+			filepath.Join(certPath, "server-cert.pem"),
+			filepath.Join(certPath, "server-key.pem"),
+			filepath.Join(certPath, "ca-cert.pem"),
+			"",
+		)
 		if err != nil {
 			return nil, fmt.Errorf("load tls cert from %s: %w", certPath, err)
 		}
-		creds = credentials.NewTLS(tlsConfig)
+		opts = append(opts, grpc.WithTransportCredentials(creds))
 	} else {
-		creds = insecure.NewCredentials()
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	return grpc.NewClient(addr, grpc.WithTransportCredentials(creds))
-}
-
-func loadClientTLS(certFile, keyFile, caFile string) (*tls.Config, error) {
-	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-	if err != nil {
-		return nil, fmt.Errorf("load client cert/key: %w", err)
-	}
-
-	caBytes, err := os.ReadFile(caFile)
-	if err != nil {
-		return nil, fmt.Errorf("read ca cert: %w", err)
-	}
-
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(caBytes) {
-		return nil, fmt.Errorf("failed to append ca cert")
-	}
-
-	return &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		RootCAs:      pool,
-		MinVersion:   tls.VersionTLS12,
-	}, nil
-}
-
-func graphqlRequest(ctx context.Context, cfg config, query string) (result map[string]interface{}, err error) {
-	body, err := json.Marshal(map[string]string{"query": query})
-	if err != nil {
-		return nil, fmt.Errorf("marshal graphql request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.graphqlURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("create graphql request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := cfg.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("graphql request failed: %w", err)
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("failed to close response body: %w", closeErr)
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("graphql returned status %d", resp.StatusCode)
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("graphql decode failed: %w", err)
-	}
-
-	if errs, ok := result["errors"].([]interface{}); ok && len(errs) > 0 {
-		var messages []string
-		for _, e := range errs {
-			messages = append(messages, fmt.Sprintf("%v", e))
-		}
-		return nil, fmt.Errorf("graphql error: %s", strings.Join(messages, "; "))
-	}
-
-	return result, nil
-}
-
-func extractData(result map[string]interface{}) (map[string]interface{}, error) {
-	data, ok := result["data"].(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("graphql response missing data field")
-	}
-	return data, nil
+	return grpc.NewClient(addr, opts...)
 }
 
 func createProduct(ctx context.Context, cfg config, name, desc string, price float64, categories []string) (string, error) {
@@ -339,55 +263,40 @@ func createProduct(ctx context.Context, cfg config, name, desc string, price flo
 	query := fmt.Sprintf(`mutation {
 		createProduct(name: %q, description: %q, price: %f, categories: %s)
 	}`, name, desc, price, string(cats))
-	result, err := graphqlRequest(ctx, cfg, query)
-	if err != nil {
+
+	var result struct {
+		CreateProduct string `json:"createProduct"`
+	}
+	if err := cfg.graphqlClient.Do(ctx, query, &result); err != nil {
 		return "", err
 	}
-	data, err := extractData(result)
-	if err != nil {
-		return "", err
-	}
-	id, ok := data["createProduct"].(string)
-	if !ok {
-		return "", fmt.Errorf("createProduct returned non-string value")
-	}
-	return id, nil
+	return result.CreateProduct, nil
 }
 
 func register(ctx context.Context, cfg config, email, password, name string) (string, error) {
 	query := fmt.Sprintf(`mutation {
 		register(email: %q, password: %q, name: %q)
 	}`, email, password, name)
-	result, err := graphqlRequest(ctx, cfg, query)
-	if err != nil {
+
+	var result struct {
+		Register string `json:"register"`
+	}
+	if err := cfg.graphqlClient.Do(ctx, query, &result); err != nil {
 		return "", err
 	}
-	data, err := extractData(result)
-	if err != nil {
-		return "", err
-	}
-	id, ok := data["register"].(string)
-	if !ok {
-		return "", fmt.Errorf("register returned non-string value")
-	}
-	return id, nil
+	return result.Register, nil
 }
 
 func login(ctx context.Context, cfg config, email, password string) (string, error) {
 	query := fmt.Sprintf(`mutation {
 		login(email: %q, password: %q)
 	}`, email, password)
-	result, err := graphqlRequest(ctx, cfg, query)
-	if err != nil {
+
+	var result struct {
+		Login string `json:"login"`
+	}
+	if err := cfg.graphqlClient.Do(ctx, query, &result); err != nil {
 		return "", err
 	}
-	data, err := extractData(result)
-	if err != nil {
-		return "", err
-	}
-	token, ok := data["login"].(string)
-	if !ok {
-		return "", fmt.Errorf("login returned non-string value")
-	}
-	return token, nil
+	return result.Login, nil
 }
