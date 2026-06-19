@@ -83,18 +83,6 @@ func TestPaymentHandler_ProcessPayment(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "invalid_amount",
-			ctx:     authCtx(validUser),
-			req:     newProcessPaymentRequest(orderID, 0),
-			wantErr: true,
-		},
-		{
-			name:    "missing_idempotency_key",
-			ctx:     authCtx(validUser),
-			req:     &paymentv1.ProcessPaymentRequest{OrderId: orderID, AmountCents: 10000},
-			wantErr: true,
-		},
-		{
 			name: "usecase_error",
 			ctx:  authCtx(validUser),
 			req:  newProcessPaymentRequest(orderID, 10000),

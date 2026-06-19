@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	sharedconfig "github.com/ekhodzitsky/go-ozon-marketplace/pkg/config"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/analytics-service/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -129,7 +130,9 @@ func TestLoad_ValidationFailures(t *testing.T) {
 
 func TestConfig_Validate(t *testing.T) {
 	valid := &config.Config{
-		JWTSecret:      "valid-secret-key-32-bytes-long!!",
+		Base: sharedconfig.Base{
+			JWTSecret: "valid-secret-key-32-bytes-long!!",
+		},
 		ClickHouseAddr: "localhost:9000",
 		ClickHouseUser: "default",
 		KafkaBrokers:   []string{"localhost:9092"},

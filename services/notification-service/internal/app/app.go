@@ -1,9 +1,12 @@
 package app
 
 import (
-	"context"
+	"errors"
 
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
+	notificationv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/notification/v1"
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/fxmodules"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/kafka"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/notification-service/internal/config"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/notification-service/internal/consumer"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/notification-service/internal/delivery/grpc"
@@ -13,13 +16,14 @@ import (
 	"go.uber.org/zap"
 )
 
-func New() *fx.App {
-	return fx.New(
+func New(cfg *config.Config) *fx.App {
+	return fxmodules.GRPCService(
+		"notification-service",
+		cfg,
+		notificationv1.RegisterNotificationServiceServer,
+		grpcdelivery.NewNotificationHandler,
+		fxmodules.KafkaConsumer(cfg),
 		fx.Provide(
-			config.Load,
-			func(cfg *config.Config) (*zap.Logger, error) {
-				return logger.New(cfg.LogLevel, cfg.LogFormat)
-			},
 			func(cfg *config.Config, log *zap.Logger) email.Provider {
 				if cfg.SMTPHost != "" {
 					return email.NewSMTPProvider(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPFrom, cfg.SMTPUser, cfg.SMTPPassword)
@@ -29,25 +33,10 @@ func New() *fx.App {
 			func(log *zap.Logger, cfg *config.Config, provider email.Provider) usecase.NotificationUsecase {
 				return usecase.NewNotificationUsecase(log, provider, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
 			},
-			func(cfg *config.Config, uc usecase.NotificationUsecase, log *zap.Logger) (*consumer.Consumer, error) {
-				return consumer.NewConsumer(cfg.KafkaBrokers, cfg.KafkaConsumerGroup, cfg.KafkaTopics, cfg.KafkaDLQTopic, uc, log)
+			consumer.NewProcessor,
+			func() kafka.IsPermanentError {
+				return func(err error) bool { return errors.Is(err, apperrors.ErrInvalidArgument) }
 			},
-			grpcdelivery.NewNotificationHandler,
 		),
-		fx.Invoke(func(lc fx.Lifecycle, c *consumer.Consumer, log *zap.Logger) {
-			lc.Append(fx.Hook{
-				OnStart: func(ctx context.Context) error {
-					c.Start(ctx)
-					return nil
-				},
-				OnStop: func(ctx context.Context) error {
-					if err := c.Close(); err != nil {
-						log.Error("consumer close error", zap.Error(err))
-					}
-					return nil
-				},
-			})
-		}),
-		fx.Invoke(registerServers),
 	)
 }

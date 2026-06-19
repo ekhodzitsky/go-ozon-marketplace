@@ -16,7 +16,7 @@ type AnalyticsHandler struct {
 	usecase usecase.AnalyticsUsecase
 }
 
-func NewAnalyticsHandler(uc usecase.AnalyticsUsecase) *AnalyticsHandler {
+func NewAnalyticsHandler(uc usecase.AnalyticsUsecase) analyticsv1.AnalyticsServiceServer {
 	return &AnalyticsHandler{usecase: uc}
 }
 

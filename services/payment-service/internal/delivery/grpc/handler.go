@@ -22,36 +22,28 @@ type PaymentHandler struct {
 	dlq     *dlq.Producer
 }
 
-func NewPaymentHandler(uc usecase.PaymentUsecase, dlqProducer *dlq.Producer) *PaymentHandler {
+func NewPaymentHandler(uc usecase.PaymentUsecase, dlqProducer *dlq.Producer) paymentv1.PaymentServiceServer {
 	return &PaymentHandler{usecase: uc, dlq: dlqProducer}
 }
 
+var statusToProtoMap = map[domain.Status]paymentv1.PaymentStatus{
+	domain.StatusPending:  paymentv1.PaymentStatus_PAYMENT_STATUS_PENDING,
+	domain.StatusSuccess:  paymentv1.PaymentStatus_PAYMENT_STATUS_SUCCESS,
+	domain.StatusFailed:   paymentv1.PaymentStatus_PAYMENT_STATUS_FAILED,
+	domain.StatusRefunded: paymentv1.PaymentStatus_PAYMENT_STATUS_REFUNDED,
+}
+
 func statusToProto(s domain.Status) paymentv1.PaymentStatus {
-	switch s {
-	case domain.StatusPending:
-		return paymentv1.PaymentStatus_PAYMENT_STATUS_PENDING
-	case domain.StatusSuccess:
-		return paymentv1.PaymentStatus_PAYMENT_STATUS_SUCCESS
-	case domain.StatusFailed:
-		return paymentv1.PaymentStatus_PAYMENT_STATUS_FAILED
-	case domain.StatusRefunded:
-		return paymentv1.PaymentStatus_PAYMENT_STATUS_REFUNDED
-	default:
-		return paymentv1.PaymentStatus_PAYMENT_STATUS_UNSPECIFIED
+	if ps, ok := statusToProtoMap[s]; ok {
+		return ps
 	}
+	return paymentv1.PaymentStatus_PAYMENT_STATUS_UNSPECIFIED
 }
 
 func (h *PaymentHandler) ProcessPayment(ctx context.Context, req *paymentv1.ProcessPaymentRequest) (*paymentv1.ProcessPaymentResponse, error) {
 	authUserID, ok := middleware.GetUserID(ctx)
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "missing user_id in context")
-	}
-
-	if req.AmountCents <= 0 {
-		return nil, status.Error(codes.InvalidArgument, "amount_cents must be greater than 0")
-	}
-	if req.IdempotencyKey == "" {
-		return nil, status.Error(codes.InvalidArgument, "idempotency_key is required")
 	}
 
 	orderID, err := uuid.Parse(req.OrderId)
@@ -83,10 +75,6 @@ func (h *PaymentHandler) Refund(ctx context.Context, req *paymentv1.RefundReques
 		return nil, status.Error(codes.Unauthenticated, "missing user_id in context")
 	}
 	role, _ := middleware.GetRole(ctx)
-
-	if req.IdempotencyKey == "" {
-		return nil, status.Error(codes.InvalidArgument, "idempotency_key is required")
-	}
 
 	paymentID, err := uuid.Parse(req.PaymentId)
 	if err != nil {

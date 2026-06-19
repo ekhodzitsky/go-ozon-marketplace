@@ -67,9 +67,9 @@ message Product {
 
 message UpdateProductRequest {
   string product_id = 1 [(buf.validate.field).string.min_len = 1];
-  string name = 2;
+  string name = 2 [(buf.validate.field).string.min_len = 1, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   string description = 3;
-  int64 price_cents = 4 [(buf.validate.field).int64.gt = 0];
+  int64 price_cents = 4 [(buf.validate.field).int64.gt = 0, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   repeated string categories = 5;
 }
 

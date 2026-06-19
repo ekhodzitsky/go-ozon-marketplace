@@ -7,7 +7,6 @@ import (
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/validation"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/usecase"
 	"github.com/google/uuid"
 )
@@ -17,20 +16,11 @@ type UserHandler struct {
 	usecase usecase.UserUsecase
 }
 
-func NewUserHandler(uc usecase.UserUsecase) *UserHandler {
+func NewUserHandler(uc usecase.UserUsecase) userv1.UserServiceServer {
 	return &UserHandler{usecase: uc}
 }
 
 func (h *UserHandler) Register(ctx context.Context, req *userv1.RegisterRequest) (*userv1.RegisterResponse, error) {
-	if err := validation.ValidateEmail(req.Email); err != nil {
-		return nil, apperrors.ToStatus(apperrors.Wrap(apperrors.ErrInvalidArgument, "invalid_argument", err.Error()))
-	}
-	if err := validation.ValidatePassword(req.Password); err != nil {
-		return nil, apperrors.ToStatus(apperrors.Wrap(apperrors.ErrInvalidArgument, "invalid_argument", err.Error()))
-	}
-	if err := validation.ValidateName(req.Name); err != nil {
-		return nil, apperrors.ToStatus(apperrors.Wrap(apperrors.ErrInvalidArgument, "invalid_argument", err.Error()))
-	}
 	id, err := h.usecase.Register(ctx, req.Email, req.Password, req.Name)
 	if err != nil {
 		return nil, apperrors.ToStatus(err)
@@ -39,12 +29,6 @@ func (h *UserHandler) Register(ctx context.Context, req *userv1.RegisterRequest)
 }
 
 func (h *UserHandler) Login(ctx context.Context, req *userv1.LoginRequest) (*userv1.LoginResponse, error) {
-	if err := validation.ValidateEmail(req.Email); err != nil {
-		return nil, apperrors.ToStatus(apperrors.Wrap(apperrors.ErrInvalidArgument, "invalid_argument", err.Error()))
-	}
-	if err := validation.ValidatePassword(req.Password); err != nil {
-		return nil, apperrors.ToStatus(apperrors.Wrap(apperrors.ErrInvalidArgument, "invalid_argument", err.Error()))
-	}
 	token, err := h.usecase.Login(ctx, req.Email, req.Password)
 	if err != nil {
 		return nil, apperrors.ToStatus(err)

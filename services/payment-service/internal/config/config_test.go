@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	pkgconfig "github.com/ekhodzitsky/go-ozon-marketplace/pkg/config"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/payment-service/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -77,14 +78,18 @@ func TestLoad_MissingRequiredEnv(t *testing.T) {
 
 func TestConfig_Validate(t *testing.T) {
 	valid := &config.Config{
-		GRPCPort:            50054,
-		MetricsPort:         51054,
-		PostgresDSN:         "postgres://user:pass@localhost:5432/db?sslmode=disable",
-		JWTSecret:           "long-enough-secret",
-		DefaultCallTimeout:  5 * time.Second,
-		DefaultQueryTimeout: 3 * time.Second,
-		KafkaBrokers:        []string{"localhost:9092"},
-		DLQTopic:            "payment-dlq",
+		Base: pkgconfig.Base{
+			JWTSecret:           "long-enough-secret",
+			DefaultCallTimeout:  5 * time.Second,
+			DefaultQueryTimeout: 3 * time.Second,
+		},
+		ServerBase: pkgconfig.ServerBase{
+			GRPCPort:    50054,
+			MetricsPort: 51054,
+		},
+		PostgresDSN:  "postgres://user:pass@localhost:5432/db?sslmode=disable",
+		KafkaBrokers: []string{"localhost:9092"},
+		DLQTopic:     "payment-dlq",
 	}
 	require.NoError(t, valid.Validate())
 

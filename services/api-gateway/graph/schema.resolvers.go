@@ -6,458 +6,91 @@ package graph
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"time"
 
-	analyticsv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/analytics/v1"
-	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
-	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
-	orderv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/order/v1"
-	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
-	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/validation"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph/model"
-	"github.com/google/uuid"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/usecase"
 )
 
 // Register is the resolver for the register field.
 func (r *mutationResolver) Register(ctx context.Context, email string, password string, name string) (string, error) {
-	if err := validation.ValidateEmail(email); err != nil {
-		return "", fmt.Errorf("invalid input: %w", err)
-	}
-	if err := validation.ValidatePassword(password); err != nil {
-		return "", fmt.Errorf("invalid input: %w", err)
-	}
-	if err := validation.ValidateName(name); err != nil {
-		return "", fmt.Errorf("invalid input: %w", err)
-	}
-	ctx, cancel := r.withTimeout(ctx)
-	defer cancel()
-	resp, err := r.UserService.Register(ctx, &userv1.RegisterRequest{
-		Email:    email,
-		Password: password,
-		Name:     name,
-	})
-	if err != nil {
-		return "", err
-	}
-	return resp.UserId, nil
+	return usecase.Register(ctx, r.UserService, email, password, name, r.CallTimeout)
 }
 
 // Login is the resolver for the login field.
 func (r *mutationResolver) Login(ctx context.Context, email string, password string) (string, error) {
-	if err := validation.ValidateEmail(email); err != nil {
-		return "", fmt.Errorf("invalid input: %w", err)
-	}
-	if err := validation.ValidatePassword(password); err != nil {
-		return "", fmt.Errorf("invalid input: %w", err)
-	}
-	ctx, cancel := r.withTimeout(ctx)
-	defer cancel()
-	resp, err := r.UserService.Login(ctx, &userv1.LoginRequest{
-		Email:    email,
-		Password: password,
-	})
-	if err != nil {
-		return "", err
-	}
-	return resp.Token, nil
+	return usecase.Login(ctx, r.UserService, email, password, r.CallTimeout)
 }
 
 // CreateProduct is the resolver for the createProduct field.
 func (r *mutationResolver) CreateProduct(ctx context.Context, name string, description string, price float64, categories []string) (string, error) {
-	if _, err := requireAuth(ctx); err != nil {
-		return "", err
-	}
-	if !isAdmin(ctx) {
-		return "", fmt.Errorf("forbidden")
-	}
-	if err := validation.ValidateName(name); err != nil {
-		return "", fmt.Errorf("invalid input: %w", err)
-	}
-	if err := validation.ValidatePrice(price); err != nil {
-		return "", fmt.Errorf("invalid input: %w", err)
-	}
-	ctx, cancel := r.withTimeout(ctx)
-	defer cancel()
-	resp, err := r.CatalogService.CreateProduct(ctx, &catalogv1.CreateProductRequest{
-		Name:           name,
-		Description:    description,
-		PriceCents:     dollarsToCents(price),
-		Categories:     categories,
-		IdempotencyKey: uuid.NewString(),
-	})
-	if err != nil {
-		return "", err
-	}
-	return resp.ProductId, nil
+	return usecase.CreateProduct(ctx, r.CatalogService, name, description, price, categories, r.CallTimeout)
 }
 
 // CreateOrder is the resolver for the createOrder field.
 func (r *mutationResolver) CreateOrder(ctx context.Context, items []*model.OrderItemInput) (string, error) {
-	callerID, err := requireAuth(ctx)
-	if err != nil {
-		return "", err
-	}
-	if len(items) == 0 {
-		return "", fmt.Errorf("%w: order must contain at least one item", apperrors.ErrInvalidArgument)
-	}
-
-	protoItems := make([]*orderv1.OrderItem, len(items))
-	for i, item := range items {
-		if err := validation.ValidateQuantity(item.Quantity); err != nil {
-			return "", fmt.Errorf("invalid input: %w", err)
-		}
-		if err := validation.ValidatePrice(item.Price); err != nil {
-			return "", fmt.Errorf("invalid input: %w", err)
-		}
-		protoItems[i] = &orderv1.OrderItem{
-			ProductId:  item.ProductID,
-			Quantity:   item.Quantity,
-			PriceCents: dollarsToCents(item.Price),
-		}
-	}
-
-	// Verify item prices against the catalog to prevent tampering.
-	priceCtx, priceCancel := r.withQueryTimeout(ctx)
-	defer priceCancel()
-	for _, item := range protoItems {
-		prodResp, err := r.CatalogService.GetProduct(priceCtx, &catalogv1.GetProductRequest{ProductId: item.ProductId})
-		if err != nil {
-			return "", fmt.Errorf("catalog lookup: %w", err)
-		}
-		if prodResp.Product == nil {
-			return "", fmt.Errorf("%w: product %s not found", apperrors.ErrInvalidArgument, item.ProductId)
-		}
-		if item.PriceCents != prodResp.Product.PriceCents {
-			return "", fmt.Errorf("%w: price mismatch for product %s: requested %d, catalog %d", apperrors.ErrInvalidArgument, item.ProductId, item.PriceCents, prodResp.Product.PriceCents)
-		}
-	}
-
-	ctx, cancel := r.withTimeout(ctx)
-	defer cancel()
-	resp, err := r.OrderService.CreateOrder(ctx, &orderv1.CreateOrderRequest{
-		Items:          protoItems,
-		IdempotencyKey: uuid.NewString(),
-	})
-	if err != nil {
-		return "", err
-	}
-
-	// Track A/B test conversion for checkout experiment.
-	if r.AnalyticsService != nil {
-		for _, exp := range r.ABExperiments {
-			if exp.Name == "checkout-button-color" {
-				go func(experiment, variation string) {
-					trackCtx, trackCancel := context.WithTimeout(context.Background(), 3*time.Second)
-					defer trackCancel()
-					_, _ = r.AnalyticsService.TrackABTestEvent(trackCtx, &analyticsv1.TrackABTestEventRequest{
-						Experiment: experiment,
-						Variation:  variation,
-						UserId:     callerID,
-						Conversion: true,
-					})
-				}(exp.Name, exp.Assign(callerID))
-				break
-			}
-		}
-	}
-
-	return resp.OrderId, nil
+	return usecase.CreateOrder(ctx, r.OrderService, r.CatalogService, r.AnalyticsService, r.ABExperiments, items, r.CallTimeout, r.QueryTimeout)
 }
 
 // CancelOrder is the resolver for the cancelOrder field.
 func (r *mutationResolver) CancelOrder(ctx context.Context, orderID string) (bool, error) {
-	if _, err := requireAuth(ctx); err != nil {
-		return false, err
-	}
-	// Fetch order to enforce owner-or-admin before cancelling.
-	getCtx, getCancel := r.withQueryTimeout(ctx)
-	defer getCancel()
-	getResp, err := r.OrderService.GetOrder(getCtx, &orderv1.GetOrderRequest{
-		OrderId: orderID,
-	})
-	if err != nil {
-		return false, err
-	}
-	if getResp.Order == nil {
-		return false, fmt.Errorf("order not found")
-	}
-	if err := requireOwnerOrAdmin(ctx, getResp.Order.UserId); err != nil {
-		return false, err
-	}
-
-	cancelCtx, cancel := r.withTimeout(ctx)
-	defer cancel()
-	_, err = r.OrderService.CancelOrder(cancelCtx, &orderv1.CancelOrderRequest{
-		OrderId: orderID,
-	})
-	if err != nil {
-		return false, err
-	}
-	return true, nil
+	return usecase.CancelOrder(ctx, r.OrderService, orderID, r.CallTimeout, r.QueryTimeout)
 }
 
 // Me is the resolver for the me field.
 func (r *queryResolver) Me(ctx context.Context) (*model.User, error) {
-	if _, err := requireAuth(ctx); err != nil {
-		return nil, err
-	}
-	ctx, cancel := r.withQueryTimeout(ctx)
-	defer cancel()
-	resp, err := r.UserService.GetUser(ctx, &userv1.GetUserRequest{})
-	if err != nil {
-		return nil, err
-	}
-	return &model.User{
-		ID:        resp.UserId,
-		Email:     resp.Email,
-		Name:      resp.Name,
-		CreatedAt: resp.CreatedAt,
-	}, nil
+	return usecase.Me(ctx, r.UserService, r.QueryTimeout)
 }
 
 // User is the resolver for the user field.
 func (r *queryResolver) User(ctx context.Context, id string) (*model.User, error) {
-	if err := requireOwnerOrAdmin(ctx, id); err != nil {
-		return nil, err
-	}
-	ctx, cancel := r.withQueryTimeout(ctx)
-	defer cancel()
-	resp, err := r.UserService.GetUser(ctx, &userv1.GetUserRequest{})
-	if err != nil {
-		return nil, err
-	}
-	return &model.User{
-		ID:        resp.UserId,
-		Email:     resp.Email,
-		Name:      resp.Name,
-		CreatedAt: resp.CreatedAt,
-	}, nil
+	return usecase.GetUser(ctx, r.UserService, id, r.QueryTimeout)
 }
 
 // Product is the resolver for the product field.
 func (r *queryResolver) Product(ctx context.Context, id string) (*model.Product, error) {
-	ctx, cancel := r.withQueryTimeout(ctx)
-	defer cancel()
-	resp, err := r.CatalogService.GetProduct(ctx, &catalogv1.GetProductRequest{
-		ProductId: id,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return protoProductToModel(resp.Product), nil
+	return usecase.GetProduct(ctx, r.CatalogService, id, r.QueryTimeout)
 }
 
 // SearchProducts is the resolver for the searchProducts field.
 func (r *queryResolver) SearchProducts(ctx context.Context, query string, page *int32, pageSize *int32) (*model.ProductConnection, error) {
-	ctx, cancel := r.withQueryTimeout(ctx)
-	defer cancel()
-	req := &catalogv1.SearchProductsRequest{
-		Query: query,
-	}
-	if page != nil {
-		req.Page = *page
-	}
-	if pageSize != nil {
-		if err := validation.ValidatePageSize(*pageSize); err != nil {
-			return nil, fmt.Errorf("invalid input: %w", err)
-		}
-		req.PageSize = *pageSize
-	}
-	resp, err := r.CatalogService.SearchProducts(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	products := make([]*model.Product, len(resp.Products))
-	for i, p := range resp.Products {
-		products[i] = protoProductToModel(p)
-	}
-	return &model.ProductConnection{
-		Products: products,
-		Total:    resp.Total,
-	}, nil
+	return usecase.SearchProducts(ctx, r.CatalogService, query, page, pageSize, r.QueryTimeout)
 }
 
 // Order is the resolver for the order field.
 func (r *queryResolver) Order(ctx context.Context, id string) (*model.Order, error) {
-	if _, err := requireAuth(ctx); err != nil {
-		return nil, err
-	}
-	ctx, cancel := r.withQueryTimeout(ctx)
-	defer cancel()
-	resp, err := r.OrderService.GetOrder(ctx, &orderv1.GetOrderRequest{
-		OrderId: id,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if resp.Order == nil {
-		return nil, fmt.Errorf("order not found")
-	}
-	if err := requireOwnerOrAdmin(ctx, resp.Order.UserId); err != nil {
-		return nil, err
-	}
-	return protoOrderToModel(resp.Order), nil
+	return usecase.GetOrder(ctx, r.OrderService, id, r.QueryTimeout)
 }
 
 // Orders is the resolver for the orders field.
 func (r *queryResolver) Orders(ctx context.Context, userID string, page *int32, pageSize *int32) (*model.OrderConnection, error) {
-	if err := requireOwnerOrAdmin(ctx, userID); err != nil {
-		return nil, err
-	}
-	ctx, cancel := r.withQueryTimeout(ctx)
-	defer cancel()
-	req := &orderv1.ListOrdersRequest{}
-	if page != nil {
-		req.Page = *page
-	}
-	if pageSize != nil {
-		if err := validation.ValidatePageSize(*pageSize); err != nil {
-			return nil, fmt.Errorf("invalid input: %w", err)
-		}
-		req.PageSize = *pageSize
-	}
-	resp, err := r.OrderService.ListOrders(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	orders := make([]*model.Order, len(resp.Orders))
-	for i, o := range resp.Orders {
-		orders[i] = protoOrderToModel(o)
-	}
-	return &model.OrderConnection{
-		Orders: orders,
-		Total:  resp.Total,
-	}, nil
+	return usecase.ListOrders(ctx, r.OrderService, userID, page, pageSize, r.QueryTimeout)
 }
 
 // Inventory is the resolver for the inventory field.
 func (r *queryResolver) Inventory(ctx context.Context, productID string) (*model.Inventory, error) {
-	ctx, cancel := r.withQueryTimeout(ctx)
-	defer cancel()
-	resp, err := r.InventoryService.GetStock(ctx, &inventoryv1.GetStockRequest{
-		ProductId: productID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &model.Inventory{
-		ProductID: productID,
-		Available: resp.Available,
-		Reserved:  resp.Reserved,
-	}, nil
+	return usecase.GetInventory(ctx, r.InventoryService, productID, r.QueryTimeout)
 }
 
 // FeatureFlags is the resolver for the featureFlags field.
 func (r *queryResolver) FeatureFlags(ctx context.Context) (*model.FeatureFlags, error) {
 	userID, _ := middleware.GetUserID(ctx)
-	return &model.FeatureFlags{
-		NewCheckoutFlow: r.FeatureFlagsEngine.IsEnabled("new-checkout-flow", userID),
-		FastSearch:      r.FeatureFlagsEngine.IsEnabled("fast-search", userID),
-		DiscountSystem:  r.FeatureFlagsEngine.IsEnabled("discount-system", userID),
-		RealTimeUpdates: r.FeatureFlagsEngine.IsEnabled("real-time-updates", userID),
-	}, nil
+	return usecase.FeatureFlags(ctx, r.Resolver.FeatureFlags, userID)
 }
 
 // AbTestAssignments is the resolver for the abTestAssignments field.
 func (r *queryResolver) AbTestAssignments(ctx context.Context, userID string) ([]*model.ABTestAssignment, error) {
-	assignments := make([]*model.ABTestAssignment, 0, len(r.ABExperiments))
-	for _, exp := range r.ABExperiments {
-		assignments = append(assignments, &model.ABTestAssignment{
-			Experiment: exp.Name,
-			Variation:  exp.Assign(userID),
-		})
-	}
-	return assignments, nil
+	return usecase.AbTestAssignments(ctx, r.ABExperiments, userID)
 }
 
 // OrderStatusChanged is the resolver for the orderStatusChanged field.
 func (r *subscriptionResolver) OrderStatusChanged(ctx context.Context, userID string) (<-chan *model.Order, error) {
-	if err := requireOwnerOrAdmin(ctx, userID); err != nil {
-		return nil, err
-	}
-	ch := make(chan *model.Order, 1)
-	pubsub := r.Redis.PSubscribe(ctx, "order-events")
-	go func() {
-		defer close(ch)
-		defer func() { _ = pubsub.Close() }()
-		msgCh := pubsub.Channel()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case msg, ok := <-msgCh:
-				if !ok {
-					return
-				}
-				var envelope struct {
-					Topic   string `json:"topic"`
-					UserID  string `json:"user_id"`
-					Payload struct {
-						OrderID string `json:"order_id"`
-						Status  string `json:"status"`
-						UserID  string `json:"user_id"`
-					} `json:"payload"`
-				}
-				if err := json.Unmarshal([]byte(msg.Payload), &envelope); err != nil {
-					continue
-				}
-				if envelope.UserID != "" && envelope.UserID != userID {
-					continue
-				}
-				ch <- &model.Order{
-					ID:     envelope.Payload.OrderID,
-					UserID: envelope.Payload.UserID,
-					Status: envelope.Payload.Status,
-				}
-			}
-		}
-	}()
-	return ch, nil
+	return usecase.OrderStatusChanged(ctx, r.Redis, userID)
 }
 
 // InventoryChanged is the resolver for the inventoryChanged field.
 func (r *subscriptionResolver) InventoryChanged(ctx context.Context, productID string) (<-chan *model.Inventory, error) {
-	ch := make(chan *model.Inventory, 1)
-	pubsub := r.Redis.PSubscribe(ctx, "inventory-events")
-	go func() {
-		defer close(ch)
-		defer func() { _ = pubsub.Close() }()
-		msgCh := pubsub.Channel()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case msg, ok := <-msgCh:
-				if !ok {
-					return
-				}
-				var envelope struct {
-					Topic   string `json:"topic"`
-					Payload struct {
-						ProductID string `json:"product_id"`
-						Available int32  `json:"available"`
-						Reserved  int32  `json:"reserved"`
-					} `json:"payload"`
-				}
-				if err := json.Unmarshal([]byte(msg.Payload), &envelope); err != nil {
-					continue
-				}
-				if envelope.Payload.ProductID != "" && envelope.Payload.ProductID != productID {
-					continue
-				}
-				ch <- &model.Inventory{
-					ProductID: envelope.Payload.ProductID,
-					Available: envelope.Payload.Available,
-					Reserved:  envelope.Payload.Reserved,
-				}
-			}
-		}
-	}()
-	return ch, nil
+	return usecase.InventoryChanged(ctx, r.Redis, productID)
 }
 
 // Mutation returns MutationResolver implementation.

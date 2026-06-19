@@ -23,6 +23,7 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/config"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/ws"
+	"github.com/olahol/melody"
 )
 
 // HTTP holds the gateway HTTP server.
@@ -34,7 +35,7 @@ type HTTP struct {
 func NewHTTP(
 	cfg *config.Config,
 	resolver *graph.Resolver,
-	hub *ws.Hub,
+	m *melody.Melody,
 	rl pkgmiddleware.RateLimiter,
 	adminHandler http.Handler,
 ) *HTTP {
@@ -56,8 +57,7 @@ func NewHTTP(
 	r.Use(c.Handler)
 
 	if cfg.JWTSecret != "" {
-		verifier := auth.NewJWTVerifier(cfg.JWTSecret)
-		r.Use(pkgmiddleware.AuthHTTP(verifier))
+		r.Use(pkgmiddleware.AuthHTTP(auth.NewJWTVerifier(cfg.JWTSecret)))
 	}
 
 	r.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +67,7 @@ func NewHTTP(
 		if cfg.JWTSecret != "" {
 			wsCfg.Verifier = auth.NewJWTVerifier(cfg.JWTSecret)
 		}
-		ws.ServeWs(hub, w, r, wsCfg)
+		ws.ServeWs(m, w, r, wsCfg)
 	})
 	r.Get("/", playground.Handler("GraphQL playground", "/query"))
 	r.Handle("/query", srv)

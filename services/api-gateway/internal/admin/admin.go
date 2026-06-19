@@ -11,17 +11,21 @@ import (
 
 // Handler provides admin endpoints for feature flags.
 type Handler struct {
-	engine *featureflags.Engine
+	flags *featureflags.FeatureFlags
 }
 
 // NewHandler creates a new admin handler.
-func NewHandler(engine *featureflags.Engine) *Handler {
-	return &Handler{engine: engine}
+func NewHandler(flags *featureflags.FeatureFlags) *Handler {
+	return &Handler{flags: flags}
 }
 
 // ListFlags returns all registered feature flags.
 func (h *Handler) ListFlags(w http.ResponseWriter, r *http.Request) {
-	flags := h.engine.List()
+	flags, err := h.flags.List(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(flags)
 }
@@ -29,7 +33,7 @@ func (h *Handler) ListFlags(w http.ResponseWriter, r *http.Request) {
 // EnableFlag enables a feature flag.
 func (h *Handler) EnableFlag(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	if err := h.engine.SetEnabled(name, true); err != nil {
+	if err := h.flags.SetEnabled(r.Context(), name, true); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -39,7 +43,7 @@ func (h *Handler) EnableFlag(w http.ResponseWriter, r *http.Request) {
 // DisableFlag disables a feature flag.
 func (h *Handler) DisableFlag(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	if err := h.engine.SetEnabled(name, false); err != nil {
+	if err := h.flags.SetEnabled(r.Context(), name, false); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -54,7 +58,7 @@ func (h *Handler) SetPercentage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid percentage", http.StatusBadRequest)
 		return
 	}
-	if err := h.engine.SetPercentage(name, value); err != nil {
+	if err := h.flags.SetPercentage(r.Context(), name, value); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

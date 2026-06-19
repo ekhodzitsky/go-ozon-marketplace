@@ -5,7 +5,6 @@ import (
 	"time"
 
 	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
-	"google.golang.org/grpc"
 )
 
 // CatalogClient is a thin client for catalog-service.
@@ -18,9 +17,9 @@ type catalogClient struct {
 	callTimeout time.Duration
 }
 
-func NewCatalogClient(conn *grpc.ClientConn, callTimeout time.Duration) CatalogClient {
+func NewCatalogClient(client catalogv1.CatalogServiceClient, callTimeout time.Duration) CatalogClient {
 	return &catalogClient{
-		client:      catalogv1.NewCatalogServiceClient(conn),
+		client:      client,
 		callTimeout: callTimeout,
 	}
 }

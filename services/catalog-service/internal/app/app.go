@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/logger"
-	pkgpostgres "github.com/ekhodzitsky/go-ozon-marketplace/pkg/postgres"
+	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/fxmodules"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/txmanager"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/config"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/delivery/grpc"
@@ -22,18 +22,15 @@ import (
 	"go.uber.org/zap"
 )
 
-func New() *fx.App {
-	return fx.New(
+func New(cfg *config.Config) *fx.App {
+	return fxmodules.GRPCService(
+		"catalog-service",
+		cfg,
+		catalogv1.RegisterCatalogServiceServer,
+		grpcdelivery.NewCatalogHandler,
+		fxmodules.Postgres(cfg),
+		fxmodules.Runner[*outbox.Relay](),
 		fx.Provide(
-			config.Load,
-			func(cfg *config.Config) (*zap.Logger, error) {
-				return logger.New(cfg.LogLevel, cfg.LogFormat)
-			},
-			func(cfg *config.Config) (*pgxpool.Pool, error) {
-				ctx, cancel := context.WithTimeout(context.Background(), cfg.DefaultQueryTimeout)
-				defer cancel()
-				return pkgpostgres.NewPool(ctx, cfg.PostgresDSN)
-			},
 			func(cfg *config.Config) (*elastic.Client, error) {
 				client, err := elastic.NewClient(elastic.SetURL(cfg.ESURL), elastic.SetSniff(false))
 				if err != nil {
@@ -46,14 +43,8 @@ func New() *fx.App {
 				}
 				return client, nil
 			},
-			func(pool *pgxpool.Pool) *postgres.ProductPostgres {
-				return postgres.NewProductPostgres(pool)
-			},
-			func(r *postgres.ProductPostgres) repository.ProductRepository { return r },
-			func(pool *pgxpool.Pool) *postgres.OutboxPostgres {
-				return postgres.NewOutboxPostgres(pool)
-			},
-			func(r *postgres.OutboxPostgres) repository.OutboxRepository { return r },
+			postgres.NewProductPostgres,
+			postgres.NewOutboxPostgres,
 			func(pool *pgxpool.Pool) *txmanager.Manager[unitofwork.UnitOfWork] {
 				return txmanager.New(pool, postgresuow.NewUnitOfWork)
 			},
@@ -66,12 +57,10 @@ func New() *fx.App {
 			) usecase.CatalogUsecase {
 				return usecase.NewCatalogUsecase(txm, productRepo, searchRepo, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
 			},
-			grpcdelivery.NewCatalogHandler,
 			func(outboxRepo repository.OutboxRepository, searchRepo repository.ProductSearchRepository, log *zap.Logger, cfg *config.Config) *outbox.Relay {
 				return outbox.NewRelay(outboxRepo, outbox.NewESHandler(searchRepo), log, cfg.DefaultQueryTimeout)
 			},
 		),
-		fx.Invoke(registerServers),
 		fx.Invoke(func(lc fx.Lifecycle, searchRepo repository.ProductSearchRepository, log *zap.Logger) {
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
@@ -79,18 +68,6 @@ func New() *fx.App {
 						log.Error("failed to ensure elasticsearch index", zap.Error(err))
 						return err
 					}
-					return nil
-				},
-			})
-		}),
-		fx.Invoke(func(lc fx.Lifecycle, relay *outbox.Relay) {
-			lc.Append(fx.Hook{
-				OnStart: func(ctx context.Context) error {
-					relay.Start(ctx)
-					return nil
-				},
-				OnStop: func(ctx context.Context) error {
-					relay.Stop()
 					return nil
 				},
 			})

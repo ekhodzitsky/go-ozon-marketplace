@@ -5,7 +5,6 @@ import (
 	"time"
 
 	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
-	"google.golang.org/grpc"
 )
 
 type PaymentClient struct {
@@ -13,8 +12,8 @@ type PaymentClient struct {
 	callTimeout time.Duration
 }
 
-func NewPaymentClient(conn *grpc.ClientConn, callTimeout time.Duration) *PaymentClient {
-	return &PaymentClient{client: paymentv1.NewPaymentServiceClient(conn), callTimeout: callTimeout}
+func NewPaymentClient(client paymentv1.PaymentServiceClient, callTimeout time.Duration) *PaymentClient {
+	return &PaymentClient{client: client, callTimeout: callTimeout}
 }
 
 func (c *PaymentClient) ProcessPayment(ctx context.Context, orderID string, amountCents int64, idempotencyKey string) (string, error) {

@@ -28,18 +28,6 @@ func (m *stubTxManager) Run(ctx context.Context, fn func(repository.PaymentRepos
 	return fn(m.repo)
 }
 
-func TestPaymentUsecase_ProcessPayment_NegativeAmount(t *testing.T) {
-	t.Parallel()
-	repo := newMockPaymentRepository()
-	txm := &stubTxManager{repo: repo}
-	uc := NewPaymentUsecase(repo, txm, zap.NewNop(), time.Second, time.Second)
-
-	payment, err := uc.ProcessPayment(context.Background(), uuid.New(), uuid.New(), -100)
-	require.Error(t, err)
-	assert.Nil(t, payment)
-	assert.ErrorIs(t, err, apperrors.ErrInvalidArgument)
-}
-
 func TestPaymentUsecase_ProcessPayment_TxManagerError(t *testing.T) {
 	t.Parallel()
 	repo := newMockPaymentRepository()

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -128,14 +129,16 @@ func TestLoad_InvalidSMTPFrom(t *testing.T) {
 
 func TestConfig_Validate(t *testing.T) {
 	cfg := &Config{
-		JWTSecret:           "secret-key",
-		KafkaBrokers:        []string{"localhost:9092"},
-		KafkaTopics:         []string{"order-events"},
-		DefaultCallTimeout:  5 * time.Second,
-		DefaultQueryTimeout: 3 * time.Second,
-		SMTPHost:            "",
-		SMTPPort:            587,
-		SMTPFrom:            "notifications@example.com",
+		Base: config.Base{
+			JWTSecret:           "secret-key",
+			DefaultCallTimeout:  5 * time.Second,
+			DefaultQueryTimeout: 3 * time.Second,
+		},
+		KafkaBrokers: []string{"localhost:9092"},
+		KafkaTopics:  []string{"order-events"},
+		SMTPHost:     "",
+		SMTPPort:     587,
+		SMTPFrom:     "notifications@example.com",
 	}
 	require.NoError(t, cfg.Validate())
 }

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/IBM/sarama"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/kafka"
 	"go.uber.org/zap"
 )
 
@@ -22,7 +22,7 @@ type Event struct {
 
 // Producer sends events to a Kafka DLQ topic.
 type Producer struct {
-	producer sarama.SyncProducer
+	producer kafka.Producer
 	topic    string
 	log      *zap.Logger
 	timeout  time.Duration
@@ -41,11 +41,7 @@ func NewProducer(brokers []string, topic string, log *zap.Logger) (*Producer, er
 		timeout: defaultSendTimeout,
 	}
 
-	cfg := sarama.NewConfig()
-	cfg.Producer.RequiredAcks = sarama.WaitForLocal
-	cfg.Producer.Retry.Max = 3
-	cfg.Producer.Return.Successes = true
-	producer, err := sarama.NewSyncProducer(brokers, cfg)
+	producer, err := kafka.NewSyncProducer(brokers)
 	if err != nil {
 		log.Warn("dlq producer unavailable; continuing with no-op dlq", zap.Error(err), zap.Strings("brokers", brokers), zap.String("topic", topic))
 		return p, nil
@@ -54,8 +50,8 @@ func NewProducer(brokers []string, topic string, log *zap.Logger) (*Producer, er
 	return p, nil
 }
 
-// NewProducerWithClient creates a DLQ producer from an existing sync producer.
-func NewProducerWithClient(producer sarama.SyncProducer, topic string, log *zap.Logger) *Producer {
+// NewProducerWithClient creates a DLQ producer from an existing producer.
+func NewProducerWithClient(producer kafka.Producer, topic string, log *zap.Logger) *Producer {
 	if log == nil {
 		log = zap.NewNop()
 	}
@@ -105,13 +101,7 @@ func (p *Producer) send(eventType, payload, reason string) error {
 	if err != nil {
 		return fmt.Errorf("marshal dlq event: %w", err)
 	}
-	msg := &sarama.ProducerMessage{
-		Topic: p.topic,
-		Key:   sarama.ByteEncoder([]byte(eventType)),
-		Value: sarama.ByteEncoder(data),
-	}
-	_, _, err = p.producer.SendMessage(msg)
-	return err
+	return p.producer.SendMessage(p.topic, []byte(eventType), data)
 }
 
 // Close shuts down the producer.

@@ -4,28 +4,23 @@ import (
 	"os"
 	"testing"
 
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/notification-service/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestNew_MissingJWTSecret(t *testing.T) {
+func TestLoadConfig_MissingJWTSecret(t *testing.T) {
 	require.NoError(t, os.Unsetenv("JWT_SECRET"))
 
-	app := New()
-	require.NotNil(t, app)
-
-	err := app.Err()
+	_, err := config.Load()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "JWT_SECRET")
 }
 
-func TestNew_InvalidConfig(t *testing.T) {
+func TestLoadConfig_InvalidConfig(t *testing.T) {
 	t.Setenv("JWT_SECRET", "short")
 
-	app := New()
-	require.NotNil(t, app)
-
-	err := app.Err()
+	_, err := config.Load()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "JWT_SECRET")
 }

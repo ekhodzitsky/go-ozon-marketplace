@@ -5,7 +5,6 @@ import (
 	"time"
 
 	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
-	"google.golang.org/grpc"
 )
 
 type InventoryClient struct {
@@ -13,8 +12,8 @@ type InventoryClient struct {
 	callTimeout time.Duration
 }
 
-func NewInventoryClient(conn *grpc.ClientConn, callTimeout time.Duration) *InventoryClient {
-	return &InventoryClient{client: inventoryv1.NewInventoryServiceClient(conn), callTimeout: callTimeout}
+func NewInventoryClient(client inventoryv1.InventoryServiceClient, callTimeout time.Duration) *InventoryClient {
+	return &InventoryClient{client: client, callTimeout: callTimeout}
 }
 
 func (c *InventoryClient) Reserve(ctx context.Context, productID string, quantity int32, orderID string, idempotencyKey string) error {

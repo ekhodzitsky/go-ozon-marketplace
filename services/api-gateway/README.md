@@ -117,6 +117,6 @@ curl -X POST -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:8080/admin
 - [gqlgen](https://gqlgen.com/) — GraphQL
 - [chi](https://github.com/go-chi/chi) — HTTP роутинг
 - [rs/cors](https://github.com/rs/cors) — CORS
-- [google/wire](https://github.com/google/wire) — DI
+- [uber-go/fx](https://github.com/uber-go/fx) — DI
 - Prometheus — метрики
 - Redis — rate limiting, pub/sub, feature flags

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/domain"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/repository"
 	"github.com/google/uuid"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -24,7 +25,7 @@ type ProductPostgres struct {
 	db Querier
 }
 
-func NewProductPostgres(db Querier) *ProductPostgres {
+func NewProductPostgres(db Querier) repository.ProductRepository {
 	return &ProductPostgres{db: db}
 }
 

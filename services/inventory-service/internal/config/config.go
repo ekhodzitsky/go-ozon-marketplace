@@ -1,38 +1,34 @@
 package config
 
 import (
-	"time"
-
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/config"
 )
 
 type Config struct {
-	GRPCPort                 int
-	MetricsPort              int
-	LogLevel                 string
-	LogFormat                string
-	OTELExporterOTLPEndpoint string
-	PostgresDSN              string
-	RedisAddr                string
-	JWTSecret                string
-	DefaultCallTimeout       time.Duration
-	DefaultQueryTimeout      time.Duration
-	CertPath                 string
+	config.Base
+	config.ServerBase
+
+	PostgresDSN string
+	RedisAddr   string
 }
 
-func Load() *Config {
-	grpcPort := config.GetEnvInt("GRPC_PORT", 50053)
-	return &Config{
-		GRPCPort:                 grpcPort,
-		MetricsPort:              config.GetEnvInt("METRICS_PORT", grpcPort+1000),
-		LogLevel:                 config.GetEnv("LOG_LEVEL", "info"),
-		LogFormat:                config.GetEnv("LOG_FORMAT", "json"),
-		OTELExporterOTLPEndpoint: config.GetEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"),
-		PostgresDSN:              config.MustGetEnv("POSTGRES_DSN"),
-		RedisAddr:                config.GetEnv("REDIS_ADDR", "localhost:6379"),
-		JWTSecret:                config.MustGetEnv("JWT_SECRET"),
-		DefaultCallTimeout:       config.GetEnvDuration("DEFAULT_CALL_TIMEOUT", 5*time.Second),
-		DefaultQueryTimeout:      config.GetEnvDuration("DEFAULT_QUERY_TIMEOUT", 3*time.Second),
-		CertPath:                 config.GetEnv("CERT_PATH", ""),
+func Load() (*Config, error) {
+	base := config.LoadBase()
+	if err := config.ValidateJWTSecret(base.JWTSecret, 32); err != nil {
+		return nil, err
 	}
+	serverBase := config.LoadServerBase(50053)
+	postgresDSN := config.GetEnv("POSTGRES_DSN", "")
+	if err := config.ValidatePostgresDSN(postgresDSN); err != nil {
+		return nil, err
+	}
+	return &Config{
+		Base:        base,
+		ServerBase:  serverBase,
+		PostgresDSN: postgresDSN,
+		RedisAddr:   config.GetEnv("REDIS_ADDR", "localhost:6379"),
+	}, nil
 }
+
+func (c *Config) GetPostgresDSN() string { return c.PostgresDSN }
+func (c *Config) GetRedisAddr() string   { return c.RedisAddr }

@@ -14,7 +14,8 @@ func TestLoad_Defaults(t *testing.T) {
 	t.Setenv("POSTGRES_DSN", "postgres://user:pass@localhost:5432/db?sslmode=disable")
 	t.Setenv("JWT_SECRET", "01234567890123456789012345678901")
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, 50052, cfg.GRPCPort)
 	assert.Equal(t, 51052, cfg.MetricsPort)
@@ -42,7 +43,8 @@ func TestLoad_Overrides(t *testing.T) {
 	t.Setenv("DEFAULT_QUERY_TIMEOUT", "7s")
 	t.Setenv("CERT_PATH", "/certs")
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, 60052, cfg.GRPCPort)
 	assert.Equal(t, 61052, cfg.MetricsPort)
@@ -61,7 +63,8 @@ func TestLoad_MetricsPortDefaultFromGRPC(t *testing.T) {
 	t.Setenv("JWT_SECRET", "01234567890123456789012345678901")
 	t.Setenv("GRPC_PORT", "7000")
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	require.NoError(t, err)
 	assert.Equal(t, 8000, cfg.MetricsPort)
 }
 
@@ -69,26 +72,30 @@ func TestLoad_MissingPostgresDSN(t *testing.T) {
 	_ = os.Unsetenv("POSTGRES_DSN")
 	t.Setenv("JWT_SECRET", "01234567890123456789012345678901")
 
-	require.Panics(t, func() { _ = config.Load() })
+	_, err := config.Load()
+	require.Error(t, err)
 }
 
 func TestLoad_MissingJWTSecret(t *testing.T) {
 	t.Setenv("POSTGRES_DSN", "postgres://user:pass@localhost:5432/db?sslmode=disable")
 	_ = os.Unsetenv("JWT_SECRET")
 
-	require.Panics(t, func() { _ = config.Load() })
+	_, err := config.Load()
+	require.Error(t, err)
 }
 
 func TestLoad_ShortJWTSecret(t *testing.T) {
 	t.Setenv("POSTGRES_DSN", "postgres://user:pass@localhost:5432/db?sslmode=disable")
 	t.Setenv("JWT_SECRET", "short")
 
-	require.Panics(t, func() { _ = config.Load() })
+	_, err := config.Load()
+	require.Error(t, err)
 }
 
 func TestLoad_InvalidDSN(t *testing.T) {
 	t.Setenv("POSTGRES_DSN", "not-a-valid-dsn")
 	t.Setenv("JWT_SECRET", "01234567890123456789012345678901")
 
-	require.Panics(t, func() { _ = config.Load() })
+	_, err := config.Load()
+	require.Error(t, err)
 }

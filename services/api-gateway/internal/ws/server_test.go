@@ -82,12 +82,11 @@ func TestNewHub(t *testing.T) {
 	assert.NotNil(t, hub)
 }
 
-func TestHub_BroadcastNoSubscribers(t *testing.T) {
+func TestBroadcast_NoSubscribers(t *testing.T) {
 	hub := NewHub()
-	go hub.Run()
 
-	hub.Broadcast([]byte(`{"topic":"orders","payload":{}}`))
-	// No panic and no deadlock is the success criteria.
+	err := Broadcast(hub, []byte(`{"topic":"orders","payload":{}}`))
+	require.NoError(t, err)
 	assert.NotNil(t, hub)
 }
 
