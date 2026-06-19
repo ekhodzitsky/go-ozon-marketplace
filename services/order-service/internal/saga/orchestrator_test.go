@@ -61,7 +61,7 @@ func expectedReserveRequest(idempKey string, item domain.OrderItem, orderID stri
 	}
 }
 
-func expectedReleaseRequest(item domain.SagaReservedItem, orderID string) *inventoryv1.ReleaseRequest {
+func expectedReleaseRequest(item saga.SagaReservedItem, orderID string) *inventoryv1.ReleaseRequest {
 	return &inventoryv1.ReleaseRequest{
 		ProductId:      item.ProductID,
 		Quantity:       item.Quantity,
@@ -86,7 +86,7 @@ func expectedRefundRequest(idempKey, paymentID string) *paymentv1.RefundRequest 
 }
 
 type sagaTransition struct {
-	status      domain.SagaStatus
+	status      saga.SagaStatus
 	step        string
 	reservedLen int
 	paymentID   string
@@ -95,7 +95,7 @@ type sagaTransition struct {
 func collectTransitions(sagaRepo *mocks.MockSagaRepository) (*sync.Mutex, *[]sagaTransition) {
 	var mu sync.Mutex
 	transitions := make([]sagaTransition, 0)
-	sagaRepo.EXPECT().Save(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, s *domain.Saga) error {
+	sagaRepo.EXPECT().Save(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, s *saga.Saga) error {
 		mu.Lock()
 		defer mu.Unlock()
 		transitions = append(transitions, sagaTransition{
@@ -120,9 +120,9 @@ func TestOrchestrator_ProcessOrder_HappyPath(t *testing.T) {
 	idempKey := "test-key"
 
 	sagaRepo.EXPECT().GetByOrderID(gomock.Any(), order.ID).Return(nil, apperrors.ErrNotFound)
-	sagaRepo.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, s *domain.Saga) error {
+	sagaRepo.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, s *saga.Saga) error {
 		assert.Equal(t, order.ID, s.OrderID)
-		assert.Equal(t, domain.SagaStatusPending, s.Status)
+		assert.Equal(t, saga.SagaStatusPending, s.Status)
 		return nil
 	}).Times(1)
 
@@ -141,31 +141,31 @@ func TestOrchestrator_ProcessOrder_HappyPath(t *testing.T) {
 	defer mu.Unlock()
 
 	require.Len(t, *transitions, 8)
-	assert.Equal(t, domain.SagaStatusReserving, (*transitions)[0].status)
+	assert.Equal(t, saga.SagaStatusReserving, (*transitions)[0].status)
 	assert.Equal(t, "reserve", (*transitions)[0].step)
 	assert.Equal(t, 0, (*transitions)[0].reservedLen)
 
-	assert.Equal(t, domain.SagaStatusReserving, (*transitions)[1].status)
+	assert.Equal(t, saga.SagaStatusReserving, (*transitions)[1].status)
 	assert.Equal(t, 1, (*transitions)[1].reservedLen)
 
-	assert.Equal(t, domain.SagaStatusReserving, (*transitions)[2].status)
+	assert.Equal(t, saga.SagaStatusReserving, (*transitions)[2].status)
 	assert.Equal(t, 2, (*transitions)[2].reservedLen)
 
-	assert.Equal(t, domain.SagaStatusReserved, (*transitions)[3].status)
+	assert.Equal(t, saga.SagaStatusReserved, (*transitions)[3].status)
 	assert.Equal(t, "reserved", (*transitions)[3].step)
 	assert.Equal(t, 2, (*transitions)[3].reservedLen)
 
-	assert.Equal(t, domain.SagaStatusPaying, (*transitions)[4].status)
+	assert.Equal(t, saga.SagaStatusPaying, (*transitions)[4].status)
 	assert.Equal(t, "payment", (*transitions)[4].step)
 
-	assert.Equal(t, domain.SagaStatusPaid, (*transitions)[5].status)
+	assert.Equal(t, saga.SagaStatusPaid, (*transitions)[5].status)
 	assert.Equal(t, "paid", (*transitions)[5].step)
 	assert.Equal(t, "pay-123", (*transitions)[5].paymentID)
 
-	assert.Equal(t, domain.SagaStatusConfirming, (*transitions)[6].status)
+	assert.Equal(t, saga.SagaStatusConfirming, (*transitions)[6].status)
 	assert.Equal(t, "confirm", (*transitions)[6].step)
 
-	assert.Equal(t, domain.SagaStatusConfirmed, (*transitions)[7].status)
+	assert.Equal(t, saga.SagaStatusConfirmed, (*transitions)[7].status)
 	assert.Equal(t, "confirmed", (*transitions)[7].step)
 }
 
@@ -180,16 +180,16 @@ func TestOrchestrator_ProcessOrder_AlreadyCompleted(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		status domain.SagaStatus
+		status saga.SagaStatus
 	}{
-		{"confirmed", domain.SagaStatusConfirmed},
-		{"cancelled", domain.SagaStatusCancelled},
-		{"failed", domain.SagaStatusFailed},
+		{"confirmed", saga.SagaStatusConfirmed},
+		{"cancelled", saga.SagaStatusCancelled},
+		{"failed", saga.SagaStatusFailed},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sagaRepo.EXPECT().GetByOrderID(gomock.Any(), order.ID).Return(&domain.Saga{
+			sagaRepo.EXPECT().GetByOrderID(gomock.Any(), order.ID).Return(&saga.Saga{
 				ID:      uuid.New(),
 				OrderID: order.ID,
 				Status:  tt.status,
@@ -217,7 +217,7 @@ func TestOrchestrator_ProcessOrder_ReserveFailsOnSecondItem(t *testing.T) {
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), order.ID, domain.OrderStatusAwaitingPayment).Return(nil).Times(1)
 	invClient.EXPECT().Reserve(gomock.Any(), expectedReserveRequest(idempKey, order.Items[0], order.ID.String())).Return(&inventoryv1.ReserveResponse{}, nil).Times(1)
 	invClient.EXPECT().Reserve(gomock.Any(), expectedReserveRequest(idempKey, order.Items[1], order.ID.String())).Return(nil, reserveErr).Times(3) // retry
-	invClient.EXPECT().Release(gomock.Any(), expectedReleaseRequest(domain.SagaReservedItem{ProductID: order.Items[0].ProductID.String(), Quantity: int32(order.Items[0].Quantity)}, order.ID.String())).Return(&inventoryv1.ReleaseResponse{}, nil).Times(1)
+	invClient.EXPECT().Release(gomock.Any(), expectedReleaseRequest(saga.SagaReservedItem{ProductID: order.Items[0].ProductID.String(), Quantity: int32(order.Items[0].Quantity)}, order.ID.String())).Return(&inventoryv1.ReleaseResponse{}, nil).Times(1)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), order.ID, domain.OrderStatusCancelled).Return(nil).Times(1)
 
 	mu, transitions := collectTransitions(sagaRepo)
@@ -229,11 +229,11 @@ func TestOrchestrator_ProcessOrder_ReserveFailsOnSecondItem(t *testing.T) {
 	defer mu.Unlock()
 
 	require.Len(t, *transitions, 4)
-	assert.Equal(t, domain.SagaStatusReserving, (*transitions)[0].status)
-	assert.Equal(t, domain.SagaStatusReserving, (*transitions)[1].status)
+	assert.Equal(t, saga.SagaStatusReserving, (*transitions)[0].status)
+	assert.Equal(t, saga.SagaStatusReserving, (*transitions)[1].status)
 	assert.Equal(t, 1, (*transitions)[1].reservedLen)
-	assert.Equal(t, domain.SagaStatusCompensating, (*transitions)[2].status)
-	assert.Equal(t, domain.SagaStatusCancelled, (*transitions)[3].status)
+	assert.Equal(t, saga.SagaStatusCompensating, (*transitions)[2].status)
+	assert.Equal(t, saga.SagaStatusCancelled, (*transitions)[3].status)
 }
 
 func TestOrchestrator_ProcessOrder_PaymentFails(t *testing.T) {
@@ -253,8 +253,8 @@ func TestOrchestrator_ProcessOrder_PaymentFails(t *testing.T) {
 	invClient.EXPECT().Reserve(gomock.Any(), expectedReserveRequest(idempKey, order.Items[0], order.ID.String())).Return(&inventoryv1.ReserveResponse{}, nil).Times(1)
 	invClient.EXPECT().Reserve(gomock.Any(), expectedReserveRequest(idempKey, order.Items[1], order.ID.String())).Return(&inventoryv1.ReserveResponse{}, nil).Times(1)
 	payClient.EXPECT().ProcessPayment(gomock.Any(), expectedPaymentRequest(idempKey, order)).Return(nil, payErr).Times(3) // retry
-	invClient.EXPECT().Release(gomock.Any(), expectedReleaseRequest(domain.SagaReservedItem{ProductID: order.Items[0].ProductID.String(), Quantity: int32(order.Items[0].Quantity)}, order.ID.String())).Return(&inventoryv1.ReleaseResponse{}, nil).Times(1)
-	invClient.EXPECT().Release(gomock.Any(), expectedReleaseRequest(domain.SagaReservedItem{ProductID: order.Items[1].ProductID.String(), Quantity: int32(order.Items[1].Quantity)}, order.ID.String())).Return(&inventoryv1.ReleaseResponse{}, nil).Times(1)
+	invClient.EXPECT().Release(gomock.Any(), expectedReleaseRequest(saga.SagaReservedItem{ProductID: order.Items[0].ProductID.String(), Quantity: int32(order.Items[0].Quantity)}, order.ID.String())).Return(&inventoryv1.ReleaseResponse{}, nil).Times(1)
+	invClient.EXPECT().Release(gomock.Any(), expectedReleaseRequest(saga.SagaReservedItem{ProductID: order.Items[1].ProductID.String(), Quantity: int32(order.Items[1].Quantity)}, order.ID.String())).Return(&inventoryv1.ReleaseResponse{}, nil).Times(1)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), order.ID, domain.OrderStatusCancelled).Return(nil).Times(1)
 
 	mu, transitions := collectTransitions(sagaRepo)
@@ -266,10 +266,10 @@ func TestOrchestrator_ProcessOrder_PaymentFails(t *testing.T) {
 	defer mu.Unlock()
 
 	require.Len(t, *transitions, 7)
-	assert.Equal(t, domain.SagaStatusReserved, (*transitions)[3].status)
-	assert.Equal(t, domain.SagaStatusPaying, (*transitions)[4].status)
-	assert.Equal(t, domain.SagaStatusCompensating, (*transitions)[5].status)
-	assert.Equal(t, domain.SagaStatusCancelled, (*transitions)[6].status)
+	assert.Equal(t, saga.SagaStatusReserved, (*transitions)[3].status)
+	assert.Equal(t, saga.SagaStatusPaying, (*transitions)[4].status)
+	assert.Equal(t, saga.SagaStatusCompensating, (*transitions)[5].status)
+	assert.Equal(t, saga.SagaStatusCancelled, (*transitions)[6].status)
 }
 
 func TestOrchestrator_ProcessOrder_ConfirmFails(t *testing.T) {
@@ -291,8 +291,8 @@ func TestOrchestrator_ProcessOrder_ConfirmFails(t *testing.T) {
 	payClient.EXPECT().ProcessPayment(gomock.Any(), expectedPaymentRequest(idempKey, order)).Return(&paymentv1.ProcessPaymentResponse{PaymentId: "pay-456"}, nil).Times(1)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), order.ID, domain.OrderStatusPaid).Return(confirmErr).Times(3) // retry
 	payClient.EXPECT().Refund(gomock.Any(), expectedRefundRequest(idempKey, "pay-456")).Return(&paymentv1.RefundResponse{}, nil).Times(1)
-	invClient.EXPECT().Release(gomock.Any(), expectedReleaseRequest(domain.SagaReservedItem{ProductID: order.Items[0].ProductID.String(), Quantity: int32(order.Items[0].Quantity)}, order.ID.String())).Return(&inventoryv1.ReleaseResponse{}, nil).Times(1)
-	invClient.EXPECT().Release(gomock.Any(), expectedReleaseRequest(domain.SagaReservedItem{ProductID: order.Items[1].ProductID.String(), Quantity: int32(order.Items[1].Quantity)}, order.ID.String())).Return(&inventoryv1.ReleaseResponse{}, nil).Times(1)
+	invClient.EXPECT().Release(gomock.Any(), expectedReleaseRequest(saga.SagaReservedItem{ProductID: order.Items[0].ProductID.String(), Quantity: int32(order.Items[0].Quantity)}, order.ID.String())).Return(&inventoryv1.ReleaseResponse{}, nil).Times(1)
+	invClient.EXPECT().Release(gomock.Any(), expectedReleaseRequest(saga.SagaReservedItem{ProductID: order.Items[1].ProductID.String(), Quantity: int32(order.Items[1].Quantity)}, order.ID.String())).Return(&inventoryv1.ReleaseResponse{}, nil).Times(1)
 	orderRepo.EXPECT().UpdateStatus(gomock.Any(), order.ID, domain.OrderStatusCancelled).Return(nil).Times(1)
 
 	mu, transitions := collectTransitions(sagaRepo)
@@ -304,11 +304,11 @@ func TestOrchestrator_ProcessOrder_ConfirmFails(t *testing.T) {
 	defer mu.Unlock()
 
 	require.Len(t, *transitions, 9)
-	assert.Equal(t, domain.SagaStatusPaid, (*transitions)[5].status)
-	assert.Equal(t, domain.SagaStatusConfirming, (*transitions)[6].status)
-	assert.Equal(t, domain.SagaStatusCompensating, (*transitions)[7].status)
+	assert.Equal(t, saga.SagaStatusPaid, (*transitions)[5].status)
+	assert.Equal(t, saga.SagaStatusConfirming, (*transitions)[6].status)
+	assert.Equal(t, saga.SagaStatusCompensating, (*transitions)[7].status)
 	assert.Equal(t, "pay-456", (*transitions)[7].paymentID)
-	assert.Equal(t, domain.SagaStatusCancelled, (*transitions)[8].status)
+	assert.Equal(t, saga.SagaStatusCancelled, (*transitions)[8].status)
 }
 
 func TestOrchestrator_ProcessOrder_ResumeFromReserved(t *testing.T) {
@@ -319,11 +319,11 @@ func TestOrchestrator_ProcessOrder_ResumeFromReserved(t *testing.T) {
 
 	o, orderRepo, sagaRepo, _, payClient := newTestOrchestrator(ctrl)
 	order := newTestOrder()
-	existingSaga := &domain.Saga{
+	existingSaga := &saga.Saga{
 		ID:      uuid.New(),
 		OrderID: order.ID,
-		Status:  domain.SagaStatusReserved,
-		ReservedItems: []domain.SagaReservedItem{
+		Status:  saga.SagaStatusReserved,
+		ReservedItems: []saga.SagaReservedItem{
 			{ProductID: order.Items[0].ProductID.String(), Quantity: int32(order.Items[0].Quantity)},
 			{ProductID: order.Items[1].ProductID.String(), Quantity: int32(order.Items[1].Quantity)},
 		},
@@ -343,11 +343,11 @@ func TestOrchestrator_ProcessOrder_ResumeFromReserved(t *testing.T) {
 	defer mu.Unlock()
 
 	require.Len(t, *transitions, 4)
-	assert.Equal(t, domain.SagaStatusPaying, (*transitions)[0].status)
-	assert.Equal(t, domain.SagaStatusPaid, (*transitions)[1].status)
+	assert.Equal(t, saga.SagaStatusPaying, (*transitions)[0].status)
+	assert.Equal(t, saga.SagaStatusPaid, (*transitions)[1].status)
 	assert.Equal(t, "pay-789", (*transitions)[1].paymentID)
-	assert.Equal(t, domain.SagaStatusConfirming, (*transitions)[2].status)
-	assert.Equal(t, domain.SagaStatusConfirmed, (*transitions)[3].status)
+	assert.Equal(t, saga.SagaStatusConfirming, (*transitions)[2].status)
+	assert.Equal(t, saga.SagaStatusConfirmed, (*transitions)[3].status)
 }
 
 func TestOrchestrator_Recover(t *testing.T) {
@@ -358,16 +358,16 @@ func TestOrchestrator_Recover(t *testing.T) {
 
 	o, orderRepo, sagaRepo, _, payClient := newTestOrchestrator(ctrl)
 	order := newTestOrder()
-	incompleteSaga := domain.Saga{
+	incompleteSaga := saga.Saga{
 		ID:      uuid.New(),
 		OrderID: order.ID,
-		Status:  domain.SagaStatusPaying,
-		ReservedItems: []domain.SagaReservedItem{
+		Status:  saga.SagaStatusPaying,
+		ReservedItems: []saga.SagaReservedItem{
 			{ProductID: order.Items[0].ProductID.String(), Quantity: int32(order.Items[0].Quantity)},
 		},
 	}
 
-	sagaRepo.EXPECT().ListIncomplete(gomock.Any(), 100).Return([]domain.Saga{incompleteSaga}, nil)
+	sagaRepo.EXPECT().ListIncomplete(gomock.Any(), 100).Return([]saga.Saga{incompleteSaga}, nil)
 	orderRepo.EXPECT().GetByID(gomock.Any(), order.ID).Return(order, nil)
 	sagaRepo.EXPECT().GetByOrderID(gomock.Any(), order.ID).Return(&incompleteSaga, nil)
 	payClient.EXPECT().ProcessPayment(gomock.Any(), expectedPaymentRequest(fmt.Sprintf("recovery:%s", order.ID.String()), order)).Return(&paymentv1.ProcessPaymentResponse{PaymentId: "pay-rec"}, nil).Times(1)
@@ -382,9 +382,9 @@ func TestOrchestrator_Recover(t *testing.T) {
 	defer mu.Unlock()
 
 	require.Len(t, *transitions, 3)
-	assert.Equal(t, domain.SagaStatusPaid, (*transitions)[0].status)
-	assert.Equal(t, domain.SagaStatusConfirming, (*transitions)[1].status)
-	assert.Equal(t, domain.SagaStatusConfirmed, (*transitions)[2].status)
+	assert.Equal(t, saga.SagaStatusPaid, (*transitions)[0].status)
+	assert.Equal(t, saga.SagaStatusConfirming, (*transitions)[1].status)
+	assert.Equal(t, saga.SagaStatusConfirmed, (*transitions)[2].status)
 }
 
 func TestOrchestrator_Recover_GetOrderFails(t *testing.T) {
@@ -395,13 +395,13 @@ func TestOrchestrator_Recover_GetOrderFails(t *testing.T) {
 
 	o, orderRepo, sagaRepo, _, _ := newTestOrchestrator(ctrl)
 	order := newTestOrder()
-	incompleteSaga := domain.Saga{
+	incompleteSaga := saga.Saga{
 		ID:      uuid.New(),
 		OrderID: order.ID,
-		Status:  domain.SagaStatusPaying,
+		Status:  saga.SagaStatusPaying,
 	}
 
-	sagaRepo.EXPECT().ListIncomplete(gomock.Any(), 100).Return([]domain.Saga{incompleteSaga}, nil)
+	sagaRepo.EXPECT().ListIncomplete(gomock.Any(), 100).Return([]saga.Saga{incompleteSaga}, nil)
 	orderRepo.EXPECT().GetByID(gomock.Any(), order.ID).Return(nil, stderrors.New("db error"))
 
 	err := o.Recover(context.Background())

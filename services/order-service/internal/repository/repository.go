@@ -26,11 +26,3 @@ type OutboxRepository interface {
 	Commit(ctx context.Context) error
 	Rollback(ctx context.Context) error
 }
-
-type SagaRepository interface {
-	Create(ctx context.Context, saga *domain.Saga) error
-	GetByOrderID(ctx context.Context, orderID uuid.UUID) (*domain.Saga, error)
-	UpdateStatus(ctx context.Context, orderID uuid.UUID, status domain.SagaStatus, step string, errMsg string) error
-	Save(ctx context.Context, saga *domain.Saga) error
-	ListIncomplete(ctx context.Context, limit int) ([]domain.Saga, error)
-}

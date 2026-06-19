@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	catalogv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/catalog/v1"
-	inventoryv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/inventory/v1"
-	paymentv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/payment/v1"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
+	grpcclient "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/infrastructure/grpcclient"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/unitofwork"
 	"github.com/google/uuid"
@@ -20,8 +18,10 @@ var (
 	_ OrderUsecase = (*orderUsecase)(nil)
 )
 
+// OrderOrchestrator — интерфейс саги, который usecase держит вместо gRPC-клиентов.
 type OrderOrchestrator interface {
 	ProcessOrder(ctx context.Context, order *domain.Order, idempotencyKey string) error
+	CancelOrder(ctx context.Context, order *domain.Order) error
 }
 
 // TxManager runs business logic inside a transactional UnitOfWork.
@@ -33,11 +33,8 @@ type orderUsecase struct {
 	txm           TxManager
 	orderRepo     repository.OrderRepository
 	outboxRepo    repository.OutboxRepository
-	sagaRepo      repository.SagaRepository
 	orchestrator  OrderOrchestrator
-	invClient     inventoryv1.InventoryServiceClient
-	payClient     paymentv1.PaymentServiceClient
-	catalogClient catalogv1.CatalogServiceClient
+	catalogClient grpcclient.CatalogClient
 	redis         *redis.Client
 	callTimeout   time.Duration
 	queryTimeout  time.Duration
@@ -47,11 +44,8 @@ func NewOrderUsecase(
 	txm TxManager,
 	orderRepo repository.OrderRepository,
 	outboxRepo repository.OutboxRepository,
-	sagaRepo repository.SagaRepository,
 	orchestrator OrderOrchestrator,
-	invClient inventoryv1.InventoryServiceClient,
-	payClient paymentv1.PaymentServiceClient,
-	catalogClient catalogv1.CatalogServiceClient,
+	catalogClient grpcclient.CatalogClient,
 	redis *redis.Client,
 	callTimeout time.Duration,
 	queryTimeout time.Duration,
@@ -66,10 +60,7 @@ func NewOrderUsecase(
 		txm:           txm,
 		orderRepo:     orderRepo,
 		outboxRepo:    outboxRepo,
-		sagaRepo:      sagaRepo,
 		orchestrator:  orchestrator,
-		invClient:     invClient,
-		payClient:     payClient,
 		catalogClient: catalogClient,
 		redis:         redis,
 		callTimeout:   callTimeout,
@@ -85,12 +76,12 @@ func (u *orderUsecase) CreateOrder(ctx context.Context, userID uuid.UUID, items 
 
 	for _, item := range items {
 		cCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
-		resp, err := u.catalogClient.GetProduct(cCtx, &catalogv1.GetProductRequest{ProductId: item.ProductID.String()})
+		resp, err := u.catalogClient.GetProduct(cCtx, item.ProductID.String())
 		cancel()
 		if err != nil {
 			return uuid.Nil, fmt.Errorf("get product %s: %w", item.ProductID, err)
 		}
-		product := resp.GetProduct()
+		product := resp
 		if product == nil || product.PriceCents != item.Price {
 			return uuid.Nil, fmt.Errorf("%w: price mismatch for product %s", apperrors.ErrInvalidArgument, item.ProductID)
 		}
@@ -177,52 +168,13 @@ func (u *orderUsecase) CancelOrder(ctx context.Context, id uuid.UUID) error {
 			return fmt.Errorf("update order status: %w", err)
 		}
 		u.publishOrderEvent(ctx, order.ID.String(), string(domain.OrderStatusCancelled), order.UserID.String())
-
-		cCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
-		defer cancel()
-		for _, item := range order.Items {
-			if _, err := u.invClient.Release(cCtx, &inventoryv1.ReleaseRequest{
-				ProductId:      item.ProductID.String(),
-				Quantity:       int32(item.Quantity),
-				OrderId:        order.ID.String(),
-				IdempotencyKey: releaseIdempotencyKey(order.ID.String(), item.ProductID.String()),
-			}); err != nil {
-				return fmt.Errorf("release inventory for product %s: %w", item.ProductID, err)
-			}
-		}
 		return nil
 	}
 
-	// Paid or later orders require compensation/refund.
+	// Paid or later orders require compensation/refund through orchestrator.
 	if order.Status == domain.OrderStatusPaid || order.Status == domain.OrderStatusProcessing || order.Status == domain.OrderStatusShipped {
-		saga, err := u.sagaRepo.GetByOrderID(qCtx, order.ID)
-		if err != nil {
-			return fmt.Errorf("%w: saga not found for refund: %v", apperrors.ErrFailedPrecondition, err)
-		}
-
-		cCtx, cancel := context.WithTimeout(ctx, u.callTimeout)
-		defer cancel()
-		if saga.PaymentID != "" {
-			if _, err := u.payClient.Refund(cCtx, &paymentv1.RefundRequest{
-				PaymentId:      saga.PaymentID,
-				IdempotencyKey: refundIdempotencyKey(order.ID.String(), saga.PaymentID),
-			}); err != nil {
-				return fmt.Errorf("refund payment %s: %w", saga.PaymentID, err)
-			}
-		}
-		for _, item := range order.Items {
-			if _, err := u.invClient.Release(cCtx, &inventoryv1.ReleaseRequest{
-				ProductId:      item.ProductID.String(),
-				Quantity:       int32(item.Quantity),
-				OrderId:        order.ID.String(),
-				IdempotencyKey: releaseIdempotencyKey(order.ID.String(), item.ProductID.String()),
-			}); err != nil {
-				return fmt.Errorf("release inventory for product %s: %w", item.ProductID, err)
-			}
-		}
-
-		if err := u.orderRepo.UpdateStatus(qCtx, id, domain.OrderStatusCancelled); err != nil {
-			return fmt.Errorf("update order status: %w", err)
+		if err := u.orchestrator.CancelOrder(ctx, order); err != nil {
+			return fmt.Errorf("cancel order: %w", err)
 		}
 		u.publishOrderEvent(ctx, order.ID.String(), string(domain.OrderStatusCancelled), order.UserID.String())
 		return nil

@@ -18,6 +18,7 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/txmanager"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository/postgres"
+	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/saga"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/unitofwork"
 	postgresuow "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/unitofwork/postgres"
 	"github.com/jackc/pgx/v5"
@@ -452,10 +453,10 @@ func TestSagaPostgres_CreateAndGet(t *testing.T) {
 	ctx := context.Background()
 
 	orderID := createOrderForSaga(t, ctx, pool)
-	saga := &domain.Saga{
+	saga := &saga.Saga{
 		ID:          uuid.New(),
 		OrderID:     orderID,
-		Status:      domain.SagaStatusPending,
+		Status:      saga.SagaStatusPending,
 		CurrentStep: "init",
 		CreatedAt:   time.Now().UTC(),
 		UpdatedAt:   time.Now().UTC(),
@@ -465,7 +466,7 @@ func TestSagaPostgres_CreateAndGet(t *testing.T) {
 	got, err := repo.GetByOrderID(ctx, orderID)
 	require.NoError(t, err)
 	assert.Equal(t, saga.ID, got.ID)
-	assert.Equal(t, domain.SagaStatusPending, got.Status)
+	assert.Equal(t, saga.SagaStatusPending, got.Status)
 	assert.Equal(t, "init", got.CurrentStep)
 }
 
@@ -485,20 +486,20 @@ func TestSagaPostgres_UpdateStatus(t *testing.T) {
 	ctx := context.Background()
 
 	orderID := createOrderForSaga(t, ctx, pool)
-	saga := &domain.Saga{
+	saga := &saga.Saga{
 		ID:        uuid.New(),
 		OrderID:   orderID,
-		Status:    domain.SagaStatusPending,
+		Status:    saga.SagaStatusPending,
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
 	require.NoError(t, repo.Create(ctx, saga))
 
-	require.NoError(t, repo.UpdateStatus(ctx, orderID, domain.SagaStatusReserving, "reserve", ""))
+	require.NoError(t, repo.UpdateStatus(ctx, orderID, saga.SagaStatusReserving, "reserve", ""))
 
 	got, err := repo.GetByOrderID(ctx, orderID)
 	require.NoError(t, err)
-	assert.Equal(t, domain.SagaStatusReserving, got.Status)
+	assert.Equal(t, saga.SagaStatusReserving, got.Status)
 	assert.Equal(t, "reserve", got.CurrentStep)
 }
 
@@ -507,7 +508,7 @@ func TestSagaPostgres_UpdateStatus_NotFound(t *testing.T) {
 	repo := postgres.NewSagaPostgres(pool)
 	ctx := context.Background()
 
-	err := repo.UpdateStatus(ctx, uuid.New(), domain.SagaStatusReserving, "reserve", "")
+	err := repo.UpdateStatus(ctx, uuid.New(), saga.SagaStatusReserving, "reserve", "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, apperrors.ErrNotFound)
 }
@@ -518,23 +519,23 @@ func TestSagaPostgres_Save(t *testing.T) {
 	ctx := context.Background()
 
 	orderID := createOrderForSaga(t, ctx, pool)
-	saga := &domain.Saga{
+	saga := &saga.Saga{
 		ID:            uuid.New(),
 		OrderID:       orderID,
-		Status:        domain.SagaStatusPending,
-		ReservedItems: []domain.SagaReservedItem{{ProductID: uuid.New().String(), Quantity: 2}},
+		Status:        saga.SagaStatusPending,
+		ReservedItems: []saga.SagaReservedItem{{ProductID: uuid.New().String(), Quantity: 2}},
 		CreatedAt:     time.Now().UTC(),
 		UpdatedAt:     time.Now().UTC(),
 	}
 	require.NoError(t, repo.Create(ctx, saga))
 
-	saga.Status = domain.SagaStatusReserved
+	saga.Status = saga.SagaStatusReserved
 	saga.PaymentID = "pay-123"
 	require.NoError(t, repo.Save(ctx, saga))
 
 	got, err := repo.GetByOrderID(ctx, orderID)
 	require.NoError(t, err)
-	assert.Equal(t, domain.SagaStatusReserved, got.Status)
+	assert.Equal(t, saga.SagaStatusReserved, got.Status)
 	assert.Equal(t, "pay-123", got.PaymentID)
 	require.Len(t, got.ReservedItems, 1)
 	assert.Equal(t, int32(2), got.ReservedItems[0].Quantity)
@@ -545,10 +546,10 @@ func TestSagaPostgres_Save_NotFound(t *testing.T) {
 	repo := postgres.NewSagaPostgres(pool)
 	ctx := context.Background()
 
-	saga := &domain.Saga{
+	saga := &saga.Saga{
 		ID:        uuid.New(),
 		OrderID:   uuid.New(),
-		Status:    domain.SagaStatusPending,
+		Status:    saga.SagaStatusPending,
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
@@ -564,25 +565,25 @@ func TestSagaPostgres_ListIncomplete(t *testing.T) {
 	ctx := context.Background()
 
 	incompleteOrderID := createOrderForSaga(t, ctx, pool)
-	incomplete := &domain.Saga{
+	incomplete := &saga.Saga{
 		ID:        uuid.New(),
 		OrderID:   incompleteOrderID,
-		Status:    domain.SagaStatusPending,
+		Status:    saga.SagaStatusPending,
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
 	require.NoError(t, repo.Create(ctx, incomplete))
 
 	completeOrderID := createOrderForSaga(t, ctx, pool)
-	complete := &domain.Saga{
+	complete := &saga.Saga{
 		ID:        uuid.New(),
 		OrderID:   completeOrderID,
-		Status:    domain.SagaStatusPending,
+		Status:    saga.SagaStatusPending,
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
 	require.NoError(t, repo.Create(ctx, complete))
-	require.NoError(t, repo.UpdateStatus(ctx, completeOrderID, domain.SagaStatusConfirmed, "confirmed", ""))
+	require.NoError(t, repo.UpdateStatus(ctx, completeOrderID, saga.SagaStatusConfirmed, "confirmed", ""))
 
 	sagas, err := repo.ListIncomplete(ctx, 10)
 	require.NoError(t, err)
