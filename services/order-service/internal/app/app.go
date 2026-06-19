@@ -10,6 +10,7 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/txmanager"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/config"
 	grpcdelivery "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/delivery/grpc"
+	grpcclient "github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/infrastructure/grpcclient"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/outbox"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/order-service/internal/repository/postgres"
@@ -58,7 +59,12 @@ func New(cfg *config.Config) *fx.App {
 					log *zap.Logger,
 					cfg *config.Config,
 				) *saga.Orchestrator {
-					return saga.NewOrchestrator(orderRepo, sagaRepo, invClient, payClient, log, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
+					return saga.NewOrchestrator(
+						orderRepo, sagaRepo,
+						grpcclient.NewInventoryClient(invClient, cfg.DefaultCallTimeout),
+						grpcclient.NewPaymentClient(payClient, cfg.DefaultCallTimeout),
+						log, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout,
+					)
 				},
 				func(
 					txm *txmanager.Manager[unitofwork.UnitOfWork],
@@ -72,7 +78,13 @@ func New(cfg *config.Config) *fx.App {
 					redisClient *redis.Client,
 					cfg *config.Config,
 				) usecase.OrderUsecase {
-					return usecase.NewOrderUsecase(txm, orderRepo, outboxRepo, sagaRepo, orchestrator, invClient, payClient, catalogClient, redisClient, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout)
+					return usecase.NewOrderUsecase(
+						txm, orderRepo, outboxRepo, sagaRepo, orchestrator,
+						grpcclient.NewInventoryClient(invClient, cfg.DefaultCallTimeout),
+						grpcclient.NewPaymentClient(payClient, cfg.DefaultCallTimeout),
+						grpcclient.NewCatalogClient(catalogClient, cfg.DefaultCallTimeout),
+						redisClient, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout,
+					)
 				},
 				func(repo repository.OutboxRepository, producer kafka.Producer, log *zap.Logger, cfg *config.Config) *outbox.Relay {
 					return outbox.NewRelay(repo, producer, log, cfg.DefaultQueryTimeout, cfg.KafkaTopic)
