@@ -82,7 +82,7 @@ jobs:
       - name: Run govulncheck per module
         run: |
           set -euo pipefail
-          for m in ./api ./pkg ./scripts ./services/* ./tests; do
+          for m in ./api ./pkg ./scripts $(find ./services -mindepth 1 -maxdepth 1 ! -name api-gateway) ./tests; do
             echo "=== govulncheck $m ==="
             (cd "$m" && govulncheck ./...) || exit 1
           done
@@ -102,17 +102,26 @@ jobs:
           go-version: '1.26'
           cache: true
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Sync workspace
         run: go work sync
 
       - name: Install gocovmerge
         run: go install github.com/wadey/gocovmerge@latest
 
-      - name: Run tests with coverage
+      - name: Run Rust tests
+        run: |
+          set -euo pipefail
+          cd services/api-gateway
+          cargo test
+
+      - name: Run Go tests with coverage
         run: |
           set -euo pipefail
           coverage_files=()
-          for m in ./api ./pkg ./scripts ./services/* ./tests; do
+          for m in ./api ./pkg ./scripts $(find ./services -mindepth 1 -maxdepth 1 ! -name api-gateway) ./tests; do
             echo "=== Testing $m ==="
             covfile="coverage_$(echo "$m" | tr '/' '_').out"
             (cd "$m" && go test -race -count=1 -coverprofile="$covfile" -covermode=atomic ./...) || exit 1
@@ -173,7 +182,11 @@ jobs:
       - name: Build Docker image
         run: |
           set -euo pipefail
-          docker build --build-arg SERVICE_NAME=${{ matrix.service }} -f Dockerfile -t ${{ matrix.service }}:ci .
+          if [ "${{ matrix.service }}" = "api-gateway" ]; then
+            docker build -f services/api-gateway/Dockerfile -t api-gateway:ci .
+          else
+            docker build --build-arg SERVICE_NAME=${{ matrix.service }} -f Dockerfile -t ${{ matrix.service }}:ci .
+          fi
 
   helm:
     name: Lint Helm Charts

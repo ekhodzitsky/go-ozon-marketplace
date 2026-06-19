@@ -51,7 +51,7 @@ fn collect_proto_files(dir: &Path) -> Vec<PathBuf> {
             let path = entry.path();
             if path.is_dir() {
                 files.extend(collect_proto_files(&path));
-            } else if path.extension().map_or(false, |e| e == "proto") {
+            } else if path.extension().is_some_and(|e| e == "proto") {
                 files.push(path);
             }
         }

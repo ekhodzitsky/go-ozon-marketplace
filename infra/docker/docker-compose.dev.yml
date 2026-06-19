@@ -2,9 +2,7 @@ services:
   api-gateway:
     build:
       context: ../..
-      dockerfile: Dockerfile
-      args:
-        SERVICE_NAME: api-gateway
+      dockerfile: services/api-gateway/Dockerfile
     environment:
       - PORT=8080
       - USER_SERVICE_ADDR=user-service:50051
@@ -12,9 +10,13 @@ services:
       - ORDER_SERVICE_ADDR=order-service:50055
       - INVENTORY_SERVICE_ADDR=inventory-service:50053
       - PAYMENT_SERVICE_ADDR=payment-service:50054
-      - REDIS_ADDR=redis:6379
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - ANALYTICS_SERVICE_ADDR=analytics-service:50057
+      - REDIS_ADDR=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET}
+      - RUST_LOG=info
+      - RATE_LIMIT_REQUESTS=100
+      - RATE_LIMIT_WINDOW_SECONDS=60
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
     ports:
       - "8080:8080"
     depends_on:
@@ -27,6 +29,8 @@ services:
       inventory-service:
         condition: service_started
       payment-service:
+        condition: service_started
+      analytics-service:
         condition: service_started
       postgres:
         condition: service_healthy

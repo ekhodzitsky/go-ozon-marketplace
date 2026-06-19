@@ -22,7 +22,7 @@ impl SubscriptionRoot {
             .data::<redis::Client>()
             .map_err(|_| ApiError::Internal("redis client not found".into()))?;
         let order_id = order_id.to_string();
-        Ok(order_status_stream(client.clone(), order_id).await?)
+        order_status_stream(client.clone(), order_id).await
     }
 
     /// Подписка на изменения остатков товара. Слушает Redis-канал `inventory-events:{productId}`.
@@ -36,7 +36,7 @@ impl SubscriptionRoot {
             .data::<redis::Client>()
             .map_err(|_| ApiError::Internal("redis client not found".into()))?;
         let product_id = product_id.to_string();
-        Ok(inventory_changed_stream(client.clone(), product_id).await?)
+        inventory_changed_stream(client.clone(), product_id).await
     }
 }
 
@@ -115,10 +115,10 @@ async fn order_status_stream(
         while let Some(msg) = stream.next().await {
             let payload: String = msg.get_payload().unwrap_or_default();
             if let Ok(event) = serde_json::from_str::<OrderEvent>(&payload) {
-                if event.payload.order_id == order_id {
-                    if tx.send(Ok(event.payload.into())).await.is_err() {
-                        break;
-                    }
+                if event.payload.order_id == order_id
+                    && tx.send(Ok(event.payload.into())).await.is_err()
+                {
+                    break;
                 }
             }
         }
@@ -147,10 +147,10 @@ async fn inventory_changed_stream(
         while let Some(msg) = stream.next().await {
             let payload: String = msg.get_payload().unwrap_or_default();
             if let Ok(event) = serde_json::from_str::<InventoryEvent>(&payload) {
-                if event.payload.product_id == product_id {
-                    if tx.send(Ok(event.payload.into())).await.is_err() {
-                        break;
-                    }
+                if event.payload.product_id == product_id
+                    && tx.send(Ok(event.payload.into())).await.is_err()
+                {
+                    break;
                 }
             }
         }

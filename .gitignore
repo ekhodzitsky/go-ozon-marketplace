@@ -45,4 +45,4 @@ graphify-out/
 services/*/main
 
 # Rust
-services/api-gateway-rust/target/
+services/api-gateway/target/

@@ -8,8 +8,7 @@ image:
 service:
   type: ClusterIP
   httpPort: 8080
-  grpcPort: 8080
-  metricsPort: 9080
+  metricsPort: 8080
 
 ingress:
   enabled: true
@@ -41,7 +40,11 @@ env:
   INVENTORY_SERVICE_ADDR: "inventory-service:50053"
   PAYMENT_SERVICE_ADDR: "payment-service:50054"
   ANALYTICS_SERVICE_ADDR: "analytics-service:50057"
-  REDIS_ADDR: "redis:6379"
+  REDIS_ADDR: "redis://redis:6379"
+  RUST_LOG: "info"
+  RATE_LIMIT_REQUESTS: "100"
+  RATE_LIMIT_WINDOW_SECONDS: "60"
+  CORS_ALLOWED_ORIGINS: "*"
 
 secrets:
   jwtSecret: ""      # обязательно
