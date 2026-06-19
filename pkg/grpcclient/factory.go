@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/server"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/tracing"
 	"github.com/sony/gobreaker"
@@ -81,7 +82,7 @@ func (f *Factory) NewClient(ctx context.Context, addr string) (*grpc.ClientConn,
 	if f.cfg.UserAuth {
 		interceptors = append(interceptors, auth.UserAuthInterceptor())
 	} else if f.issuer != nil {
-		interceptors = append(interceptors, auth.ServiceAuthInterceptor(f.issuer))
+		interceptors = append(interceptors, middleware.ServiceAuthInterceptor(f.issuer))
 	}
 
 	return grpc.NewClient(addr,

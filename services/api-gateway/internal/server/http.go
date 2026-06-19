@@ -18,6 +18,7 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	pkgmiddleware "github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/graph"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/config"
