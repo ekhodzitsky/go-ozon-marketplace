@@ -1,5 +1,6 @@
 package mocks
 
+//go:generate mockgen -source=../internal/saga/interfaces.go -package=mocks -destination=mock_saga_clients.go
 //go:generate mockgen -source=../internal/saga/store/store.go -package=mocks -destination=mock_saga_store.go
 //go:generate mockgen -source=../internal/saga/steps/step.go -package=mocks -destination=mock_saga_step.go
 //go:generate mockgen -source=../internal/saga/statemachine/statemachine.go -package=mocks -destination=mock_saga_statemachine.go

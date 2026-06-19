@@ -80,9 +80,7 @@ func New(cfg *config.Config) *fx.App {
 				) usecase.OrderUsecase {
 					return usecase.NewOrderUsecase(
 						txm, orderRepo, outboxRepo, sagaRepo, orchestrator,
-						grpcclient.NewInventoryClient(invClient, cfg.DefaultCallTimeout),
-						grpcclient.NewPaymentClient(payClient, cfg.DefaultCallTimeout),
-						grpcclient.NewCatalogClient(catalogClient, cfg.DefaultCallTimeout),
+						invClient, payClient, catalogClient,
 						redisClient, cfg.DefaultCallTimeout, cfg.DefaultQueryTimeout,
 					)
 				},
