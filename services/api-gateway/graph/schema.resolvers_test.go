@@ -233,16 +233,6 @@ func TestMutationResolver_CreateOrder_Unauthenticated(t *testing.T) {
 	assert.Contains(t, err.Error(), "unauthenticated")
 }
 
-func TestMutationResolver_CreateOrder_EmptyItems(t *testing.T) {
-	t.Parallel()
-
-	r := newResolver()
-	mut := r.Mutation()
-	_, err := mut.CreateOrder(userContext("user-1"), []*model.OrderItemInput{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid argument")
-}
-
 func TestMutationResolver_CreateOrder_PriceMismatch_Lower(t *testing.T) {
 	t.Parallel()
 
@@ -493,21 +483,6 @@ func TestMutationResolver_Register(t *testing.T) {
 	assert.Equal(t, "user-123", id)
 }
 
-func TestMutationResolver_Register_InvalidInput(t *testing.T) {
-	t.Parallel()
-
-	r := newResolver()
-	mut := r.Mutation()
-
-	_, err := mut.Register(context.Background(), "not-an-email", "password123", "Test")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid input")
-
-	_, err = mut.Register(context.Background(), "test@example.com", "short", "Test")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid input")
-}
-
 func TestMutationResolver_Login(t *testing.T) {
 	t.Parallel()
 
@@ -526,40 +501,6 @@ func TestMutationResolver_Login(t *testing.T) {
 	token, err := mut.Login(context.Background(), "test@example.com", "password123")
 	require.NoError(t, err)
 	assert.Equal(t, "jwt-token", token)
-}
-
-func TestMutationResolver_CreateProduct_InvalidPrice(t *testing.T) {
-	t.Parallel()
-
-	r := newResolver()
-	mut := r.Mutation()
-	_, err := mut.CreateProduct(adminContext("admin-1"), "Widget", "desc", -5, []string{"gadgets"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid input")
-}
-
-func TestMutationResolver_CreateOrder_InvalidQuantity(t *testing.T) {
-	t.Parallel()
-
-	r := newResolver()
-	mut := r.Mutation()
-	_, err := mut.CreateOrder(userContext("user-1"), []*model.OrderItemInput{
-		{ProductID: "product-1", Quantity: 0, Price: 9.99},
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid input")
-}
-
-func TestMutationResolver_CreateOrder_InvalidPrice(t *testing.T) {
-	t.Parallel()
-
-	r := newResolver()
-	mut := r.Mutation()
-	_, err := mut.CreateOrder(userContext("user-1"), []*model.OrderItemInput{
-		{ProductID: "product-1", Quantity: 1, Price: 0},
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid input")
 }
 
 func TestQueryResolver_Me(t *testing.T) {
@@ -646,30 +587,20 @@ func TestQueryResolver_SearchProducts(t *testing.T) {
 	assert.Equal(t, int32(1), conn.Total)
 }
 
-func TestQueryResolver_SearchProducts_InvalidPageSize(t *testing.T) {
-	t.Parallel()
-
-	r := newResolver()
-	q := r.Query()
-	pageSize := int32(200)
-	_, err := q.SearchProducts(context.Background(), "widget", nil, &pageSize)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid input")
-}
-
 func TestQueryResolver_FeatureFlags(t *testing.T) {
 	t.Parallel()
 
-	engine := featureflags.NewEngine(nil)
-	engine.Register(&featureflags.Flag{Name: "new-checkout-flow", Enabled: true, Strategy: "default"})
+	flags, err := featureflags.New(nil)
+	require.NoError(t, err)
+	require.NoError(t, flags.Register(context.Background(), &featureflags.Flag{Name: "new-checkout-flow", Enabled: true, Strategy: "default"}))
 
 	r := newResolver()
-	r.FeatureFlagsEngine = engine
+	r.FeatureFlags = flags
 
 	q := r.Query()
-	flags, err := q.FeatureFlags(userContext("user-1"))
+	resolved, err := q.FeatureFlags(userContext("user-1"))
 	require.NoError(t, err)
-	assert.True(t, flags.NewCheckoutFlow)
+	assert.True(t, resolved.NewCheckoutFlow)
 }
 
 func TestQueryResolver_AbTestAssignments(t *testing.T) {

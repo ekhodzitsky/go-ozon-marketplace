@@ -4,11 +4,12 @@ import (
 	"context"
 	"log"
 
+	"github.com/olahol/melody"
 	"github.com/redis/go-redis/v9"
 )
 
-// StartRedisPubSub subscribes to Redis channels and forwards messages to the Hub.
-func StartRedisPubSub(ctx context.Context, redisClient *redis.Client, hub *Hub) {
+// StartRedisPubSub subscribes to Redis channels and forwards messages to the hub.
+func StartRedisPubSub(ctx context.Context, redisClient *redis.Client, m *melody.Melody) {
 	pubsub := redisClient.PSubscribe(ctx, "order-events", "inventory-events")
 	defer func() { _ = pubsub.Close() }()
 
@@ -22,7 +23,9 @@ func StartRedisPubSub(ctx context.Context, redisClient *redis.Client, hub *Hub) 
 				log.Println("redis pubsub channel closed")
 				return
 			}
-			hub.Broadcast([]byte(msg.Payload))
+			if err := Broadcast(m, []byte(msg.Payload)); err != nil {
+				log.Printf("broadcast error: %v", err)
+			}
 		}
 	}
 }

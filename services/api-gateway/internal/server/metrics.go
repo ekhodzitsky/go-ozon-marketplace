@@ -14,13 +14,13 @@ type Metrics struct {
 	server *http.Server
 }
 
-// NewMetrics creates a metrics server on the given address.
-func NewMetrics(addr string) *Metrics {
+// NewMetrics creates a metrics server on the given port.
+func NewMetrics(port int) *Metrics {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
 	return &Metrics{
 		server: &http.Server{
-			Addr:    addr,
+			Addr:    fmt.Sprintf(":%d", port),
 			Handler: mux,
 		},
 	}

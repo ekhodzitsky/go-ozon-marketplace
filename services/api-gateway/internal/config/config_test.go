@@ -7,6 +7,7 @@ import (
 
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/api-gateway/internal/config"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoad_Defaults(t *testing.T) {
@@ -24,7 +25,8 @@ func TestLoad_Defaults(t *testing.T) {
 		t.Setenv(key, "")
 	}
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, "localhost:50051", cfg.UserServiceAddr)
 	assert.Equal(t, "localhost:50052", cfg.CatalogServiceAddr)
@@ -78,7 +80,8 @@ func TestLoad_EnvOverrides(t *testing.T) {
 	t.Setenv("JWT_SECRET", "another-secret-must-be-long-enough")
 	t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com, https://admin.example.com")
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, "user:50051", cfg.UserServiceAddr)
 	assert.Equal(t, "catalog:50052", cfg.CatalogServiceAddr)
@@ -110,7 +113,8 @@ func TestLoad_METRICS_PORT_DerivedFromPORT(t *testing.T) {
 	t.Setenv("PORT", "7070")
 	t.Setenv("METRICS_PORT", "")
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, "7070", cfg.HTTPPort)
 	assert.Equal(t, 8070, cfg.MetricsPort)
@@ -126,7 +130,8 @@ func TestLoad_InvalidValuesFallBackToDefaults(t *testing.T) {
 	t.Setenv("DEFAULT_QUERY_TIMEOUT", "bad")
 	t.Setenv("INSECURE_SKIP_TLS", "not-a-bool")
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, "8080", cfg.HTTPPort)
 	assert.Equal(t, 8080+1000, cfg.MetricsPort)
@@ -142,7 +147,8 @@ func TestLoad_ParseSlicesWithEmptyEntries(t *testing.T) {
 	t.Setenv("TRUSTED_PROXIES", "10.0.0.0/8,, 172.16.0.0/12, ")
 	t.Setenv("CORS_ALLOWED_ORIGINS", ",https://app.example.com,")
 
-	cfg := config.Load()
+	cfg, err := config.Load()
+	require.NoError(t, err)
 
 	assert.Equal(t, []string{"10.0.0.0/8", "172.16.0.0/12"}, cfg.TrustedProxies)
 	assert.Equal(t, []string{"https://app.example.com"}, cfg.CORSAllowedOrigins)
