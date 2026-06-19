@@ -16,6 +16,7 @@ type PaymentRepository interface {
 	UpdateStatusIf(ctx context.Context, id uuid.UUID, newStatus, expectedStatus domain.Status) (bool, error)
 	CreateRefund(ctx context.Context, refund *domain.Refund) error
 	GetRefund(ctx context.Context, id uuid.UUID) (*domain.Refund, error)
+	GetRefundByIdempotencyKey(ctx context.Context, key string) (*domain.Refund, error)
 	ListRefunds(ctx context.Context, paymentID uuid.UUID) ([]*domain.Refund, error)
 	WithTx(tx pgx.Tx) PaymentRepository
 }

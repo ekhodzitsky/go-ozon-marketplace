@@ -79,7 +79,9 @@ func TestProcessor_UnknownEvent(t *testing.T) {
 	mockUC := mocks.NewMockAnalyticsUsecase(ctrl)
 	p := NewProcessor(mockUC, zap.NewNop())
 
-	require.NoError(t, p.Process(context.Background(), newEventMessage(t, "UnknownEvent", "order-5", "user-5")))
+	err := p.Process(context.Background(), newEventMessage(t, "UnknownEvent", "order-5", "user-5"))
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "unknown analytics event type")
 }
 
 func TestProcessor_UnmarshalError(t *testing.T) {
@@ -91,7 +93,8 @@ func TestProcessor_UnmarshalError(t *testing.T) {
 	p := NewProcessor(mockUC, zap.NewNop())
 
 	err := p.Process(context.Background(), &sarama.ConsumerMessage{Topic: "events", Value: []byte("not-json")})
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "unmarshal analytics event")
 }
 
 func TestProcessor_TrackEventError(t *testing.T) {

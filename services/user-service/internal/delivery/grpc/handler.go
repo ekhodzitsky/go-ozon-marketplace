@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	userv1 "github.com/ekhodzitsky/go-ozon-marketplace/api/gen/go/user/v1"
+	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/auth"
 	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/pkg/middleware"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/user-service/internal/usecase"
@@ -37,12 +38,19 @@ func (h *UserHandler) Login(ctx context.Context, req *userv1.LoginRequest) (*use
 }
 
 func (h *UserHandler) GetUser(ctx context.Context, req *userv1.GetUserRequest) (*userv1.GetUserResponse, error) {
-	userIDStr, ok := middleware.GetUserID(ctx)
-	if !ok || userIDStr == "" {
+	// Админ может запросить чужой профиль по id. Обычный пользователь видит только себя.
+	targetIDStr, ok := middleware.GetUserID(ctx)
+	if !ok || targetIDStr == "" {
 		return nil, apperrors.ToStatus(apperrors.Wrap(apperrors.ErrInvalidCredentials, "unauthenticated", "missing user identity"))
 	}
+	if req.UserId != "" {
+		if role, _ := middleware.GetRole(ctx); role != auth.RoleAdmin {
+			return nil, apperrors.ToStatus(apperrors.Wrap(apperrors.ErrPermissionDenied, "permission_denied", "only admin can request other user profile"))
+		}
+		targetIDStr = req.UserId
+	}
 
-	id, err := uuid.Parse(userIDStr)
+	id, err := uuid.Parse(targetIDStr)
 	if err != nil {
 		return nil, apperrors.ToStatus(apperrors.Wrap(apperrors.ErrInvalidArgument, "invalid_argument", fmt.Sprintf("invalid user id: %v", err)))
 	}

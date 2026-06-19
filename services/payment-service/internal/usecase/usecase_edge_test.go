@@ -120,11 +120,10 @@ func TestPaymentUsecase_Refund_IdempotencyKeyReuse(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, refund1)
 
-	// Reset payment status to success to bypass the status guard and hit the unique index.
-	payment.Status = domain.StatusSuccess
-
-	_, _, err = uc.Refund(context.Background(), payment.ID, idemKey)
-	require.Error(t, err)
+	// Повторный вызов с тем же ключом должен вернуть тот же возврат.
+	_, refund2, err := uc.Refund(context.Background(), payment.ID, idemKey)
+	require.NoError(t, err)
+	assert.Equal(t, refund1.ID, refund2.ID)
 }
 
 func TestPaymentUsecase_GetByID_NotFound(t *testing.T) {

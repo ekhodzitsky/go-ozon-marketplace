@@ -8,7 +8,6 @@ import (
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/catalog-service/internal/repository"
 	"github.com/google/uuid"
-	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -37,36 +36,23 @@ func (r *ProductPostgres) Create(ctx context.Context, product *domain.Product) (
 	ctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
 	defer cancel()
 
-	query := `INSERT INTO products (id, name, description, price, categories, idempotency_key, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`
-	_, err := r.db.Exec(ctx, query, product.ID, product.Name, product.Description, product.Price, product.Categories, product.IdempotencyKey, product.CreatedAt)
+	// Вставляем или возвращаем id существующего товара с таким idempotency_key.
+	// Всё в одном запросе, чтобы не ловить aborted-транзакцию после конфликта.
+	query := `
+		INSERT INTO products (id, name, description, price, categories, idempotency_key, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (idempotency_key) DO UPDATE SET id = products.id
+		RETURNING id
+	`
+	var id uuid.UUID
+	err := r.db.QueryRow(ctx, query, product.ID, product.Name, product.Description, product.Price, product.Categories, product.IdempotencyKey, product.CreatedAt).Scan(&id)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
-			existing, getErr := r.getByIDempotencyKey(ctx, product.IdempotencyKey)
-			if getErr != nil {
-				return uuid.Nil, apperrors.ErrAlreadyExists
-			}
-			return existing.ID, apperrors.ErrAlreadyExists
-		}
 		return uuid.Nil, fmt.Errorf("insert product: %w", err)
 	}
-	return product.ID, nil
-}
-
-func (r *ProductPostgres) getByIDempotencyKey(ctx context.Context, key string) (*domain.Product, error) {
-	ctx, cancel := context.WithTimeout(ctx, DefaultQueryTimeout)
-	defer cancel()
-
-	query := `SELECT id, name, description, price, categories, idempotency_key, created_at FROM products WHERE idempotency_key=$1`
-	row := r.db.QueryRow(ctx, query, key)
-	var product domain.Product
-	if err := row.Scan(&product.ID, &product.Name, &product.Description, &product.Price, &product.Categories, &product.IdempotencyKey, &product.CreatedAt); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("%w: product", apperrors.ErrNotFound)
-		}
-		return nil, fmt.Errorf("get product by idempotency key: %w", err)
+	if id != product.ID {
+		return id, apperrors.ErrAlreadyExists
 	}
-	return &product, nil
+	return id, nil
 }
 
 func (r *ProductPostgres) GetByID(ctx context.Context, id uuid.UUID) (*domain.Product, error) {

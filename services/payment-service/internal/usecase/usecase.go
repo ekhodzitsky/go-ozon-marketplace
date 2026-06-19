@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"time"
@@ -102,6 +103,21 @@ func (u *paymentUsecase) Refund(ctx context.Context, paymentID uuid.UUID, idempo
 	var resultRefund *domain.Refund
 
 	err := u.txm.Run(ctx, func(repo repository.PaymentRepository) error {
+		// Повторный вызов с тем же ключом должен вернуть уже созданный возврат.
+		if idempotencyKey != "" {
+			if existingRefund, err := repo.GetRefundByIdempotencyKey(ctx, idempotencyKey); err == nil {
+				payment, err := repo.GetByID(ctx, existingRefund.PaymentID)
+				if err != nil {
+					return fmt.Errorf("get payment for existing refund: %w", err)
+				}
+				resultPayment = payment
+				resultRefund = existingRefund
+				return nil
+			} else if !errors.Is(err, apperrors.ErrNotFound) {
+				return fmt.Errorf("check refund idempotency: %w", err)
+			}
+		}
+
 		payment, err := repo.GetByID(ctx, paymentID)
 		if err != nil {
 			return fmt.Errorf("get payment: %w", err)

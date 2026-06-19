@@ -100,6 +100,10 @@ func (u *inventoryUsecase) publishInventoryEvent(ctx context.Context, productID 
 }
 
 func (u *inventoryUsecase) Reserve(ctx context.Context, productID uuid.UUID, quantity int, orderID string) error {
+	if quantity <= 0 {
+		return apperrors.Wrap(apperrors.ErrInvalidArgument, "invalid_quantity", "quantity must be positive")
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, u.callTimeout)
 	defer cancel()
 
@@ -129,8 +133,9 @@ func reserve(ctx context.Context, repo repository.InventoryRepository, productID
 	}
 
 	if rowsAffected == 0 {
-		// Already reserved for this (order, product). Verify it matches the request.
-		existing, err := repo.SelectReservation(ctx, orderID, productID)
+		// Уже есть запись резерва. Блокируем строку, чтобы параллельные вызовы
+		// не списали остаток дважды.
+		existing, err := repo.SelectReservationForUpdate(ctx, orderID, productID)
 		if err != nil {
 			return err
 		}
@@ -160,6 +165,10 @@ func reserve(ctx context.Context, repo repository.InventoryRepository, productID
 }
 
 func (u *inventoryUsecase) Release(ctx context.Context, productID uuid.UUID, quantity int, orderID string) error {
+	if quantity <= 0 {
+		return apperrors.Wrap(apperrors.ErrInvalidArgument, "invalid_quantity", "quantity must be positive")
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, u.callTimeout)
 	defer cancel()
 

@@ -49,7 +49,7 @@ func GetUser(ctx context.Context, client userv1.UserServiceClient, id string, ti
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	resp, err := client.GetUser(ctx, &userv1.GetUserRequest{})
+	resp, err := client.GetUser(ctx, &userv1.GetUserRequest{UserId: id})
 	if err != nil {
 		return nil, err
 	}

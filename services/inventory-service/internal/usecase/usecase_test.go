@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	apperrors "github.com/ekhodzitsky/go-ozon-marketplace/pkg/errors"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/domain"
 	"github.com/ekhodzitsky/go-ozon-marketplace/services/inventory-service/internal/repository"
 	"github.com/google/uuid"
@@ -209,6 +210,14 @@ func TestInventoryUsecase_Reserve_InvalidOrderID(t *testing.T) {
 	assert.ErrorContains(t, err, "invalid order_id")
 }
 
+func TestInventoryUsecase_Reserve_InvalidQuantity(t *testing.T) {
+	uc := NewInventoryUsecase(&mockInventoryRepository{}, &fakeTxManager{repo: &mockInventoryRepository{}}, nil, time.Second, time.Second)
+
+	err := uc.Reserve(context.Background(), uuid.New(), 0, uuid.New().String())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrInvalidArgument)
+}
+
 func TestInventoryUsecase_Reserve_RepositoryError(t *testing.T) {
 	productID := uuid.New()
 	orderID := uuid.New()
@@ -226,15 +235,15 @@ func TestInventoryUsecase_Reserve_Idempotent(t *testing.T) {
 	orderID := uuid.New()
 
 	repo := &mockInventoryRepository{
-		insertReservationRows: 0,
-		selectReservation:     &repository.ReservationRow{Quantity: 5, Status: "reserved"},
+		insertReservationRows:     0,
+		selectReservationForUpdate: &repository.ReservationRow{Quantity: 5, Status: "reserved"},
 	}
 	uc := newTestUsecase(t, repo, newTestRedis(t))
 
 	err := uc.Reserve(context.Background(), productID, 5, orderID.String())
 	require.NoError(t, err)
 	assert.Equal(t, 1, repo.insertReservationCalled)
-	assert.Equal(t, 1, repo.selectReservationCalled)
+	assert.Equal(t, 1, repo.selectReservationForUpdateCalled)
 	assert.Equal(t, 0, repo.updateStockForReserveCalled)
 }
 
@@ -243,8 +252,8 @@ func TestInventoryUsecase_Reserve_IdempotentQuantityMismatch(t *testing.T) {
 	orderID := uuid.New()
 
 	repo := &mockInventoryRepository{
-		insertReservationRows: 0,
-		selectReservation:     &repository.ReservationRow{Quantity: 3, Status: "reserved"},
+		insertReservationRows:     0,
+		selectReservationForUpdate: &repository.ReservationRow{Quantity: 3, Status: "reserved"},
 	}
 	uc := newTestUsecase(t, repo, nil)
 
@@ -277,6 +286,14 @@ func TestInventoryUsecase_Release_InvalidOrderID(t *testing.T) {
 	err := uc.Release(context.Background(), uuid.New(), 1, "not-a-uuid")
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "invalid order_id")
+}
+
+func TestInventoryUsecase_Release_InvalidQuantity(t *testing.T) {
+	uc := NewInventoryUsecase(&mockInventoryRepository{}, &fakeTxManager{repo: &mockInventoryRepository{}}, nil, time.Second, time.Second)
+
+	err := uc.Release(context.Background(), uuid.New(), -1, uuid.New().String())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, apperrors.ErrInvalidArgument)
 }
 
 func TestInventoryUsecase_Release_RepositoryError(t *testing.T) {

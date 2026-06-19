@@ -31,7 +31,9 @@ message LoginResponse {
   string token = 1;
 }
 
+// Запрос профиля. Если user_id не передан, возвращаем профиль текущего пользователя.
 message GetUserRequest {
+  string user_id = 1;
 }
 
 message GetUserResponse {

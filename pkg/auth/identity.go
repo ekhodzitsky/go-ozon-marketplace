@@ -12,12 +12,10 @@ type Identity struct {
 type contextKey string
 
 const (
-	// ContextKeyUserID carries the authenticated user id in context.
+	// ContextKeyUserID — ключ в контексте, под которым лежит id пользователя.
 	ContextKeyUserID contextKey = "user_id"
-	// ContextKeyRole carries the authenticated user role in context.
+	// ContextKeyRole — ключ в контексте, под которым лежит роль пользователя.
 	ContextKeyRole contextKey = "role"
-	// ContextKeyAuthorizationHeader carries the raw Authorization header for gRPC forwarding.
-	ContextKeyAuthorizationHeader contextKey = "authorization_header"
 
 	contextKeyIdentity contextKey = "auth_identity"
 )
